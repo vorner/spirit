@@ -1,0 +1,13 @@
+[package]
+name = "spirit"
+version = "0.1.0"
+authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
+
+[dependencies]
+arc-swap = "~0.3"
+config = "~0.9"
+failure = "~0.1"
+serde = "~1"
+serde_derive = "~1"
+signal-hook = "~0.1"
+structopt = "~0.2"
