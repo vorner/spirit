@@ -7,23 +7,31 @@
 extern crate arc_swap;
 extern crate config;
 extern crate failure;
+extern crate libc;
+#[macro_use]
+extern crate log;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate signal_hook;
 #[macro_use]
 extern crate structopt;
 
 use std::borrow::Borrow;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 
 use arc_swap::ArcSwap;
 use config::{Config, Environment, File};
 use failure::Error;
 use serde::Deserialize;
+use signal_hook::iterator::Signals;
 use structopt::StructOpt;
 use structopt::clap::App;
 
@@ -70,6 +78,15 @@ where
     }
 }
 
+pub fn log_errors<R, F: FnOnce() -> Result<R, Error>>(f: F) -> Result<R, Error> {
+    let result = f();
+    if let Err(ref e) = result {
+        // TODO: Nicer logging with everything
+        error!("{}", e);
+    }
+    result
+}
+
 pub struct Spirit<S, O = (), C = ()>
 where
     S: Borrow<ArcSwap<C>> + 'static,
@@ -80,10 +97,13 @@ where
     // TODO: Default values for config
     config_files: Vec<PathBuf>,
     config_env: Option<String>,
-    config_filter: Box<Fn(&Path) -> bool>,
-    config_hooks: Vec<Box<Fn(&Arc<C>)>>,
+    config_filter: Box<Fn(&Path) -> bool + Sync + Send>,
+    config_hooks: Vec<Box<Fn(&Arc<C>) + Sync + Send>>,
     // TODO: Validation
     opts: O,
+    sig_hooks: HashMap<libc::c_int, Vec<Box<Fn() + Sync + Send>>>,
+    terminate: AtomicBool,
+    terminate_hooks: Vec<Box<Fn() + Sync + Send>>,
 }
 
 impl<S, O, C> Spirit<S, O, C>
@@ -101,11 +121,57 @@ where
             config_hooks: Vec::new(),
             config_filter: Box::new(|_| true),
             opts: PhantomData,
+            sig_hooks: HashMap::new(),
+            terminate_hooks: Vec::new(),
         }
     }
 
     pub fn cmd_opts(&self) -> &O {
         &self.opts
+    }
+
+    pub fn config_reload(&self) -> Result<(), Error> {
+        unimplemented!();
+    }
+
+    pub fn is_terminated(&self) -> bool {
+        self.terminate.load(Ordering::Relaxed)
+    }
+
+    pub fn log_reinit(&self) -> Result<(), Error> {
+        unimplemented!();
+    }
+
+    fn background(&self, signals: &Signals) {
+        for signal in signals.forever() {
+            let term = match signal {
+                libc::SIGHUP => {
+                    let _ = log_errors(|| self.config_reload());
+                    let _ = log_errors(|| self.log_reinit());
+                    false
+                },
+                libc::SIGTERM | libc::SIGINT | libc::SIGQUIT => {
+                    for hook in &self.terminate_hooks {
+                        hook();
+                    }
+                    self.terminate.store(true, Ordering::Relaxed);
+                    true
+                },
+                // Some other signal, only for the hook benefit
+                _ => false,
+            };
+
+            if let Some(hooks) = self.sig_hooks.get(&signal) {
+                for hook in hooks {
+                    hook();
+                }
+            }
+
+            if term {
+                return;
+            }
+        }
+        unreachable!("Signals run forever");
     }
 
     fn load_config(&self) -> Result<ConfigWrapper<C>, Error> {
@@ -141,30 +207,38 @@ where
             hook(&cfg);
         }
     }
+
 }
 
 pub struct Builder<S, O, C> {
     config: S,
     config_default_paths: Vec<PathBuf>,
     config_env: Option<String>,
-    config_hooks: Vec<Box<Fn(&Arc<C>)>>, // TODO: Be able to set them
-    config_filter: Box<Fn(&Path) -> bool>,
+    config_hooks: Vec<Box<Fn(&Arc<C>) + Sync + Send>>,
+    config_filter: Box<Fn(&Path) -> bool + Sync + Send>,
     opts: PhantomData<O>,
+    sig_hooks: HashMap<libc::c_int, Vec<Box<Fn() + Sync + Send>>>,
+    terminate_hooks: Vec<Box<Fn() + Sync + Send>>,
 }
 
 impl<S, O, C> Builder<S, O, C>
 where
-    S: Borrow<ArcSwap<C>> + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync,
-    O: Debug + StructOpt,
+    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
+    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
 {
-    pub fn build(self) -> Result<Spirit<S, O, C>, Error> {
+    pub fn build(self) -> Result<Arc<Spirit<S, O, C>>, Error> {
         let opts = OptWrapper::<O>::from_args();
         let config_files = if opts.common.configs.is_empty() {
             self.config_default_paths
         } else {
             opts.common.configs
         };
+        let interesting_signals = self.sig_hooks
+            .keys()
+            .chain(&[libc::SIGHUP, libc::SIGTERM, libc::SIGQUIT, libc::SIGINT])
+            .cloned()
+            .collect::<HashSet<_>>(); // Eliminate duplicates
         let spirit = Spirit {
             config: self.config,
             config_files,
@@ -172,10 +246,22 @@ where
             config_hooks: self.config_hooks,
             config_filter: self.config_filter,
             opts: opts.other,
+            sig_hooks: self.sig_hooks,
+            terminate: AtomicBool::new(false),
+            terminate_hooks: self.terminate_hooks,
         };
+        // TODO: Custom signals
+        let signals = Signals::new(interesting_signals)?;
         let config = spirit.load_config()?;
         spirit.config.borrow().store(Arc::new(config.config));
         spirit.invoke_config_hooks();
+        let spirit = Arc::new(spirit);
+        let spirit_bc = Arc::clone(&spirit);
+        thread::Builder::new()
+            .name("spirit".to_owned())
+            // TODO: Something about panics
+            .spawn(move || spirit_bc.background(&signals))
+            .unwrap(); // Could fail only if the name contained \0
         Ok(spirit)
     }
 
@@ -208,14 +294,14 @@ where
         }
     }
 
-    pub fn config_filter<F: Fn(&Path) -> bool + 'static>(self, filter: F) -> Self {
+    pub fn config_filter<F: Fn(&Path) -> bool + Sync + Send + 'static>(self, filter: F) -> Self {
         Self {
             config_filter: Box::new(filter),
             .. self
         }
     }
 
-    pub fn on_config<F: Fn(&Arc<C>) + 'static>(self, hook: F) -> Self {
+    pub fn on_config<F: Fn(&Arc<C>) + Sync + Send + 'static>(self, hook: F) -> Self {
         let mut hooks = self.config_hooks;
         hooks.push(Box::new(hook));
         Self {
@@ -223,7 +309,30 @@ where
             .. self
         }
     }
+
+    pub fn on_signal<F: Fn() + Sync + Send + 'static>(self, signal: libc::c_int, hook: F) -> Self {
+        let mut hooks = self.sig_hooks;
+        hooks.entry(signal)
+            .or_insert_with(Vec::new)
+            .push(Box::new(hook));
+        Self {
+            sig_hooks: hooks,
+            .. self
+        }
+    }
+
+    pub fn on_terminate<F: Fn() + Sync + Send + 'static>(self, hook: F) -> Self {
+        let mut hooks = self.terminate_hooks;
+        hooks.push(Box::new(hook));
+        Self {
+            terminate_hooks: hooks,
+            .. self
+        }
+    }
 }
 
 // TODO: Provide contexts for thisg
 // TODO: Validation of config
+// TODO: Logging
+// TODO: Log-panics
+// TODO: Mode without external config storage ‒ have it all inside
