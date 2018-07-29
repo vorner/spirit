@@ -10,6 +10,7 @@ extern crate failure;
 extern crate libc;
 #[macro_use]
 extern crate log;
+extern crate log_panics;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -228,6 +229,7 @@ where
     O: Debug + StructOpt + Sync + Send + 'static,
 {
     pub fn build(self) -> Result<Arc<Spirit<S, O, C>>, Error> {
+        log_panics::init();
         let opts = OptWrapper::<O>::from_args();
         let config_files = if opts.common.configs.is_empty() {
             self.config_default_paths
@@ -250,7 +252,6 @@ where
             terminate: AtomicBool::new(false),
             terminate_hooks: self.terminate_hooks,
         };
-        // TODO: Custom signals
         let signals = Signals::new(interesting_signals)?;
         let config = spirit.load_config()?;
         spirit.config.borrow().store(Arc::new(config.config));
