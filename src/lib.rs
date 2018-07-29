@@ -13,6 +13,7 @@ extern crate serde_derive;
 #[macro_use]
 extern crate structopt;
 
+use std::borrow::Borrow;
 use std::ffi::OsString;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -69,8 +70,11 @@ where
     }
 }
 
-pub struct Spirit<'c, O = (), C: 'c = ()> {
-    config: &'c ArcSwap<C>,
+pub struct Spirit<S, O = (), C = ()>
+where
+    S: Borrow<ArcSwap<C>> + 'static,
+{
+    config: S,
     // TODO: Overrides from command line
     // TODO: Mode selection for directories
     // TODO: Default values for config
@@ -82,13 +86,14 @@ pub struct Spirit<'c, O = (), C: 'c = ()> {
     opts: O,
 }
 
-impl<'c, O, C> Spirit<'c, O, C>
+impl<S, O, C> Spirit<S, O, C>
 where
-    for<'de> C: Deserialize<'de> + Send + Sync + 'c,
+    S: Borrow<ArcSwap<C>> + 'static,
+    for<'de> C: Deserialize<'de> + Send + Sync,
     O: StructOpt,
 {
     #[cfg_attr(feature = "cargo-clippy", allow(new_ret_no_self))]
-    pub fn new(config: &ArcSwap<C>) -> Builder<O, C> {
+    pub fn new(config: S) -> Builder<S, O, C> {
         Builder {
             config,
             config_default_paths: Vec::new(),
@@ -131,15 +136,15 @@ where
     }
 
     fn invoke_config_hooks(&self) {
-        let cfg = self.config.load();
+        let cfg = self.config.borrow().load();
         for hook in &self.config_hooks {
             hook(&cfg);
         }
     }
 }
 
-pub struct Builder<'c, O, C: 'c> {
-    config: &'c ArcSwap<C>,
+pub struct Builder<S, O, C> {
+    config: S,
     config_default_paths: Vec<PathBuf>,
     config_env: Option<String>,
     config_hooks: Vec<Box<Fn(&Arc<C>)>>, // TODO: Be able to set them
@@ -147,12 +152,13 @@ pub struct Builder<'c, O, C: 'c> {
     opts: PhantomData<O>,
 }
 
-impl<'c, O, C> Builder<'c, O, C>
+impl<S, O, C> Builder<S, O, C>
 where
-    for<'de> C: Deserialize<'de> + Send + Sync + 'c,
+    S: Borrow<ArcSwap<C>> + 'static,
+    for<'de> C: Deserialize<'de> + Send + Sync,
     O: Debug + StructOpt,
 {
-    pub fn build(self) -> Result<Arc<Spirit<'c, O, C>>, Error> {
+    pub fn build(self) -> Result<Spirit<S, O, C>, Error> {
         let opts = OptWrapper::<O>::from_args();
         let config_files = if opts.common.configs.is_empty() {
             self.config_default_paths
@@ -168,7 +174,7 @@ where
             opts: opts.other,
         };
         let config = spirit.load_config()?;
-        spirit.config.store(Arc::new(config.config));
+        spirit.config.borrow().store(Arc::new(config.config));
         spirit.invoke_config_hooks();
         Ok(spirit)
     }
@@ -187,14 +193,14 @@ where
         }
     }
 
-    pub fn config_env<S: Into<String>>(self, env: S) -> Self {
+    pub fn config_env<E: Into<String>>(self, env: E) -> Self {
         Self {
             config_env: Some(env.into()),
             .. self
         }
     }
 
-    pub fn config_ext<S: Into<OsString>>(self, ext: S) -> Self {
+    pub fn config_ext<E: Into<OsString>>(self, ext: E) -> Self {
         let ext = ext.into();
         Self {
             config_filter: Box::new(move |path| path.extension() == Some(&ext)),
