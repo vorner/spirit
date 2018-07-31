@@ -34,15 +34,69 @@ use std::thread;
 use arc_swap::ArcSwap;
 use config::{Config, Environment, File};
 use failure::Error;
+use log::LevelFilter;
 use serde::Deserialize;
+use serde::de::{Deserializer, Error as DeError};
 use signal_hook::iterator::Signals;
 use structopt::StructOpt;
 use structopt::clap::App;
 
+// TODO: Push logging to a submodule
 #[derive(Deserialize)]
+#[serde(tag = "type", deny_unknown_fields)]
+enum LogDestination {
+    File {
+        filename: String,
+    },
+    Syslog {
+        host: Option<String>,
+    },
+    Network {
+        host: String,
+        port: u16,
+    },
+}
+
+fn deserialize_level_filter<'de, D: Deserializer<'de>>(d: D) -> Result<LevelFilter, D::Error> {
+    let s = String::deserialize(d)?;
+    s.parse().map_err(|_| {
+        D::Error::unknown_variant(&s, &["OFF", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"])
+    })
+}
+
+fn deserialize_per_module<'de, D>(d: D) -> Result<HashMap<String, LevelFilter>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    HashMap::<String, String>::deserialize(d)?
+        .into_iter()
+        .map(|(k, v)| {
+            let parsed = v.parse().map_err(|_| {
+                D::Error::unknown_variant(&v, &["OFF", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"])
+            })?;
+            Ok((k, parsed))
+        })
+        .collect()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Logging {
+    #[serde(flatten)]
+    destination: LogDestination,
+    #[serde(deserialize_with = "deserialize_level_filter")]
+    level: LevelFilter,
+    #[serde(deserialize_with = "deserialize_per_module")]
+    per_module: HashMap<String, LevelFilter>,
+    // TODO: Format
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ConfigWrapper<C> {
     #[serde(flatten)]
     config: C,
+    logging: Vec<Logging>,
 }
 
 #[derive(Debug, StructOpt)]
@@ -266,7 +320,6 @@ where
     config_filter: Box<Fn(&Path) -> bool + Sync + Send>,
     config_hooks: Vec<Box<Fn(&Arc<C>) + Sync + Send>>,
     config_validators: Vec<Box<Fn(&Arc<C>, &Arc<C>, &O) -> ValidationResults + Sync + Send>>,
-    // TODO: Validation
     opts: O,
     sig_hooks: HashMap<libc::c_int, Vec<Box<Fn() + Sync + Send>>>,
     terminate: AtomicBool,
@@ -535,7 +588,5 @@ where
 }
 
 // TODO: Provide contexts for thisg
-// TODO: Validation of config
 // TODO: Logging
-// TODO: Log-panics
 // TODO: Mode without external config storage ‒ have it all inside
