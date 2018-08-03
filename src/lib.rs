@@ -6,25 +6,32 @@
 // #![deny(missing_docs, warnings)] XXX
 
 extern crate arc_swap;
+extern crate chrono;
 extern crate config;
 #[macro_use]
 extern crate failure;
+extern crate fern;
+extern crate itertools;
 extern crate libc;
 #[macro_use]
 extern crate log;
 extern crate log_panics;
+extern crate log_reroute;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate signal_hook;
 #[macro_use]
 extern crate structopt;
+extern crate syslog;
 
 use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
+use std::io::Write;
 use std::marker::PhantomData;
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::slice::Iter;
 use std::sync::Arc;
@@ -32,8 +39,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 use arc_swap::ArcSwap;
+use chrono::Local;
 use config::{Config, Environment, File};
 use failure::Error;
+use fern::Dispatch;
+use itertools::Itertools;
 use log::LevelFilter;
 use serde::Deserialize;
 use serde::de::{Deserializer, Error as DeError};
@@ -46,7 +56,7 @@ use structopt::clap::App;
 #[serde(tag = "type", deny_unknown_fields)]
 enum LogDestination {
     File {
-        filename: String,
+        filename: PathBuf,
     },
     Syslog {
         host: Option<String>,
@@ -55,6 +65,8 @@ enum LogDestination {
         host: String,
         port: u16,
     },
+    StdOut,
+    StdErr,
 }
 
 fn deserialize_level_filter<'de, D: Deserializer<'de>>(d: D) -> Result<LevelFilter, D::Error> {
@@ -79,6 +91,10 @@ where
         .collect()
 }
 
+#[derive(Debug, Fail)]
+#[fail(display = "{}", _0)]
+struct SyslogError(String);
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Logging {
@@ -89,6 +105,52 @@ struct Logging {
     #[serde(deserialize_with = "deserialize_per_module")]
     per_module: HashMap<String, LevelFilter>,
     // TODO: Format
+}
+
+impl Logging {
+    fn create(&self) -> Result<Dispatch, Error> {
+        let mut logger = Dispatch::new()
+            .level(self.level);
+        logger = self.per_module
+            .iter()
+            .fold(logger, |logger, (module, level)| logger.level_for(module.clone(), *level));
+        match self.destination {
+            // We don't want to format syslog
+            LogDestination::Syslog { .. } => (),
+            // We do with the other things
+            _ => {
+                logger = logger.format(|out, message, record| {
+                    out.finish(format_args!(
+                        "{} {:5} {:30} {}",
+                        Local::now().format("%Y-%m-%d %H:%M:%S:%.3f"),
+                        record.level(),
+                        record.target(),
+                        message,
+                    ))
+                });
+            }
+        }
+        match self.destination {
+            LogDestination::File { ref filename } => Ok(logger.chain(fern::log_file(filename)?)),
+            LogDestination::Syslog { ref host } => {
+                let formatter = syslog::Formatter3164 {
+                    facility: syslog::Facility::LOG_USER,
+                    hostname: host.clone(),
+                    // TODO: Does this give us the end-user crate or us?
+                    process: env!("CARGO_PKG_NAME").to_owned(),
+                    pid: 0,
+                };
+                // TODO: Other destinations than just unix
+                Ok(logger.chain(syslog::unix(formatter).map_err(|e| SyslogError(format!("{}", e)))?))
+            }
+            LogDestination::Network { ref host, port } => {
+                let conn = TcpStream::connect((&host as &str, port))?;
+                Ok(logger.chain(Box::new(conn) as Box<Write + Send>))
+            }
+            LogDestination::StdOut => Ok(logger.chain(std::io::stdout())),
+            LogDestination::StdErr => Ok(logger.chain(std::io::stderr())),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -355,6 +417,12 @@ where
         let config = self.load_config()?;
         let new = Arc::new(config.config);
         let old = self.config.borrow().load();
+        // Prepare the logger first, but don't switch until we know we use the new config.
+        let (max_log_level, top_logger) = config.logging
+            .iter()
+            .map(Logging::create)
+            .fold_results(Dispatch::new(), Dispatch::chain)?
+            .into_log();
         let mut results = self.config_validators
             .iter()
             .map(|v| v(&old, &new, &self.opts))
@@ -376,6 +444,10 @@ where
                 success();
             }
         }
+        // Once everything is validated, switch to the new logging
+        log_reroute::reroute_boxed(top_logger);
+        log::set_max_level(max_log_level);
+        // And to the new config.
         self.config.borrow().store(Arc::clone(&new));
         for hook in &self.config_hooks {
             hook(&new);
@@ -471,6 +543,7 @@ where
     O: Debug + StructOpt + Sync + Send + 'static,
 {
     pub fn build(self) -> Result<Arc<Spirit<S, O, C>>, Error> {
+        log_reroute::init()?;
         log_panics::init();
         let opts = OptWrapper::<O>::from_args();
         let config_files = if opts.common.configs.is_empty() {
@@ -590,3 +663,4 @@ where
 // TODO: Provide contexts for thisg
 // TODO: Logging
 // TODO: Mode without external config storage ‒ have it all inside
+// TODO: Config overrides
