@@ -34,14 +34,15 @@ use std::marker::PhantomData;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::slice::Iter;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 use arc_swap::ArcSwap;
 use chrono::Local;
-use config::{Config, Environment, File};
-use failure::Error;
+use config::{Config, Environment, File, FileFormat};
+use failure::{Error, Fail};
 use fern::Dispatch;
 use itertools::Itertools;
 use log::LevelFilter;
@@ -57,16 +58,18 @@ use structopt::clap::App;
 enum LogDestination {
     File {
         filename: PathBuf,
+        // TODO: Truncate
     },
     Syslog {
         host: Option<String>,
+        // TODO: Remote syslog
     },
     Network {
         host: String,
         port: u16,
     },
-    StdOut,
-    StdErr,
+    StdOut, // TODO: Colors
+    StdErr, // TODO: Colors
 }
 
 fn deserialize_level_filter<'de, D: Deserializer<'de>>(d: D) -> Result<LevelFilter, D::Error> {
@@ -93,7 +96,7 @@ where
 
 #[derive(Debug, Fail)]
 #[fail(display = "{}", _0)]
-struct SyslogError(String);
+pub struct SyslogError(String);
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -161,15 +164,44 @@ struct ConfigWrapper<C> {
     logging: Vec<Logging>,
 }
 
+#[derive(Debug, Fail)]
+#[fail(display = "Missing = in map option")]
+pub struct MissingEquals;
+
+// TODO: This one probably needs tests ‒ +- errors, parsing of both allowed and disallowed things,
+// missing equals…
+fn key_val<K, V>(opt: &str) -> Result<(K, V), Error>
+where
+    K: FromStr,
+    K::Err: Fail + 'static,
+    V: FromStr,
+    V::Err: Fail + 'static,
+{
+    let pos = opt.find('=').ok_or(MissingEquals)?;
+    Ok((opt[..pos].parse()?, opt[pos + 1..].parse()?))
+}
+
 #[derive(Debug, StructOpt)]
 struct CommonOpts {
-    /// Don't go into background and output logs to stderr as well.
-    #[structopt(short = "f", long = "foreground")]
-    foreground: bool,
+    /// Go into background ‒ daemonize.
+    #[structopt(short = "b", long = "background")]
+    background: bool,
+
+    /// Override specific config values.
+    #[structopt(short = "C", long = "config-override", parse(try_from_str = "key_val"))]
+    config_overrides: Vec<(String, String)>,
 
     /// Configuration files or directories to load.
     #[structopt(parse(from_os_str))]
     configs: Vec<PathBuf>,
+
+    /// Log to stderr with this log level.
+    #[structopt(short = "l", long = "log")]
+    log: Option<LevelFilter>,
+
+    /// Log to stderr with overriden levels for specifig modules.
+    #[structopt(short = "L", long = "log-module", parse(try_from_str = "key_val"))]
+    log_modules: Vec<(String, LevelFilter)>,
 }
 
 #[derive(Debug)]
@@ -369,19 +401,24 @@ where
     }
 }
 
+#[derive(Debug, Fail)]
+#[fail(display = "_1 is not file nor directory")]
+struct InvalidFileType(PathBuf);
+
 pub struct Spirit<S, O = (), C = ()>
 where
     S: Borrow<ArcSwap<C>> + 'static,
 {
     config: S,
-    // TODO: Overrides from command line
     // TODO: Mode selection for directories
-    // TODO: Default values for config
     config_files: Vec<PathBuf>,
+    config_defaults: Option<(String, FileFormat)>,
     config_env: Option<String>,
     config_filter: Box<Fn(&Path) -> bool + Sync + Send>,
     config_hooks: Vec<Box<Fn(&Arc<C>) + Sync + Send>>,
+    config_overrides: HashMap<String, String>,
     config_validators: Vec<Box<Fn(&Arc<C>, &Arc<C>, &O) -> ValidationResults + Sync + Send>>,
+    extra_logger: Option<Logging>,
     opts: O,
     sig_hooks: HashMap<libc::c_int, Vec<Box<Fn() + Sync + Send>>>,
     terminate: AtomicBool,
@@ -399,6 +436,7 @@ where
         Builder {
             config,
             config_default_paths: Vec::new(),
+            config_defaults: None,
             config_env: None,
             config_hooks: Vec::new(),
             config_filter: Box::new(|_| true),
@@ -420,6 +458,7 @@ where
         // Prepare the logger first, but don't switch until we know we use the new config.
         let (max_log_level, top_logger) = config.logging
             .iter()
+            .chain(&self.extra_logger)
             .map(Logging::create)
             .fold_results(Dispatch::new(), Dispatch::chain)?
             .into_log();
@@ -497,7 +536,9 @@ where
 
     fn load_config(&self) -> Result<ConfigWrapper<C>, Error> {
         let mut config = Config::new();
-        // TODO: Defaults, if any are provided
+        if let Some((ref defaults, format)) = self.config_defaults {
+            config.merge(File::from_str(defaults, format))?;
+        }
         for path in &self.config_files {
             if path.is_file() {
                 config.merge(File::from(path as &Path))?;
@@ -512,13 +553,15 @@ where
                     config.merge(File::from(path))?;
                 }
             } else {
-                // TODO
+                bail!(InvalidFileType(path.to_owned()));
             }
         }
         if let Some(env_prefix) = self.config_env.as_ref() {
             config.merge(Environment::with_prefix(env_prefix))?;
         }
-        // TODO: Command line overrides
+        for (ref key, ref value) in &self.config_overrides {
+            config.set(*key, *value as &str)?;
+        }
         Ok(config.try_into()?)
     }
 
@@ -527,6 +570,7 @@ where
 pub struct Builder<S, O, C> {
     config: S,
     config_default_paths: Vec<PathBuf>,
+    config_defaults: Option<(String, FileFormat)>,
     config_env: Option<String>,
     config_hooks: Vec<Box<Fn(&Arc<C>) + Sync + Send>>,
     config_filter: Box<Fn(&Path) -> bool + Sync + Send>,
@@ -556,13 +600,29 @@ where
             .chain(&[libc::SIGHUP, libc::SIGTERM, libc::SIGQUIT, libc::SIGINT])
             .cloned()
             .collect::<HashSet<_>>(); // Eliminate duplicates
+        let log_modules = opts.common.log_modules;
+        let extra_logger = opts.common
+            .log
+            .map(|level| {
+                Logging {
+                    destination: LogDestination::StdErr,
+                    level,
+                    per_module: log_modules.into_iter().collect(),
+                }
+            });
         let spirit = Spirit {
             config: self.config,
             config_files,
+            config_defaults: self.config_defaults,
             config_env: self.config_env,
             config_hooks: self.config_hooks,
             config_filter: self.config_filter,
+            config_overrides: opts.common
+                .config_overrides
+                .into_iter()
+                .collect(),
             config_validators: self.config_validators,
+            extra_logger,
             opts: opts.other,
             sig_hooks: self.sig_hooks,
             terminate: AtomicBool::new(false),
@@ -590,6 +650,13 @@ where
             .collect();
         Self {
             config_default_paths: paths,
+            .. self
+        }
+    }
+
+    pub fn config_defaults<D: Into<String>>(self, config: D, format: FileFormat) -> Self {
+        Self {
+            config_defaults: Some((config.into(), format)),
             .. self
         }
     }
@@ -661,6 +728,4 @@ where
 }
 
 // TODO: Provide contexts for thisg
-// TODO: Logging
 // TODO: Mode without external config storage ‒ have it all inside
-// TODO: Config overrides
