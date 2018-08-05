@@ -32,11 +32,13 @@ use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::io::Write;
 use std::marker::PhantomData;
 use std::net::TcpStream;
+use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::slice::Iter;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use std::thread;
 
 use arc_swap::ArcSwap;
@@ -631,11 +633,24 @@ where
         spirit.config_reload()?;
         let signals = Signals::new(interesting_signals)?;
         let spirit = Arc::new(spirit);
-        let spirit_bc = Arc::clone(&spirit);
+        let spirit_bg = Arc::clone(&spirit);
         thread::Builder::new()
             .name("spirit".to_owned())
-            // TODO: Something about panics
-            .spawn(move || spirit_bc.background(&signals))
+            .spawn(move || {
+                loop {
+                    // Note: we run a bunch of callbacks inside the service thread. We restart the
+                    // thread if it fails.
+                    let run = AssertUnwindSafe(|| spirit_bg.background(&signals));
+                    if panic::catch_unwind(run).is_err() {
+                        // FIXME: Something better than this to prevent looping?
+                        thread::sleep(Duration::from_secs(1));
+                        info!("Restarting the spirit service thread after a panic");
+                    } else {
+                        // Willingly terminated
+                        break;
+                    }
+                }
+            })
             .unwrap(); // Could fail only if the name contained \0
         Ok(spirit)
     }
