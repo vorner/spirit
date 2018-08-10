@@ -30,13 +30,14 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::io::Write;
+use std::iter;
 use std::marker::PhantomData;
 use std::net::TcpStream;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::slice::Iter;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use std::thread;
@@ -47,7 +48,7 @@ use config::{Config, Environment, File, FileFormat};
 use failure::{Error, Fail};
 use fern::Dispatch;
 use itertools::Itertools;
-use log::LevelFilter;
+use log::{LevelFilter, Log};
 use serde::Deserialize;
 use serde::de::{Deserializer, Error as DeError};
 use signal_hook::iterator::Signals;
@@ -163,6 +164,7 @@ impl Logging {
 struct ConfigWrapper<C> {
     #[serde(flatten)]
     config: C,
+    #[serde(default)]
     logging: Vec<Logging>,
 }
 
@@ -285,6 +287,7 @@ impl ValidationResult {
     pub fn error<S: Into<String>>(s: S) -> Self {
         Self::new(ValidationLevel::Error, s)
     }
+    // TODO: Actual error something here?
     pub fn level(&self) -> ValidationLevel {
         self.level
     }
@@ -407,7 +410,23 @@ where
 #[fail(display = "_1 is not file nor directory")]
 struct InvalidFileType(PathBuf);
 
-pub struct Spirit<S, O = (), C = ()>
+#[derive(Debug, Deserialize, StructOpt)]
+pub struct Empty {}
+
+fn loggers<'a, I: IntoIterator<Item = &'a Logging>>(logging: I) -> Result<(LevelFilter, Box<Log>), Error> {
+    let result = logging.into_iter()
+        .map(Logging::create)
+        .fold_results(Dispatch::new(), Dispatch::chain)?
+        .into_log();
+    Ok(result)
+}
+
+fn install_loggers((max_log_level, top_logger): (LevelFilter, Box<Log>)) {
+    log_reroute::reroute_boxed(top_logger);
+    log::set_max_level(max_log_level);
+}
+
+pub struct Spirit<S, O = Empty, C = Empty>
 where
     S: Borrow<ArcSwap<C>> + 'static,
 {
@@ -418,6 +437,7 @@ where
     config_env: Option<String>,
     config_filter: Box<Fn(&Path) -> bool + Sync + Send>,
     config_hooks: Vec<Box<Fn(&Arc<C>) + Sync + Send>>,
+    config_mutex: Mutex<()>,
     config_overrides: HashMap<String, String>,
     config_validators: Vec<Box<Fn(&Arc<C>, &Arc<C>, &O) -> ValidationResults + Sync + Send>>,
     extra_logger: Option<Logging>,
@@ -454,16 +474,16 @@ where
     }
 
     pub fn config_reload(&self) -> Result<(), Error> {
+        // As even the user can call this, make sure it isn't called concurrently, which would make
+        // handling stuff correctly harder.
+        let _lock = self.config_mutex
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let config = self.load_config()?;
         let new = Arc::new(config.config);
         let old = self.config.borrow().load();
         // Prepare the logger first, but don't switch until we know we use the new config.
-        let (max_log_level, top_logger) = config.logging
-            .iter()
-            .chain(&self.extra_logger)
-            .map(Logging::create)
-            .fold_results(Dispatch::new(), Dispatch::chain)?
-            .into_log();
+        let loggers = loggers(config.logging.iter().chain(&self.extra_logger))?;
         let mut results = self.config_validators
             .iter()
             .map(|v| v(&old, &new, &self.opts))
@@ -486,8 +506,7 @@ where
             }
         }
         // Once everything is validated, switch to the new logging
-        log_reroute::reroute_boxed(top_logger);
-        log::set_max_level(max_log_level);
+        install_loggers(loggers);
         // And to the new config.
         self.config.borrow().store(Arc::clone(&new));
         for hook in &self.config_hooks {
@@ -500,16 +519,11 @@ where
         self.terminate.load(Ordering::Relaxed)
     }
 
-    pub fn log_reinit(&self) -> Result<(), Error> {
-        unimplemented!();
-    }
-
     fn background(&self, signals: &Signals) {
         for signal in signals.forever() {
             let term = match signal {
                 libc::SIGHUP => {
                     let _ = log_errors(|| self.config_reload());
-                    let _ = log_errors(|| self.log_reinit());
                     false
                 },
                 libc::SIGTERM | libc::SIGINT | libc::SIGQUIT => {
@@ -569,7 +583,7 @@ where
 
 }
 
-pub struct Builder<S, O, C> {
+pub struct Builder<S, O = Empty, C = Empty> {
     config: S,
     config_default_paths: Vec<PathBuf>,
     config_defaults: Option<(String, FileFormat)>,
@@ -589,9 +603,20 @@ where
     O: Debug + StructOpt + Sync + Send + 'static,
 {
     pub fn build(self) -> Result<Arc<Spirit<S, O, C>>, Error> {
+        let mut logger = Logging {
+            destination: LogDestination::StdErr,
+            level: LevelFilter::Warn,
+            per_module: HashMap::new(),
+        };
         log_reroute::init()?;
+        install_loggers(loggers(iter::once(&logger)).unwrap());
         log_panics::init();
         let opts = OptWrapper::<O>::from_args();
+        if let Some(level) = opts.common.log {
+            logger.level = level;
+            logger.per_module = opts.common.log_modules.iter().cloned().collect();
+            install_loggers(loggers(iter::once(&logger))?);
+        }
         let config_files = if opts.common.configs.is_empty() {
             self.config_default_paths
         } else {
@@ -618,6 +643,7 @@ where
             config_defaults: self.config_defaults,
             config_env: self.config_env,
             config_hooks: self.config_hooks,
+            config_mutex: Mutex::new(()),
             config_filter: self.config_filter,
             config_overrides: opts.common
                 .config_overrides
