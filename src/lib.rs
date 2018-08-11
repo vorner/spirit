@@ -162,12 +162,12 @@ impl Logging {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ConfigWrapper<C> {
     #[serde(flatten)]
     config: C,
     #[serde(default)]
     logging: Vec<Logging>,
+    // TODO: Find a way to detect and report unused fields
 }
 
 #[derive(Debug, Fail)]
@@ -466,7 +466,7 @@ where
             config_defaults: None,
             config_env: None,
             config_hooks: Vec::new(),
-            config_filter: Box::new(|_| true),
+            config_filter: Box::new(|_| false),
             config_validators: Vec::new(),
             opts: PhantomData,
             sig_hooks: HashMap::new(),
@@ -485,8 +485,10 @@ where
         let hooks = self.hooks.lock();
         let new = Arc::new(config.config);
         let old = self.config.borrow().load();
+        debug!("Creating new logging");
         // Prepare the logger first, but don't switch until we know we use the new config.
         let loggers = loggers(config.logging.iter().chain(&self.extra_logger))?;
+        debug!("Running config validators");
         let mut results = hooks.config_validators
             .iter()
             .map(|v| v(&old, &new, &self.opts))
@@ -494,8 +496,22 @@ where
                 acc.merge(r);
                 acc
             });
-        // TODO: Log the stuff in results
+        for result in &results {
+            match result.level() {
+                ValidationLevel::Error => {
+                    error!(target: "configuration", "{}", result.description());
+                },
+                ValidationLevel::Warning => {
+                    warn!(target: "configuration", "{}", result.description());
+                },
+                ValidationLevel::Hint => {
+                    info!(target: "configuration", "{}", result.description());
+                },
+                ValidationLevel::Nothing => (),
+            }
+        }
         if results.max_level() == Some(ValidationLevel::Error) {
+            error!(target: "configuration", "Refusing new configuration due to errors");
             for r in &mut results.0 {
                 if let Some(abort) = r.on_abort.as_mut() {
                     abort();
@@ -503,18 +519,22 @@ where
             }
             return Err(results.into())
         }
+        debug!("Validation successful, installing new config");
         for r in &mut results.0 {
             if let Some(success) = r.on_success.as_mut() {
                 success();
             }
         }
+        debug!("Installing loggers");
         // Once everything is validated, switch to the new logging
         install_loggers(loggers);
         // And to the new config.
         self.config.borrow().store(Arc::clone(&new));
+        debug!("Running post-configuration hooks");
         for hook in &hooks.config {
             hook(&new);
         }
+        debug!("Configuration reloaded");
         Ok(())
     }
 
@@ -523,13 +543,16 @@ where
     }
 
     fn background(&self, signals: &Signals) {
+        debug!("Starting background processing");
         for signal in signals.forever() {
+            debug!("Received signal {}", signal);
             let term = match signal {
                 libc::SIGHUP => {
                     let _ = log_errors(|| self.config_reload());
                     false
                 },
                 libc::SIGTERM | libc::SIGINT | libc::SIGQUIT => {
+                    debug!("Running termination hooks");
                     for hook in &self.hooks.lock().terminate {
                         hook();
                     }
@@ -547,6 +570,7 @@ where
             }
 
             if term {
+                debug!("Terminating the background thread");
                 return;
             }
         }
@@ -554,21 +578,27 @@ where
     }
 
     fn load_config(&self) -> Result<ConfigWrapper<C>, Error> {
+        debug!("Loading configuration");
         let mut config = Config::new();
         if let Some((ref defaults, format)) = self.config_defaults {
+            trace!("Loading config defaults");
             config.merge(File::from_str(defaults, format))?;
         }
         for path in &self.config_files {
             if path.is_file() {
+                trace!("Loading config file {:?}", path);
                 config.merge(File::from(path as &Path))?;
             } else if path.is_dir() {
+                trace!("Scanning directory {:?}", path);
                 for entry in path.read_dir()? {
                     let entry = entry?;
                     let path = entry.path();
                     let meta = path.symlink_metadata()?;
                     if !meta.is_file() || !(self.hooks.lock().config_filter)(&path) {
+                        trace!("Skipping {:?}", path);
                         continue;
                     }
+                    trace!("Loading config file {:?}", path);
                     config.merge(File::from(path))?;
                 }
             } else {
@@ -576,9 +606,11 @@ where
             }
         }
         if let Some(env_prefix) = self.config_env.as_ref() {
+            trace!("Loading config from environment {}", env_prefix);
             config.merge(Environment::with_prefix(env_prefix))?;
         }
         for (ref key, ref value) in &self.config_overrides {
+            trace!("Config override {} => {}", key, value);
             config.set(*key, *value as &str)?;
         }
         Ok(config.try_into()?)
@@ -613,6 +645,7 @@ where
         };
         log_reroute::init()?;
         install_loggers(loggers(iter::once(&logger)).unwrap());
+        debug!("Building the spirit");
         log_panics::init();
         let opts = OptWrapper::<O>::from_args();
         if let Some(level) = opts.common.log {
@@ -717,6 +750,24 @@ where
         let ext = ext.into();
         Self {
             config_filter: Box::new(move |path| path.extension() == Some(&ext)),
+            .. self
+        }
+    }
+
+    pub fn config_exts<I, E>(self, exts: I) -> Self
+    where
+        I: IntoIterator<Item = E>,
+        E: Into<OsString>,
+    {
+        let exts = exts.into_iter()
+            .map(Into::into)
+            .collect::<HashSet<_>>();
+        Self {
+            config_filter: Box::new(move |path| {
+                path.extension()
+                    .map(|ext| exts.contains(ext))
+                    .unwrap_or(false)
+            }),
             .. self
         }
     }

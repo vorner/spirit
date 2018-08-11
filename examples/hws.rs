@@ -95,6 +95,7 @@ fn main() -> Result<(), Error> {
     let initial = AtomicBool::new(true);
     let _spirit = Spirit::<_, spirit::Empty, _>::new(&*CONFIG)
         .config_defaults(DEFAULT_CONFIG, FileFormat::Toml)
+        .config_exts(&["toml", "ini", "json"])
         .config_validator(move |old, new, _| {
             let mut results = Vec::new();
             if !initial.swap(false, Ordering::Relaxed) && old.listen != new.listen {
