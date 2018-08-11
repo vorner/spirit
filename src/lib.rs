@@ -17,6 +17,7 @@ extern crate libc;
 extern crate log;
 extern crate log_panics;
 extern crate log_reroute;
+extern crate parking_lot;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -37,7 +38,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::slice::Iter;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use std::thread;
@@ -49,6 +50,7 @@ use failure::{Error, Fail};
 use fern::Dispatch;
 use itertools::Itertools;
 use log::{LevelFilter, Log};
+use parking_lot::Mutex;
 use serde::Deserialize;
 use serde::de::{Deserializer, Error as DeError};
 use signal_hook::iterator::Signals;
@@ -263,8 +265,8 @@ impl Default for ValidationLevel {
 pub struct ValidationResult {
     level: ValidationLevel,
     description: String,
-    on_abort: Option<Box<FnMut() + Send + Sync>>,
-    on_success: Option<Box<FnMut() + Send + Sync>>,
+    on_abort: Option<Box<FnMut() + Sync + Send>>,
+    on_success: Option<Box<FnMut() + Sync + Send>>,
 }
 
 impl ValidationResult {
@@ -426,25 +428,28 @@ fn install_loggers((max_log_level, top_logger): (LevelFilter, Box<Log>)) {
     log::set_max_level(max_log_level);
 }
 
+struct Hooks<O, C> {
+    config_filter: Box<Fn(&Path) -> bool + Send>,
+    config: Vec<Box<Fn(&Arc<C>) + Send>>,
+    config_validators: Vec<Box<Fn(&Arc<C>, &Arc<C>, &O) -> ValidationResults + Send>>,
+    sigs: HashMap<libc::c_int, Vec<Box<Fn() + Send>>>,
+    terminate: Vec<Box<Fn() + Send>>,
+}
+
 pub struct Spirit<S, O = Empty, C = Empty>
 where
     S: Borrow<ArcSwap<C>> + 'static,
 {
     config: S,
+    hooks: Mutex<Hooks<O, C>>,
     // TODO: Mode selection for directories
     config_files: Vec<PathBuf>,
     config_defaults: Option<(String, FileFormat)>,
     config_env: Option<String>,
-    config_filter: Box<Fn(&Path) -> bool + Sync + Send>,
-    config_hooks: Vec<Box<Fn(&Arc<C>) + Sync + Send>>,
-    config_mutex: Mutex<()>,
     config_overrides: HashMap<String, String>,
-    config_validators: Vec<Box<Fn(&Arc<C>, &Arc<C>, &O) -> ValidationResults + Sync + Send>>,
     extra_logger: Option<Logging>,
     opts: O,
-    sig_hooks: HashMap<libc::c_int, Vec<Box<Fn() + Sync + Send>>>,
     terminate: AtomicBool,
-    terminate_hooks: Vec<Box<Fn() + Sync + Send>>,
 }
 
 impl<S, O, C> Spirit<S, O, C>
@@ -474,17 +479,15 @@ where
     }
 
     pub fn config_reload(&self) -> Result<(), Error> {
-        // As even the user can call this, make sure it isn't called concurrently, which would make
-        // handling stuff correctly harder.
-        let _lock = self.config_mutex
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let config = self.load_config()?;
+        // The lock here is across the whole processing, to avoid potential races in logic
+        // processing. This makes writing the hooks correctly easier.
+        let hooks = self.hooks.lock();
         let new = Arc::new(config.config);
         let old = self.config.borrow().load();
         // Prepare the logger first, but don't switch until we know we use the new config.
         let loggers = loggers(config.logging.iter().chain(&self.extra_logger))?;
-        let mut results = self.config_validators
+        let mut results = hooks.config_validators
             .iter()
             .map(|v| v(&old, &new, &self.opts))
             .fold(ValidationResults::new(), |mut acc, r| {
@@ -509,7 +512,7 @@ where
         install_loggers(loggers);
         // And to the new config.
         self.config.borrow().store(Arc::clone(&new));
-        for hook in &self.config_hooks {
+        for hook in &hooks.config {
             hook(&new);
         }
         Ok(())
@@ -527,7 +530,7 @@ where
                     false
                 },
                 libc::SIGTERM | libc::SIGINT | libc::SIGQUIT => {
-                    for hook in &self.terminate_hooks {
+                    for hook in &self.hooks.lock().terminate {
                         hook();
                     }
                     self.terminate.store(true, Ordering::Relaxed);
@@ -537,7 +540,7 @@ where
                 _ => false,
             };
 
-            if let Some(hooks) = self.sig_hooks.get(&signal) {
+            if let Some(hooks) = self.hooks.lock().sigs.get(&signal) {
                 for hook in hooks {
                     hook();
                 }
@@ -563,7 +566,7 @@ where
                     let entry = entry?;
                     let path = entry.path();
                     let meta = path.symlink_metadata()?;
-                    if !meta.is_file() || !(self.config_filter)(&path) {
+                    if !meta.is_file() || !(self.hooks.lock().config_filter)(&path) {
                         continue;
                     }
                     config.merge(File::from(path))?;
@@ -588,12 +591,12 @@ pub struct Builder<S, O = Empty, C = Empty> {
     config_default_paths: Vec<PathBuf>,
     config_defaults: Option<(String, FileFormat)>,
     config_env: Option<String>,
-    config_hooks: Vec<Box<Fn(&Arc<C>) + Sync + Send>>,
-    config_filter: Box<Fn(&Path) -> bool + Sync + Send>,
-    config_validators: Vec<Box<Fn(&Arc<C>, &Arc<C>, &O) -> ValidationResults + Sync + Send>>,
+    config_hooks: Vec<Box<Fn(&Arc<C>) + Send>>,
+    config_filter: Box<Fn(&Path) -> bool + Send>,
+    config_validators: Vec<Box<Fn(&Arc<C>, &Arc<C>, &O) -> ValidationResults + Send>>,
     opts: PhantomData<O>,
-    sig_hooks: HashMap<libc::c_int, Vec<Box<Fn() + Sync + Send>>>,
-    terminate_hooks: Vec<Box<Fn() + Sync + Send>>,
+    sig_hooks: HashMap<libc::c_int, Vec<Box<Fn() + Send>>>,
+    terminate_hooks: Vec<Box<Fn() + Send>>,
 }
 
 impl<S, O, C> Builder<S, O, C>
@@ -642,19 +645,20 @@ where
             config_files,
             config_defaults: self.config_defaults,
             config_env: self.config_env,
-            config_hooks: self.config_hooks,
-            config_mutex: Mutex::new(()),
-            config_filter: self.config_filter,
             config_overrides: opts.common
                 .config_overrides
                 .into_iter()
                 .collect(),
-            config_validators: self.config_validators,
             extra_logger,
+            hooks: Mutex::new(Hooks {
+                config: self.config_hooks,
+                config_filter: self.config_filter,
+                config_validators: self.config_validators,
+                sigs: self.sig_hooks,
+                terminate: self.terminate_hooks,
+            }),
             opts: opts.other,
-            sig_hooks: self.sig_hooks,
             terminate: AtomicBool::new(false),
-            terminate_hooks: self.terminate_hooks,
         };
         spirit.config_reload()?;
         let signals = Signals::new(interesting_signals)?;
@@ -717,7 +721,7 @@ where
         }
     }
 
-    pub fn config_filter<F: Fn(&Path) -> bool + Sync + Send + 'static>(self, filter: F) -> Self {
+    pub fn config_filter<F: Fn(&Path) -> bool + Send + 'static>(self, filter: F) -> Self {
         Self {
             config_filter: Box::new(filter),
             .. self
@@ -726,7 +730,7 @@ where
 
     pub fn config_validator<R, F>(self, f: F) -> Self
     where
-        F: Fn(&Arc<C>, &Arc<C>, &O) -> R + Sync + Send + 'static,
+        F: Fn(&Arc<C>, &Arc<C>, &O) -> R + Send + 'static,
         R: Into<ValidationResults>,
     {
         let wrapper = move |old: &Arc<C>, new: &Arc<C>, opts: &O| f(old, new, opts).into();
@@ -738,7 +742,7 @@ where
         }
     }
 
-    pub fn on_config<F: Fn(&Arc<C>) + Sync + Send + 'static>(self, hook: F) -> Self {
+    pub fn on_config<F: Fn(&Arc<C>) + Send + 'static>(self, hook: F) -> Self {
         let mut hooks = self.config_hooks;
         hooks.push(Box::new(hook));
         Self {
@@ -747,7 +751,7 @@ where
         }
     }
 
-    pub fn on_signal<F: Fn() + Sync + Send + 'static>(self, signal: libc::c_int, hook: F) -> Self {
+    pub fn on_signal<F: Fn() + Send + 'static>(self, signal: libc::c_int, hook: F) -> Self {
         let mut hooks = self.sig_hooks;
         hooks.entry(signal)
             .or_insert_with(Vec::new)
@@ -758,7 +762,7 @@ where
         }
     }
 
-    pub fn on_terminate<F: Fn() + Sync + Send + 'static>(self, hook: F) -> Self {
+    pub fn on_terminate<F: Fn() + Send + 'static>(self, hook: F) -> Self {
         let mut hooks = self.terminate_hooks;
         hooks.push(Box::new(hook));
         Self {

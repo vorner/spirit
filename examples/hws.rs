@@ -14,7 +14,7 @@ use std::collections::HashSet;
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::thread;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use arc_swap::ArcSwap;
@@ -92,7 +92,6 @@ fn start_threads() -> Result<(), Error> {
 
 fn main() -> Result<(), Error> {
     let (term_send, term_recv) = mpsc::channel();
-    let term_send = Mutex::new(term_send);
     let initial = AtomicBool::new(true);
     let _spirit = Spirit::<_, spirit::Empty, _>::new(&*CONFIG)
         .config_defaults(DEFAULT_CONFIG, FileFormat::Toml)
@@ -106,7 +105,7 @@ fn main() -> Result<(), Error> {
         })
         .on_terminate(move || {
             // This unfortunately cuts all the listening threads right away.
-            term_send.lock().unwrap().send(()).unwrap();
+            term_send.send(()).unwrap();
         })
         .build()?;
     start_threads()?;
