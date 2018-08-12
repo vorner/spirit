@@ -106,6 +106,8 @@
 //! ```
 //!
 //! # Added configuration and options
+//!
+//! TODO
 
 extern crate arc_swap;
 extern crate chrono;
@@ -129,17 +131,17 @@ extern crate structopt;
 extern crate syslog;
 
 mod logging;
+pub mod validation;
 
 use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
-use std::fmt::{Debug, Formatter, Result as FmtResult};
+use std::fmt::Debug;
 use std::iter;
 use std::marker::PhantomData;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process;
-use std::slice::Iter;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -159,6 +161,7 @@ use structopt::StructOpt;
 use structopt::clap::App;
 
 use logging::{LogDestination, Logging};
+use validation::{Level as ValidationLevel, Results as ValidationResults};
 
 #[derive(Deserialize)]
 struct ConfigWrapper<C> {
@@ -245,168 +248,6 @@ pub fn log_errors<R, F: FnOnce() -> Result<R, Error>>(f: F) -> Result<R, Error> 
 }
 
 // TODO: Should this be open enum?
-// TODO: Move to validation submodule and drop the prefix?
-#[derive(Copy, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum ValidationLevel {
-    Nothing,
-    Hint,
-    Warning,
-    Error,
-}
-
-impl Default for ValidationLevel {
-    fn default() -> Self {
-        ValidationLevel::Nothing
-    }
-}
-
-#[derive(Default)]
-pub struct ValidationResult {
-    level: ValidationLevel,
-    description: String,
-    on_abort: Option<Box<FnMut() + Sync + Send>>,
-    on_success: Option<Box<FnMut() + Sync + Send>>,
-}
-
-impl ValidationResult {
-    pub fn new<S: Into<String>>(level: ValidationLevel, s: S) -> Self {
-        ValidationResult {
-            level,
-            description: s.into(),
-            .. Default::default()
-        }
-    }
-    pub fn nothing() -> Self {
-        Self::new(ValidationLevel::Nothing, "")
-    }
-    pub fn hint<S: Into<String>>(s: S) -> Self {
-        Self::new(ValidationLevel::Hint, s)
-    }
-    pub fn warning<S: Into<String>>(s: S) -> Self {
-        Self::new(ValidationLevel::Warning, s)
-    }
-    pub fn error<S: Into<String>>(s: S) -> Self {
-        Self::new(ValidationLevel::Error, s)
-    }
-    // TODO: Actual error something here?
-    pub fn level(&self) -> ValidationLevel {
-        self.level
-    }
-    pub fn description(&self) -> &str {
-        &self.description
-    }
-    pub fn on_success<F: FnOnce() + Send + Sync + 'static>(self, f: F) -> Self {
-        let mut f = Some(f);
-        let wrapper = move || (f.take().unwrap())();
-        Self {
-            on_success: Some(Box::new(wrapper)),
-            .. self
-        }
-    }
-    pub fn on_abort<F: FnOnce() + Send + Sync + 'static>(self, f: F) -> Self {
-        let mut f = Some(f);
-        let wrapper = move || (f.take().unwrap())();
-        Self {
-            on_success: Some(Box::new(wrapper)),
-            .. self
-        }
-    }
-}
-
-impl Debug for ValidationResult {
-    fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
-        fmt.debug_struct("ValidationResult")
-            .field("level", &self.level)
-            .field("description", &self.description)
-            .field("on_abort", if self.on_abort.is_some() { &"Fn()" } else { &"None" })
-            .field("on_success", if self.on_success.is_some() { &"Fn()" } else { &"None" })
-            .finish()
-    }
-}
-
-impl From<String> for ValidationResult {
-    fn from(s: String) -> Self {
-        ValidationResult {
-            level: ValidationLevel::Error,
-            description: s,
-            .. Default::default()
-        }
-    }
-}
-
-impl From<&'static str> for ValidationResult {
-    fn from(s: &'static str) -> Self {
-        ValidationResult {
-            level: ValidationLevel::Error,
-            description: s.to_owned(),
-            .. Default::default()
-        }
-    }
-}
-
-impl From<(ValidationLevel, String)> for ValidationResult {
-    fn from((level, s): (ValidationLevel, String)) -> Self {
-        ValidationResult {
-            level,
-            description: s,
-            .. Default::default()
-        }
-    }
-}
-
-impl From<(ValidationLevel, &'static str)> for ValidationResult {
-    fn from((level, s): (ValidationLevel, &'static str)) -> Self {
-        ValidationResult {
-            level,
-            description: s.to_owned(),
-            .. Default::default()
-        }
-    }
-}
-
-#[derive(Debug, Default, Fail)]
-#[fail(display = "Validation failed")] // TODO: Something better
-pub struct ValidationResults(Vec<ValidationResult>);
-
-impl ValidationResults {
-    pub fn new() -> Self {
-        Self::default()
-    }
-    pub fn merge<R: Into<ValidationResults>>(&mut self, other: R) {
-        self.0.extend(other.into().0);
-    }
-    pub fn iter(&self) -> Iter<ValidationResult> {
-        self.into_iter()
-    }
-    pub fn max_level(&self) -> Option<ValidationLevel> {
-        self.iter().map(|r| r.level).max()
-    }
-}
-
-impl<'a> IntoIterator for &'a ValidationResults {
-    type Item = &'a ValidationResult;
-    type IntoIter = Iter<'a, ValidationResult>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
-    }
-}
-
-impl From<ValidationResult> for ValidationResults {
-    fn from(val: ValidationResult) -> Self {
-        ValidationResults(vec![val])
-    }
-}
-
-impl<I, It> From<I> for ValidationResults
-where
-    I: IntoIterator<Item = It>,
-    It: Into<ValidationResult>,
-{
-    fn from(vals: I) -> Self {
-        ValidationResults(vals.into_iter().map(Into::into).collect())
-    }
-}
-
 #[derive(Debug, Fail)]
 #[fail(display = "_1 is not file nor directory")]
 struct InvalidFileType(PathBuf);
@@ -855,4 +696,4 @@ where
 }
 
 // TODO: Provide contexts for thisg
-// TODO: Mode without external config storage ‒ have it all inside
+// TODO: Sort the directory when traversing

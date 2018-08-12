@@ -20,7 +20,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use arc_swap::ArcSwap;
 use config::FileFormat;
 use failure::Error;
-use spirit::{Spirit, ValidationResult};
+use spirit::Spirit;
+use spirit::validation::Result as ValidationResult;
 
 fn default_host() -> String {
     "::".to_owned()
