@@ -5,6 +5,108 @@
 #![cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
 // #![deny(missing_docs, warnings)] XXX
 
+//! A helper to create unix daemons.
+//!
+//! When writing a service (in the unix terminology, a daemon), there are two parts of the job. One
+//! is the actual functionality of the service, the part that makes it different than all the other
+//! services out there. And then there's the very boring part of turning the prototype
+//! implementation into a well-behaved service and handling all the things expected of all of them.
+//!
+//! This crate is supposed to help with the former. Before using, you should know the following:
+//!
+//! * This is an early version and while already (hopefully) useful, it is expected to expand and
+//!   maybe change a bit in future versions. There are certainly parts of functionality I still
+//!   haven't written and expect it to be rough around the edges.
+//! * It is opinionated ‒ it comes with an idea about how a well-behaved daemon should look like
+//!   and how to integrate that into your application. I simply haven't find a way to make it less
+//!   opinionated yet and this helps to scratch my own itch, so it reflects what I needed. If you
+//!   have use cases that you think should fall within the responsibilities of this crate and are
+//!   not handled, you are of course welcome to open an issue (or even better, a pull request) on
+//!   the repository ‒ it would be great if it scratched not only my own itch.
+//! * It brings in a lot of dependencies. There will likely be features to turn off the unneeded
+//!   parts, but for now, nobody made them yet.
+//! * This supports unix-style daemons only *for now*. This is because I have no experience in how
+//!   a service for different OS should look like. However, help in this area would be appreciated
+//!   ‒ being able to write a single code and compile a cross-platform service with all the needed
+//!   plumbing would indeed sound very useful.
+//!
+//! # What the crate does and how
+//!
+//! To be honest, the crate doesn't bring much (or, maybe mostly none) of novelty functionality to
+//! the table. It just takes other crates doing something useful and gluing them together to form
+//! something most daemons want to do.
+//!
+//! Using the builder pattern, you create a singleton [`Spirit`] object. That one starts a
+//! background thread that runs some callbacks configured previous when things happen.
+//!
+//! It takes two structs, one for command line arguments (using [StructOpt]) and another for
+//! configuration (implementing [serde]'s [`Deserialize`], loaded using the [config] crate). It
+//! enriches both to add common options, like configuration overrides on the command line and
+//! logging into the configuration.
+//!
+//! The background thread listens to certain signals (like `SIGHUP`) using the [signal-hook] crate
+//! and reloads the configuration when requested. It manages the logging backend to reopen on
+//! `SIGHUP` and reflect changes to the configuration.
+//!
+//! [`Spirit`]: struct.Spirit.html
+//! [StructOpt]: https://crates.io/crates/structopt
+//! [serde]: https://crates.io/crates/serde
+//! [`Deserialize`]: https://docs.rs/serde/*/serde/trait.Deserialize.html
+//! [config]: https://crates.io/crates/config
+//! [signal-hook]: https://crates.io/crates/signal-hook
+//!
+//! # Examples
+//!
+//! ```rust
+//! extern crate config;
+//! #[macro_use]
+//! extern crate log;
+//! #[macro_use]
+//! extern crate serde_derive;
+//! extern crate spirit;
+//!
+//! use std::io::Error;
+//! use std::time::Duration;
+//! use std::thread;
+//!
+//! use config::FileFormat;
+//! use spirit::{Empty, Spirit};
+//!
+//! #[derive(Debug, Default, Deserialize)]
+//! struct Cfg {
+//!     message: String,
+//!     sleep: u64,
+//! }
+//!
+//! static DEFAULT_CFG: &str = r#"
+//! message = "hello"
+//! sleep = 2
+//! "#;
+//!
+//! fn main() {
+//!     Spirit::<_, Empty, _>::with_inner_cfg(Cfg::default())
+//!         // Provide default values for the configuration
+//!         .config_defaults(DEFAULT_CFG, FileFormat::Toml)
+//!         // If the program is passed a directory, load files with these extensions from there
+//!         .config_exts(&["toml", "ini", "json"])
+//!         .on_terminate(|| debug!("Asked to terminate"))
+//!         .on_config(|cfg| debug!("New config loaded: {:?}", cfg))
+//!         // Run the closure, logging the error nicely if it happens (note: no error happens
+//!         // here)
+//!         .run(|spirit| -> Result<(), Error> {
+//!             while !spirit.is_terminated() {
+//!                 let cfg = spirit.config(); // Get a new version of config every round
+//!                 thread::sleep(Duration::from_secs(cfg.sleep));
+//!                 info!("{}", cfg.message);
+//! #               spirit.terminate(); // Just to make sure the doc-test terminates
+//!             }
+//!             Ok(())
+//!         });
+//! }
+//! ```
+//!
+//! # Added configuration and options
+
 extern crate arc_swap;
 extern crate chrono;
 extern crate config;
@@ -36,6 +138,7 @@ use std::iter;
 use std::marker::PhantomData;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
+use std::process;
 use std::slice::Iter;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -43,7 +146,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use std::thread;
 
-use arc_swap::ArcSwap;
+use arc_swap::{ArcSwap, Lease};
 use config::{Config, Environment, File, FileFormat};
 use failure::{Error, Fail};
 use fern::Dispatch;
@@ -101,7 +204,7 @@ struct CommonOpts {
     #[structopt(short = "l", long = "log")]
     log: Option<LevelFilter>,
 
-    /// Log to stderr with overriden levels for specifig modules.
+    /// Log to stderr with overriden levels for specific modules.
     #[structopt(short = "L", long = "log-module", parse(try_from_str = "key_val"))]
     log_modules: Vec<(String, LevelFilter)>,
 }
@@ -348,6 +451,16 @@ where
     terminate: AtomicBool,
 }
 
+impl<O, C> Spirit<Arc<ArcSwap<C>>, O, C>
+where
+    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    O: StructOpt,
+{
+    pub fn with_inner_cfg(cfg: C) -> Builder<Arc<ArcSwap<C>>, O, C> {
+        Self::new(Arc::new(ArcSwap::new(Arc::new(cfg))))
+    }
+}
+
 impl<S, O, C> Spirit<S, O, C>
 where
     S: Borrow<ArcSwap<C>> + 'static,
@@ -372,6 +485,10 @@ where
 
     pub fn cmd_opts(&self) -> &O {
         &self.opts
+    }
+
+    pub fn config(&self) -> Lease<Arc<C>> {
+        self.config.borrow().lease()
     }
 
     pub fn config_reload(&self) -> Result<(), Error> {
@@ -438,6 +555,14 @@ where
         self.terminate.load(Ordering::Relaxed)
     }
 
+    pub fn terminate(&self) {
+        debug!("Running termination hooks");
+        for hook in &self.hooks.lock().terminate {
+            hook();
+        }
+        self.terminate.store(true, Ordering::Relaxed);
+    }
+
     fn background(&self, signals: &Signals) {
         debug!("Starting background processing");
         for signal in signals.forever() {
@@ -448,11 +573,7 @@ where
                     false
                 },
                 libc::SIGTERM | libc::SIGINT | libc::SIGQUIT => {
-                    debug!("Running termination hooks");
-                    for hook in &self.hooks.lock().terminate {
-                        hook();
-                    }
-                    self.terminate.store(true, Ordering::Relaxed);
+                    self.terminate();
                     true
                 },
                 // Some other signal, only for the hook benefit
@@ -612,6 +733,20 @@ where
             })
             .unwrap(); // Could fail only if the name contained \0
         Ok(spirit)
+    }
+
+    pub fn run<E, M>(self, main: M)
+    where
+        E: Into<Error>,
+        M: FnOnce(&Spirit<S, O, C>) -> Result<(), E>,
+    {
+        let result = log_errors(|| {
+            self.build()
+                .and_then(|spirit| main(&spirit).map_err(Into::into))
+        });
+        if result.is_err() {
+            process::exit(1);
+        }
     }
 
     pub fn config_default_paths<P, I>(self, paths: I) -> Self
