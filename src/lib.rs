@@ -108,12 +108,17 @@
 //! # Added configuration and options
 //!
 //! TODO
+//!
+//! # Common patterns
+//!
+//! TODO
 
 extern crate arc_swap;
 extern crate chrono;
 extern crate config;
 #[macro_use]
 extern crate failure;
+extern crate fallible_iterator;
 extern crate fern;
 extern crate itertools;
 extern crate libc;
@@ -151,6 +156,7 @@ use std::thread;
 use arc_swap::{ArcSwap, Lease};
 use config::{Config, Environment, File, FileFormat};
 use failure::{Error, Fail};
+use fallible_iterator::FallibleIterator;
 use fern::Dispatch;
 use itertools::Itertools;
 use log::{LevelFilter, Log};
@@ -448,16 +454,24 @@ where
                 config.merge(File::from(path as &Path))?;
             } else if path.is_dir() {
                 trace!("Scanning directory {:?}", path);
-                for entry in path.read_dir()? {
-                    let entry = entry?;
-                    let path = entry.path();
-                    let meta = path.symlink_metadata()?;
-                    if !meta.is_file() || !(self.hooks.lock().config_filter)(&path) {
-                        trace!("Skipping {:?}", path);
-                        continue;
-                    }
-                    trace!("Loading config file {:?}", path);
-                    config.merge(File::from(path))?;
+                let lock = self.hooks.lock();
+                let mut files = fallible_iterator::convert(path.read_dir()?)
+                    .and_then(|entry| -> Result<Option<PathBuf>, std::io::Error> {
+                        let path = entry.path();
+                        let meta = path.symlink_metadata()?;
+                        if meta.is_file() && (lock.config_filter)(&path) {
+                            trace!("Skipping {:?}", path);
+                            Ok(Some(path))
+                        } else {
+                            Ok(None)
+                        }
+                    })
+                    .filter_map(|path| path)
+                    .collect::<Vec<_>>()?;
+                files.sort();
+                for file in files {
+                    trace!("Loading config file {:?}", file);
+                    config.merge(File::from(file))?;
                 }
             } else {
                 bail!(InvalidFileType(path.to_owned()));

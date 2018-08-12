@@ -8,6 +8,7 @@ arc-swap = "~0.3"
 chrono = "~0.4"
 config = "~0.9"
 failure = "~0.1"
+fallible-iterator = "~0.1"
 fern = { version = "~0.5", features = ["syslog-4"] }
 itertools = "~0.7"
 libc = "~0.2"
