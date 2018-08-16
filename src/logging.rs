@@ -6,12 +6,14 @@ use std::path::PathBuf;
 use chrono::Local;
 use failure::Error;
 use fern::{self, Dispatch};
-use log::LevelFilter;
+use itertools::Itertools;
+use log::{self, LevelFilter, Log};
+use log_reroute;
 use serde::de::{Deserialize, Deserializer, Error as DeError};
 use syslog;
 
 #[derive(Deserialize)]
-#[serde(tag = "type", deny_unknown_fields)]
+#[serde(tag = "type", rename_all = "kebab-case")] // TODO: Make deny-unknown-fields work
 pub(crate) enum LogDestination {
     File {
         filename: PathBuf,
@@ -25,7 +27,9 @@ pub(crate) enum LogDestination {
         host: String,
         port: u16,
     },
+    #[serde(rename = "stdout")]
     StdOut, // TODO: Colors
+    #[serde(rename = "stderr")]
     StdErr, // TODO: Colors
 }
 
@@ -51,18 +55,19 @@ where
         .collect()
 }
 
+/// This error can be returned when initialization of logging to syslog fails.
 #[derive(Debug, Fail)]
 #[fail(display = "{}", _0)]
 pub struct SyslogError(String);
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "kebab-case")] // TODO: Make deny-unknown-fields work
 pub(crate) struct Logging {
     #[serde(flatten)]
     pub(crate) destination: LogDestination,
     #[serde(deserialize_with = "deserialize_level_filter")]
     pub(crate) level: LevelFilter,
-    #[serde(deserialize_with = "deserialize_per_module")]
+    #[serde(default, deserialize_with = "deserialize_per_module")]
     pub(crate) per_module: HashMap<String, LevelFilter>,
     // TODO: Format
 }
@@ -104,6 +109,7 @@ impl Logging {
                 Ok(logger.chain(syslog::unix(formatter).map_err(|e| SyslogError(format!("{}", e)))?))
             }
             LogDestination::Network { ref host, port } => {
+                // TODO: Reconnection support
                 let conn = TcpStream::connect((&host as &str, port))?;
                 Ok(logger.chain(Box::new(conn) as Box<Write + Send>))
             }
@@ -112,3 +118,20 @@ impl Logging {
         }
     }
 }
+
+pub(crate) fn create<'a, I>(logging: I) -> Result<(LevelFilter, Box<Log>), Error>
+where
+    I: IntoIterator<Item = &'a Logging>,
+{
+    let result = logging.into_iter()
+        .map(Logging::create)
+        .fold_results(Dispatch::new(), Dispatch::chain)?
+        .into_log();
+    Ok(result)
+}
+
+pub(crate) fn install((max_log_level, top_logger): (LevelFilter, Box<Log>)) {
+    log_reroute::reroute_boxed(top_logger);
+    log::set_max_level(max_log_level);
+}
+

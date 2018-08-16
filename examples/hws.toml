@@ -1,0 +1,18 @@
+[[listen]]
+port = 1234
+
+[[listen]]
+port = 5678
+host = "localhost"
+
+[ui]
+msg = "Hello world"
+
+[[logging]]
+level = "INFO"
+type = "stderr"
+
+[[logging]]
+level = "DEBUG"
+type = "file"
+filename = "hws.log"

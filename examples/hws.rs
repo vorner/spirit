@@ -94,7 +94,7 @@ fn start_threads() -> Result<(), Error> {
 fn main() -> Result<(), Error> {
     let (term_send, term_recv) = mpsc::channel();
     let initial = AtomicBool::new(true);
-    let _spirit = Spirit::<_, spirit::Empty, _>::new(&*CONFIG)
+    let _spirit = Spirit::<_, spirit::Empty, _>::with_config_storage(&*CONFIG)
         .config_defaults(DEFAULT_CONFIG, FileFormat::Toml)
         .config_exts(&["toml", "ini", "json"])
         .config_validator(move |old, new, _| {
