@@ -3,7 +3,7 @@
     test(attr(deny(warnings)))
 )]
 #![cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
-#![deny(missing_docs, warnings)]
+#![deny(missing_docs, warnings, unsafe_code)]
 
 //! A helper to create unix daemons.
 //!
@@ -189,10 +189,10 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 use arc_swap::{ArcSwap, Lease};
 use config::{Config, Environment, File, FileFormat};
@@ -202,8 +202,8 @@ use log::LevelFilter;
 use parking_lot::Mutex;
 use serde::Deserialize;
 use signal_hook::iterator::Signals;
-use structopt::StructOpt;
 use structopt::clap::App;
+use structopt::StructOpt;
 
 use logging::{LogDestination, Logging};
 use validation::{Level as ValidationLevel, Results as ValidationResults};
@@ -247,7 +247,11 @@ struct CommonOpts {
     background: bool,
 
     /// Override specific config values.
-    #[structopt(short = "C", long = "config-override", parse(try_from_str = "key_val"))]
+    #[structopt(
+        short = "C",
+        long = "config-override",
+        parse(try_from_str = "key_val")
+    )]
     config_overrides: Vec<(String, String)>,
 
     /// Configuration files or directories to load.
@@ -259,7 +263,11 @@ struct CommonOpts {
     log: Option<LevelFilter>,
 
     /// Log to stderr with overriden levels for specific modules.
-    #[structopt(short = "L", long = "log-module", parse(try_from_str = "key_val"))]
+    #[structopt(
+        short = "L",
+        long = "log-module",
+        parse(try_from_str = "key_val")
+    )]
     log_modules: Vec<(String, LevelFilter)>,
 }
 
@@ -510,7 +518,8 @@ where
         // Prepare the logger first, but don't switch until we know we use the new config.
         let loggers = logging::create(config.logging.iter().chain(&self.extra_logger))?;
         debug!("Running config validators");
-        let mut results = hooks.config_validators
+        let mut results = hooks
+            .config_validators
             .iter()
             .map(|v| v(&old, &mut new, &self.opts))
             .fold(ValidationResults::new(), |mut acc, r| {
@@ -522,13 +531,13 @@ where
             match result.level() {
                 ValidationLevel::Error => {
                     error!(target: "configuration", "{}", result.description());
-                },
+                }
                 ValidationLevel::Warning => {
                     warn!(target: "configuration", "{}", result.description());
-                },
+                }
                 ValidationLevel::Hint => {
                     info!(target: "configuration", "{}", result.description());
-                },
+                }
                 ValidationLevel::Nothing => (),
             }
         }
@@ -539,7 +548,7 @@ where
                     abort();
                 }
             }
-            return Err(results.into())
+            return Err(results.into());
         }
         debug!("Validation successful, installing new config");
         for r in &mut results.0 {
@@ -620,11 +629,11 @@ where
                 libc::SIGHUP => {
                     let _ = log_errors(|| self.config_reload());
                     false
-                },
+                }
                 libc::SIGTERM | libc::SIGINT | libc::SIGQUIT => {
                     self.terminate();
                     true
-                },
+                }
                 // Some other signal, only for the hook benefit
                 _ => false,
             };
@@ -672,8 +681,7 @@ where
                         } else {
                             Ok(None)
                         }
-                    })
-                    .filter_map(|path| path)
+                    }).filter_map(|path| path)
                     .collect::<Vec<_>>()?;
                 // Traverse them sorted.
                 files.sort();
@@ -751,30 +759,24 @@ where
         } else {
             opts.common.configs
         };
-        let interesting_signals = self.sig_hooks
+        let interesting_signals = self
+            .sig_hooks
             .keys()
             .chain(&[libc::SIGHUP, libc::SIGTERM, libc::SIGQUIT, libc::SIGINT])
             .cloned()
             .collect::<HashSet<_>>(); // Eliminate duplicates
         let log_modules = opts.common.log_modules;
-        let extra_logger = opts.common
-            .log
-            .map(|level| {
-                Logging {
-                    destination: LogDestination::StdErr,
-                    level,
-                    per_module: log_modules.into_iter().collect(),
-                }
-            });
+        let extra_logger = opts.common.log.map(|level| Logging {
+            destination: LogDestination::StdErr,
+            level,
+            per_module: log_modules.into_iter().collect(),
+        });
         let spirit = Spirit {
             config: self.config,
             config_files,
             config_defaults: self.config_defaults,
             config_env: self.config_env,
-            config_overrides: opts.common
-                .config_overrides
-                .into_iter()
-                .collect(),
+            config_overrides: opts.common.config_overrides.into_iter().collect(),
             extra_logger,
             hooks: Mutex::new(Hooks {
                 config: self.config_hooks,
@@ -806,8 +808,7 @@ where
                         break;
                     }
                 }
-            })
-            .unwrap(); // Could fail only if the name contained \0
+            }).unwrap(); // Could fail only if the name contained \0
         Ok(spirit)
     }
 
@@ -859,12 +860,10 @@ where
         I: IntoIterator<Item = P>,
         P: Into<PathBuf>,
     {
-        let paths = paths.into_iter()
-            .map(Into::into)
-            .collect();
+        let paths = paths.into_iter().map(Into::into).collect();
         Self {
             config_default_paths: paths,
-            .. self
+            ..self
         }
     }
 
@@ -874,7 +873,7 @@ where
     pub fn config_defaults<D: Into<String>>(self, config: D, format: FileFormat) -> Self {
         Self {
             config_defaults: Some((config.into(), format)),
-            .. self
+            ..self
         }
     }
 
@@ -925,7 +924,7 @@ where
     pub fn config_env<E: Into<String>>(self, env: E) -> Self {
         Self {
             config_env: Some(env.into()),
-            .. self
+            ..self
         }
     }
 
@@ -937,7 +936,7 @@ where
         let ext = ext.into();
         Self {
             config_filter: Box::new(move |path| path.extension() == Some(&ext)),
-            .. self
+            ..self
         }
     }
 
@@ -950,16 +949,14 @@ where
         I: IntoIterator<Item = E>,
         E: Into<OsString>,
     {
-        let exts = exts.into_iter()
-            .map(Into::into)
-            .collect::<HashSet<_>>();
+        let exts = exts.into_iter().map(Into::into).collect::<HashSet<_>>();
         Self {
             config_filter: Box::new(move |path| {
                 path.extension()
                     .map(|ext| exts.contains(ext))
                     .unwrap_or(false)
             }),
-            .. self
+            ..self
         }
     }
 
@@ -981,7 +978,7 @@ where
     pub fn config_filter<F: Fn(&Path) -> bool + Send + 'static>(self, filter: F) -> Self {
         Self {
             config_filter: Box::new(filter),
-            .. self
+            ..self
         }
     }
 
@@ -1028,7 +1025,7 @@ where
         validators.push(Box::new(wrapper));
         Self {
             config_validators: validators,
-            .. self
+            ..self
         }
     }
 
@@ -1042,7 +1039,7 @@ where
         hooks.push(Box::new(hook));
         Self {
             config_hooks: hooks,
-            .. self
+            ..self
         }
     }
 
@@ -1058,12 +1055,13 @@ where
     /// TODO: Threads, deadlocks
     pub fn on_signal<F: Fn() + Send + 'static>(self, signal: libc::c_int, hook: F) -> Self {
         let mut hooks = self.sig_hooks;
-        hooks.entry(signal)
+        hooks
+            .entry(signal)
             .or_insert_with(Vec::new)
             .push(Box::new(hook));
         Self {
             sig_hooks: hooks,
-            .. self
+            ..self
         }
     }
 
@@ -1081,7 +1079,7 @@ where
         hooks.push(Box::new(hook));
         Self {
             terminate_hooks: hooks,
-            .. self
+            ..self
         }
     }
 }

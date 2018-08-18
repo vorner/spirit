@@ -61,7 +61,7 @@ impl Result {
         Result {
             level,
             description: s.into(),
-            .. Default::default()
+            ..Default::default()
         }
     }
 
@@ -105,7 +105,7 @@ impl Result {
         let wrapper = move || (f.take().unwrap())();
         Self {
             on_success: Some(Box::new(wrapper)),
-            .. self
+            ..self
         }
     }
 
@@ -115,7 +115,7 @@ impl Result {
         let wrapper = move || (f.take().unwrap())();
         Self {
             on_success: Some(Box::new(wrapper)),
-            .. self
+            ..self
         }
     }
 }
@@ -125,9 +125,21 @@ impl Debug for Result {
         fmt.debug_struct("ValidationResult")
             .field("level", &self.level)
             .field("description", &self.description)
-            .field("on_abort", if self.on_abort.is_some() { &"Fn()" } else { &"None" })
-            .field("on_success", if self.on_success.is_some() { &"Fn()" } else { &"None" })
-            .finish()
+            .field(
+                "on_abort",
+                if self.on_abort.is_some() {
+                    &"Fn()"
+                } else {
+                    &"None"
+                },
+            ).field(
+                "on_success",
+                if self.on_success.is_some() {
+                    &"Fn()"
+                } else {
+                    &"None"
+                },
+            ).finish()
     }
 }
 
@@ -136,7 +148,7 @@ impl From<String> for Result {
         Result {
             level: Level::Error,
             description: s,
-            .. Default::default()
+            ..Default::default()
         }
     }
 }
@@ -146,7 +158,7 @@ impl From<&'static str> for Result {
         Result {
             level: Level::Error,
             description: s.to_owned(),
-            .. Default::default()
+            ..Default::default()
         }
     }
 }
@@ -156,7 +168,7 @@ impl From<(Level, String)> for Result {
         Result {
             level,
             description: s,
-            .. Default::default()
+            ..Default::default()
         }
     }
 }
@@ -166,7 +178,7 @@ impl From<(Level, &'static str)> for Result {
         Result {
             level,
             description: s.to_owned(),
-            .. Default::default()
+            ..Default::default()
         }
     }
 }

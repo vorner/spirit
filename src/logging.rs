@@ -51,8 +51,7 @@ where
                 D::Error::unknown_variant(&v, &["OFF", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"])
             })?;
             Ok((k, parsed))
-        })
-        .collect()
+        }).collect()
 }
 
 /// This error can be returned when initialization of logging to syslog fails.
@@ -74,11 +73,13 @@ pub(crate) struct Logging {
 
 impl Logging {
     pub(crate) fn create(&self) -> Result<Dispatch, Error> {
-        let mut logger = Dispatch::new()
-            .level(self.level);
-        logger = self.per_module
+        let mut logger = Dispatch::new().level(self.level);
+        logger = self
+            .per_module
             .iter()
-            .fold(logger, |logger, (module, level)| logger.level_for(module.clone(), *level));
+            .fold(logger, |logger, (module, level)| {
+                logger.level_for(module.clone(), *level)
+            });
         match self.destination {
             // We don't want to format syslog
             LogDestination::Syslog { .. } => (),
@@ -106,7 +107,8 @@ impl Logging {
                     pid: 0,
                 };
                 // TODO: Other destinations than just unix
-                Ok(logger.chain(syslog::unix(formatter).map_err(|e| SyslogError(format!("{}", e)))?))
+                Ok(logger
+                    .chain(syslog::unix(formatter).map_err(|e| SyslogError(format!("{}", e)))?))
             }
             LogDestination::Network { ref host, port } => {
                 // TODO: Reconnection support
@@ -123,7 +125,8 @@ pub(crate) fn create<'a, I>(logging: I) -> Result<(LevelFilter, Box<Log>), Error
 where
     I: IntoIterator<Item = &'a Logging>,
 {
-    let result = logging.into_iter()
+    let result = logging
+        .into_iter()
         .map(Logging::create)
         .fold_results(Dispatch::new(), Dispatch::chain)?
         .into_log();
@@ -134,4 +137,3 @@ pub(crate) fn install((max_log_level, top_logger): (LevelFilter, Box<Log>)) {
     log_reroute::reroute_boxed(top_logger);
     log::set_max_level(max_log_level);
 }
-

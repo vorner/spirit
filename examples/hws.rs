@@ -13,15 +13,15 @@ extern crate spirit;
 use std::collections::HashSet;
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
-use std::thread;
-use std::sync::{mpsc, Arc};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
+use std::thread;
 
 use arc_swap::ArcSwap;
 use config::FileFormat;
 use failure::Error;
-use spirit::Spirit;
 use spirit::validation::Result as ValidationResult;
+use spirit::Spirit;
 
 fn default_host() -> String {
     "::".to_owned()
@@ -101,15 +101,15 @@ fn main() -> Result<(), Error> {
             let mut results = Vec::new();
             if !initial.swap(false, Ordering::Relaxed) && old.listen != new.listen {
                 // Sorry, not implemented yet :-(
-                results.push(ValidationResult::warning("Can't change listening ports at runtime"))
+                results.push(ValidationResult::warning(
+                    "Can't change listening ports at runtime",
+                ))
             }
             results
-        })
-        .on_terminate(move || {
+        }).on_terminate(move || {
             // This unfortunately cuts all the listening threads right away.
             term_send.send(()).unwrap();
-        })
-        .build()?;
+        }).build()?;
     start_threads()?;
     info!("Starting up");
     term_recv.recv().unwrap();

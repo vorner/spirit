@@ -2,6 +2,17 @@
 name = "spirit"
 version = "0.1.0"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
+description = "Helper to create well behaved daemons"
+documentation = "https://docs.rs/spirit"
+repository = "https://github.com/vorner/spirit"
+# TODO
+readme = "README.md"
+keywords = ["unix", "daemon", "service"]
+license = "Apache-2.0/MIT"
+
+[badges]
+travis-ci = { repository = "vorner/spirit" }
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 arc-swap = "~0.3"
@@ -26,3 +37,4 @@ syslog = "~4"
 futures = "~0.1"
 lazy_static = "~1"
 tokio = "~0.1"
+version-sync = "~0.5"

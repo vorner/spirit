@@ -1,0 +1,25 @@
+language: rust
+cache: cargo
+rust:
+    - stable
+    - beta
+    - nightly
+os:
+    - linux
+    - osx
+
+before_script:
+    - |
+      (travis_wait rustup component add rustfmt-preview || true) &&
+      (test "$TRAVIS_RUST_VERSION" != nightly || travis_wait rustup component add clippy-preview || true)
+
+script:
+    - |
+      export PATH="$PATH":~/.cargo/bin &&
+      export RUST_BACKTRACE=1 &&
+      cargo build &&
+      cargo test --release --all &&
+      cargo doc --no-deps &&
+      (test "$TRAVIS_RUST_VERSION" != nightly || cargo test --release --benches) &&
+      (test "$TRAVIS_RUST_VERSION" != nightly || cargo clippy -- --deny clippy) &&
+      (test "$TRAVIS_RUST_VERSION" != nightly || cargo fmt)

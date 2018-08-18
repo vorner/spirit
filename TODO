@@ -1,0 +1,11 @@
+* Tokio example
+* Example inside readme, better explanation
+* Fill in TODOs in docs
+* Contexts for errors
+* Ability to manipulate callbacks at runtime
+* More logging configuration and targets
+* Network logging reconnects
+* Metrics
+* Backgrounding
+* Changing user, support for capabilities
+* Features
