@@ -1,4 +1,6 @@
-* Tokio example
+* Link to examples from readme and docs
+* Explanations into the examples
+* Run on spirit itself too
 * Example inside readme, better explanation
 * Fill in TODOs in docs
 * Contexts for errors
@@ -9,3 +11,4 @@
 * Backgrounding
 * Changing user, support for capabilities
 * Features
+* Helpers with set-like configuration, like sockets

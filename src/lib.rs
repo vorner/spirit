@@ -172,7 +172,6 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate signal_hook;
-#[macro_use]
 extern crate structopt;
 extern crate syslog;
 
@@ -250,7 +249,8 @@ struct CommonOpts {
     #[structopt(
         short = "C",
         long = "config-override",
-        parse(try_from_str = "key_val")
+        parse(try_from_str = "key_val"),
+        raw(number_of_values = "1"),
     )]
     config_overrides: Vec<(String, String)>,
 
@@ -259,14 +259,15 @@ struct CommonOpts {
     configs: Vec<PathBuf>,
 
     /// Log to stderr with this log level.
-    #[structopt(short = "l", long = "log")]
+    #[structopt(short = "l", long = "log", raw(number_of_values = "1"))]
     log: Option<LevelFilter>,
 
     /// Log to stderr with overriden levels for specific modules.
     #[structopt(
         short = "L",
         long = "log-module",
-        parse(try_from_str = "key_val")
+        parse(try_from_str = "key_val"),
+        raw(number_of_values = "1"),
     )]
     log_modules: Vec<(String, LevelFilter)>,
 }
@@ -329,11 +330,11 @@ pub struct InvalidFileType(PathBuf);
 pub struct Empty {}
 
 struct Hooks<O, C> {
-    config_filter: Box<Fn(&Path) -> bool + Send>,
-    config: Vec<Box<Fn(&Arc<C>) + Send>>,
-    config_validators: Vec<Box<Fn(&Arc<C>, &mut C, &O) -> ValidationResults + Send>>,
-    sigs: HashMap<libc::c_int, Vec<Box<Fn() + Send>>>,
-    terminate: Vec<Box<Fn() + Send>>,
+    config_filter: Box<FnMut(&Path) -> bool + Send>,
+    config: Vec<Box<FnMut(&Arc<C>) + Send>>,
+    config_validators: Vec<Box<FnMut(&Arc<C>, &mut C, &O) -> ValidationResults + Send>>,
+    sigs: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
+    terminate: Vec<Box<FnMut() + Send>>,
 }
 
 /// The main manipulation handle/struct of the library.
@@ -388,6 +389,11 @@ where
     opts: O,
     terminate: AtomicBool,
 }
+
+/// A type alias for a `Spirit` with configuration held inside.
+///
+/// Just to ease up naming the type when passing around the program.
+pub type SpiritInner<O, C> = Arc<Spirit<Arc<ArcSwap<C>>, O, C>>;
 
 impl<O, C> Spirit<Arc<ArcSwap<C>>, O, C>
 where
@@ -511,7 +517,7 @@ where
         let config = self.load_config()?;
         // The lock here is across the whole processing, to avoid potential races in logic
         // processing. This makes writing the hooks correctly easier.
-        let hooks = self.hooks.lock();
+        let mut hooks = self.hooks.lock();
         let old = self.config.borrow().load();
         let mut new = config.config;
         debug!("Creating new logging");
@@ -520,7 +526,7 @@ where
         debug!("Running config validators");
         let mut results = hooks
             .config_validators
-            .iter()
+            .iter_mut()
             .map(|v| v(&old, &mut new, &self.opts))
             .fold(ValidationResults::new(), |mut acc, r| {
                 acc.merge(r);
@@ -562,7 +568,7 @@ where
         // And to the new config.
         self.config.borrow().store(Arc::clone(&new));
         debug!("Running post-configuration hooks");
-        for hook in &hooks.config {
+        for hook in &mut hooks.config {
             hook(&new);
         }
         debug!("Configuration reloaded");
@@ -615,7 +621,7 @@ where
     /// within a callback (it would lead to deadlock).
     pub fn terminate(&self) {
         debug!("Running termination hooks");
-        for hook in &self.hooks.lock().terminate {
+        for hook in &mut self.hooks.lock().terminate {
             hook();
         }
         self.terminate.store(true, Ordering::Relaxed);
@@ -638,7 +644,7 @@ where
                 _ => false,
             };
 
-            if let Some(hooks) = self.hooks.lock().sigs.get(&signal) {
+            if let Some(hooks) = self.hooks.lock().sigs.get_mut(&signal) {
                 for hook in hooks {
                     hook();
                 }
@@ -668,14 +674,15 @@ where
                 config.merge(File::from(path as &Path))?;
             } else if path.is_dir() {
                 trace!("Scanning directory {:?}", path);
-                let lock = self.hooks.lock();
+                let mut lock = self.hooks.lock();
+                let mut filter = &mut lock.config_filter;
                 // Take all the file entries passing the config file filter, handling errors on the
                 // way.
                 let mut files = fallible_iterator::convert(path.read_dir()?)
                     .and_then(|entry| -> Result<Option<PathBuf>, std::io::Error> {
                         let path = entry.path();
                         let meta = path.symlink_metadata()?;
-                        if meta.is_file() && (lock.config_filter)(&path) {
+                        if meta.is_file() && (filter)(&path) {
                             trace!("Skipping {:?}", path);
                             Ok(Some(path))
                         } else {
@@ -713,12 +720,12 @@ pub struct Builder<S, O = Empty, C = Empty> {
     config_default_paths: Vec<PathBuf>,
     config_defaults: Option<(String, FileFormat)>,
     config_env: Option<String>,
-    config_hooks: Vec<Box<Fn(&Arc<C>) + Send>>,
-    config_filter: Box<Fn(&Path) -> bool + Send>,
-    config_validators: Vec<Box<Fn(&Arc<C>, &mut C, &O) -> ValidationResults + Send>>,
+    config_hooks: Vec<Box<FnMut(&Arc<C>) + Send>>,
+    config_filter: Box<FnMut(&Path) -> bool + Send>,
+    config_validators: Vec<Box<FnMut(&Arc<C>, &mut C, &O) -> ValidationResults + Send>>,
     opts: PhantomData<O>,
-    sig_hooks: HashMap<libc::c_int, Vec<Box<Fn() + Send>>>,
-    terminate_hooks: Vec<Box<Fn() + Send>>,
+    sig_hooks: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
+    terminate_hooks: Vec<Box<FnMut() + Send>>,
 }
 
 impl<S, O, C> Builder<S, O, C>
@@ -975,7 +982,7 @@ where
     ///
     /// For more convenient ways to set the filter, see [`config_ext`](#method.config_ext) and
     /// [`config_exts`](#method.config_exts).
-    pub fn config_filter<F: Fn(&Path) -> bool + Send + 'static>(self, filter: F) -> Self {
+    pub fn config_filter<F: FnMut(&Path) -> bool + Send + 'static>(self, filter: F) -> Self {
         Self {
             config_filter: Box::new(filter),
             ..self
@@ -986,6 +993,12 @@ where
     ///
     /// The validators are there to check, possibly modify and possibly refuse a newly loaded
     /// configuration.
+    ///
+    /// The callback is passed three parameters:
+    ///
+    /// * The old configuration.
+    /// * The new configuration (possible to modify).
+    /// * The command line options.
     ///
     /// They are run in order of being set. Each one can pass arbitrary number of results, where a
     /// result can carry a message (of different severities) that ends up in logs and actions to be
@@ -1015,9 +1028,9 @@ where
     /// # Examples
     ///
     /// TODO
-    pub fn config_validator<R, F>(self, f: F) -> Self
+    pub fn config_validator<R, F>(self, mut f: F) -> Self
     where
-        F: Fn(&Arc<C>, &mut C, &O) -> R + Send + 'static,
+        F: FnMut(&Arc<C>, &mut C, &O) -> R + Send + 'static,
         R: Into<ValidationResults>,
     {
         let wrapper = move |old: &Arc<C>, new: &mut C, opts: &O| f(old, new, opts).into();
@@ -1034,7 +1047,7 @@ where
     /// The callback is called once a new configuration is loaded and successfully validated.
     ///
     /// TODO: Threads, deadlocks
-    pub fn on_config<F: Fn(&Arc<C>) + Send + 'static>(self, hook: F) -> Self {
+    pub fn on_config<F: FnMut(&Arc<C>) + Send + 'static>(self, hook: F) -> Self {
         let mut hooks = self.config_hooks;
         hooks.push(Box::new(hook));
         Self {
@@ -1053,7 +1066,7 @@ where
     /// thread. Therefore, restrictions about async-signal-safety don't apply to the hook.
     ///
     /// TODO: Threads, deadlocks
-    pub fn on_signal<F: Fn() + Send + 'static>(self, signal: libc::c_int, hook: F) -> Self {
+    pub fn on_signal<F: FnMut() + Send + 'static>(self, signal: libc::c_int, hook: F) -> Self {
         let mut hooks = self.sig_hooks;
         hooks
             .entry(signal)
@@ -1074,7 +1087,7 @@ where
     /// example terminating the main thread, or aborting.
     ///
     /// TODO: Threads, deadlocks
-    pub fn on_terminate<F: Fn() + Send + 'static>(self, hook: F) -> Self {
+    pub fn on_terminate<F: FnMut() + Send + 'static>(self, hook: F) -> Self {
         let mut hooks = self.terminate_hooks;
         hooks.push(Box::new(hook));
         Self {
@@ -1083,5 +1096,3 @@ where
         }
     }
 }
-
-// TODO: Provide contexts for thisg
