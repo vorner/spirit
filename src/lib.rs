@@ -105,6 +105,9 @@
 //! }
 //! ```
 //!
+//! More complete examples can be found in the
+//! [repository](https://github.com/vorner/spirit/tree/master/examples).
+//!
 //! # Added configuration and options
 //!
 //! ## Command line options

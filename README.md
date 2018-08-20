@@ -4,6 +4,8 @@
 
 A helper to make creating unix daemons easier.
 
+See the [docs](https://docs.rs/spirit) and the [examples](tree/master/examples).
+
 ## License
 
 Licensed under either of
