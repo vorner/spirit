@@ -3,7 +3,8 @@
     test(attr(deny(warnings)))
 )]
 #![cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
-#![deny(missing_docs, warnings, unsafe_code)]
+#![forbid(missing_docs, unsafe_code)]
+#![deny(warnings)]
 
 //! A helper to create unix daemons.
 //!
@@ -175,6 +176,9 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate signal_hook;
+// For some reason, this produces a warning about unused on nightly… but it is needed on stable
+#[allow(unused_imports)]
+#[macro_use]
 extern crate structopt;
 extern crate syslog;
 
