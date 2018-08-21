@@ -1,3 +1,26 @@
+//! A tokio-based hello world service.
+//!
+//! Look at hws.rs first, that one is simpler.
+//!
+//! Unlike that one, it supports reconfiguring of everything ‒ including the ports it listens on.
+//! This is currently a bit tricky, something next versions will want to provide some helpers for.
+//!
+//! # The ports reconfiguration
+//!
+//! Because we can't know if creating a listening socket will work or not, we have to try it as
+//! part of the config validation (with checking if the socket already exists from before). If the
+//! configuration fails, the new sockets are dropped. If it succeeds, they are sent to the tokio
+//! runtime over a channel and the runtime installs them.
+//!
+//! The configuration keeps a oneshot channel for each socket. The runtime drops the socket
+//! whenever the oneshot fires ‒ which includes when it is dropped. This is used for remotely
+//! dropping the sockets. It is used for removing sockets as well as shutting the whole process
+//! down (by dropping all of them).
+//!
+//! There's a small race condition around removing and then re-creating the same socket (think
+//! about it). It would be possible to solve, but it would make the code even more complex and the
+//! race condition is quite short and unlikely.
+
 extern crate config;
 extern crate failure;
 extern crate futures;
@@ -24,6 +47,8 @@ use spirit::{Empty, Spirit, SpiritInner};
 use tokio::net::TcpListener;
 use tokio::prelude::*;
 use tokio::reactor::Handle;
+
+// Configuration. It has the same shape as the one in hws.rs.
 
 fn default_host() -> String {
     "::".to_owned()
@@ -59,6 +84,7 @@ host = "localhost"
 msg = "Hello world"
 "#;
 
+// This is more exercise for tokio programming than about spirit…
 fn handle_listener(
     spirit: SpiritInner<Empty, Config>,
     listener: TcpListener,
@@ -73,12 +99,14 @@ fn handle_listener(
             debug!("Handling connection {}", addr);
             let mut msg = spirit.config().ui.msg.clone().into_bytes();
             msg.push(b'\n');
-            tokio::io::write_all(conn, msg)
+            let write = tokio::io::write_all(conn, msg)
                 .map(|_| ()) // Throw away the connection and close it
                 .or_else(move |e| {
                     warn!("Failed to write message to {}: {}", addr, e);
                     future::ok(())
-                })
+                });
+            tokio::spawn(write);
+            future::ok(())
         })
         .map_err(|e| error!("Failed to listen: {}", e))
 }
@@ -86,7 +114,6 @@ fn handle_listener(
 struct NewListener {
     listener: TcpListener,
     terminator: Receiver<()>,
-    ack: Sender<()>,
 }
 
 fn run(spirit: SpiritInner<Empty, Config>, feeder: MReceiver<NewListener>) -> Result<(), Error> {
@@ -95,7 +122,6 @@ fn run(spirit: SpiritInner<Empty, Config>, feeder: MReceiver<NewListener>) -> Re
         let NewListener {
             listener,
             terminator,
-            ack,
         } = new_listener;
         let addr = listener
             .local_addr()
@@ -108,9 +134,7 @@ fn run(spirit: SpiritInner<Empty, Config>, feeder: MReceiver<NewListener>) -> Re
             .select(terminator)
             .then(|_| future::ok(()));
         tokio::spawn(conn);
-        trace!("ACKing installation");
-        // Can fail if the other side dropped ‒ on startup or on shutdown
-        ack.send(()).or_else(|_| Ok(()))
+        future::ok(())
     });
     info!("Starting application");
     tokio::run(start_all);
@@ -125,7 +149,6 @@ fn listener_config(
     listeners: &Listeners,
     listener: &Listen,
     sender: &MSender<NewListener>,
-    ack_wait: &mut Vec<Receiver<()>>,
 ) -> (Option<RemoteStop>, ValidationResult) {
     if let Some(found) = listeners.get(listener) {
         debug!("Found existing socket for {:?}", listener);
@@ -147,8 +170,6 @@ fn listener_config(
         }
     };
     let (stop_send, stop_recv) = oneshot::channel();
-    let (ack_send, ack_recv) = oneshot::channel();
-    ack_wait.push(ack_recv);
     let sender = sender.clone();
     (
         Some(Arc::new(stop_send)),
@@ -158,7 +179,6 @@ fn listener_config(
                 .send(NewListener {
                     listener: socket,
                     terminator: stop_recv,
-                    ack: ack_send,
                 }).wait();
             if sent.is_err() {
                 // In case it already shut down
@@ -175,19 +195,10 @@ fn main() {
     let listeners_val = Arc::clone(&listeners);
     let sender = Arc::new(Mutex::new(Some(sender)));
     let sender_val = Arc::clone(&sender);
-    let mut ack_wait = Vec::<Receiver<()>>::new();
     Spirit::<_, Empty, _>::new(Config::default())
         .config_defaults(DEFAULT_CONFIG, FileFormat::Toml)
         .config_exts(&["toml", "ini", "json"])
         .config_validator(move |_, new_config, _| {
-            // Make sure any tcp listeners from the last round are processed
-            trace!("Waiting for {} listeners to be processed", ack_wait.len());
-            for ack in ack_wait.drain(..) {
-                // Ignore errors ‒ they come when the other end shut down or if the config was
-                // dropped
-                let _ = ack.wait();
-            }
-            trace!("Wait complete");
             let sender = sender_val.lock();
             let sender = match sender.as_ref() {
                 Some(sender) => sender,
@@ -197,7 +208,7 @@ fn main() {
             let mut new_listeners = Listeners::new();
             let mut results = Vec::with_capacity(new_config.listen.len() + 1);
             for listen in &new_config.listen {
-                let (stop, result) = listener_config(&listeners, listen, &sender, &mut ack_wait);
+                let (stop, result) = listener_config(&listeners, listen, &sender);
                 if let Some(stop) = stop {
                     new_listeners.insert(listen.clone(), stop);
                 }
