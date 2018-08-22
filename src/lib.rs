@@ -113,8 +113,8 @@
 //!
 //! ## Command line options
 //!
-//! * `background`: This is not yet implemented. But once it is, the process will „daemonize“ ‒
-//!   detach from stdio, fork and terminate the parent.
+//! * `debug`: When this is set, the program doesn't become a daemon and stays in the foreground.
+//!   It preserves the stdio.
 //! * `config-override`: Override configuration value.
 //! * `log`: In addition to the logging in configuration file, also log with the given severity to
 //!   stderr.
@@ -125,12 +125,12 @@
 //! [filter](struct.Builder.html#method.config_files) ‒ are also loaded).
 //!
 //! ```sh
-//! ./program --log info --log-module program=trace --config-override ui.message=something
+//! ./program --debug --log info --log-module program=trace --config-override ui.message=something
 //! ```
 //!
 //! ## Configuration options
 //!
-//! ### logging
+//! ### `logging`
 //!
 //! It is an array of logging destinations. No matter where the logging is sent to, these options
 //! are valid for all:
@@ -154,6 +154,17 @@
 //!   - `port`: The port to use.
 //! * `syslog`: Sends the logs to syslog.
 //!
+//! ### `daemon`
+//!
+//! Influences how daemonization is done.
+//!
+//! * `user`: The user to become. Either a numeric ID or name. If not present, it doesn't change
+//!   the user.
+//! * `group`: Similar as user, but with group.
+//! * `pid_file`: A pid file to write on startup. If not present, nothing is stored.
+//! * `workdir`: A working directory it'll switch into. If not set, defaults to `/`.
+//! * `chroot`: Chroot into a directory. If not present, doesn't chroot.
+//!
 //! # Common patterns
 //!
 //! TODO
@@ -161,6 +172,7 @@
 extern crate arc_swap;
 extern crate chrono;
 extern crate config;
+extern crate daemonize;
 #[macro_use]
 extern crate failure;
 extern crate fallible_iterator;
@@ -202,6 +214,7 @@ use std::time::Duration;
 
 use arc_swap::{ArcSwap, Lease};
 use config::{Config, Environment, File, FileFormat};
+use daemonize::{Daemonize, Stdio};
 use failure::{Error, Fail};
 use fallible_iterator::FallibleIterator;
 use log::LevelFilter;
@@ -216,10 +229,39 @@ use validation::{Level as ValidationLevel, Results as ValidationResults};
 
 pub use logging::SyslogError;
 
+#[derive(Debug, Deserialize, Eq, PartialEq)]
+#[serde(untagged)]
+enum SecId {
+    Name(String),
+    Id(u32),
+    #[serde(skip)]
+    Nothing,
+}
+
+impl Default for SecId {
+    fn default() -> Self {
+        SecId::Nothing
+    }
+}
+
+#[derive(Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+struct Daemon {
+    #[serde(default)]
+    user: SecId,
+    #[serde(default)]
+    group: SecId,
+    pid_file: Option<PathBuf>,
+    chroot: Option<PathBuf>,
+    workdir: Option<PathBuf>,
+}
+
 #[derive(Deserialize)]
 struct ConfigWrapper<C> {
     #[serde(flatten)]
     config: C,
+    #[serde(default)]
+    daemon: Daemon,
     #[serde(default)]
     logging: Vec<Logging>,
     // TODO: Find a way to detect and report unused fields
@@ -248,10 +290,6 @@ where
 
 #[derive(Debug, StructOpt)]
 struct CommonOpts {
-    /// Go into background ‒ daemonize.
-    #[structopt(short = "b", long = "background")]
-    background: bool,
-
     /// Override specific config values.
     #[structopt(
         short = "C",
@@ -264,6 +302,10 @@ struct CommonOpts {
     /// Configuration files or directories to load.
     #[structopt(parse(from_os_str))]
     configs: Vec<PathBuf>,
+
+    /// Debug support - Don't go into background (daemonize) and don't redirect stdio.
+    #[structopt(short = "d", long = "debug")]
+    debug: bool,
 
     /// Log to stderr with this log level.
     #[structopt(short = "l", long = "log", raw(number_of_values = "1"))]
@@ -392,8 +434,10 @@ where
     config_defaults: Option<(String, FileFormat)>,
     config_env: Option<String>,
     config_overrides: HashMap<String, String>,
+    debug: bool,
     extra_logger: Option<Logging>,
     opts: O,
+    previous_daemon: Mutex<Option<Daemon>>,
     terminate: AtomicBool,
 }
 
@@ -498,6 +542,39 @@ where
         self.config.borrow().lease()
     }
 
+    fn daemonize(&self, daemon: &Daemon) -> Result<(), Error> {
+        debug!("Preparing to daemonize with {:?}", daemon);
+        let mut daemonize = Daemonize::new();
+        if let Some(ref pid_file) = daemon.pid_file {
+            daemonize = daemonize.pid_file(pid_file);
+        }
+        if let Some(ref chroot) = daemon.chroot {
+            daemonize = daemonize.chroot(chroot);
+        }
+        if let Some(ref workdir) = daemon.workdir {
+            daemonize = daemonize.working_directory(workdir);
+        }
+        daemonize = match daemon.user {
+            SecId::Name(ref name) => daemonize.user(name as &str),
+            SecId::Id(id) => daemonize.user(id),
+            SecId::Nothing => daemonize,
+        };
+        daemonize = match daemon.group {
+            SecId::Name(ref name) => daemonize.group(name as &str),
+            SecId::Id(id) => daemonize.group(id),
+            SecId::Nothing => daemonize,
+        };
+        if self.debug {
+            daemonize = daemonize
+                .stdin(Stdio::no_redirect())
+                .stdout(Stdio::no_redirect())
+                .stderr(Stdio::no_redirect())
+                .background(false);
+        }
+        daemonize.start()?;
+        Ok(())
+    }
+
     /// Force reload of configuration.
     ///
     /// The configuration gets reloaded either when the process receives `SIGHUP` or when this
@@ -579,6 +656,15 @@ where
             hook(&new);
         }
         debug!("Configuration reloaded");
+        let mut daemon = self.previous_daemon.lock();
+        if let Some(ref daemon) = *daemon {
+            if daemon != &config.daemon {
+                warn!("Can't change daemon configuration at runtime");
+            }
+        } else {
+            self.daemonize(&config.daemon)?;
+        }
+        *daemon = Some(config.daemon);
         Ok(())
     }
 
@@ -791,6 +877,7 @@ where
             config_defaults: self.config_defaults,
             config_env: self.config_env,
             config_overrides: opts.common.config_overrides.into_iter().collect(),
+            debug: opts.common.debug,
             extra_logger,
             hooks: Mutex::new(Hooks {
                 config: self.config_hooks,
@@ -800,6 +887,7 @@ where
                 terminate: self.terminate_hooks,
             }),
             opts: opts.other,
+            previous_daemon: Mutex::new(None),
             terminate: AtomicBool::new(false),
         };
         spirit.config_reload()?;
