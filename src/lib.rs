@@ -165,6 +165,11 @@
 //! * `workdir`: A working directory it'll switch into. If not set, defaults to `/`.
 //! * `chroot`: Chroot into a directory. If not present, doesn't chroot.
 //!
+//! # Multithreaded applications
+//!
+//! As daemonization is done by using `fork`, you should start any threads *after* you initialize
+//! the `spirit`. Otherwise you'll lose the threads (and further bad things will happen).
+//!
 //! # Common patterns
 //!
 //! TODO
@@ -838,6 +843,11 @@ where
     /// This version returns the spirit (or error) and error handling is up to the caller. If you
     /// want spirit to take care of nice error logging (even for your application's top level
     /// errors), use [`run`](#method.run).
+    ///
+    /// # Warning
+    ///
+    /// Unless in debug mode, this forks. You want to run this before you start any threads, or
+    /// you'll lose them.
     pub fn build(self) -> Result<Arc<Spirit<S, O, C>>, Error> {
         let mut logger = Logging {
             destination: LogDestination::StdErr,
