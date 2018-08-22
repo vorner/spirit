@@ -6,7 +6,7 @@
 * More logging configuration and targets
 * Network logging reconnects
 * Metrics
-* Backgrounding
-* Changing user, support for capabilities
+* support for capabilities
 * Features
 * Helpers with set-like configuration, like sockets
+* Ose daemonize from crate once available (or integrate)
