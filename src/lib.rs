@@ -226,6 +226,7 @@ use config::{Config, Environment, File, FileFormat};
 use failure::{Error, Fail};
 use fallible_iterator::FallibleIterator;
 use log::LevelFilter;
+use nix::sys::stat::{self, Mode};
 use nix::unistd::{self, ForkResult, Gid, Uid};
 use parking_lot::Mutex;
 use serde::Deserialize;
@@ -554,6 +555,7 @@ where
         // TODO: Discovering by name
         // TODO: Tests for this
         debug!("Preparing to daemonize with {:?}", daemon);
+        stat::umask(Mode::empty()); // No restrictions on write modes
         let workdir = daemon
             .workdir
             .as_ref()
