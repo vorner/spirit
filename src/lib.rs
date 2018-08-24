@@ -163,7 +163,6 @@
 //! * `group`: Similar as user, but with group.
 //! * `pid_file`: A pid file to write on startup. If not present, nothing is stored.
 //! * `workdir`: A working directory it'll switch into. If not set, defaults to `/`.
-//! * `chroot`: Chroot into a directory. If not present, doesn't chroot.
 //!
 //! # Multithreaded applications
 //!
@@ -177,7 +176,6 @@
 extern crate arc_swap;
 extern crate chrono;
 extern crate config;
-extern crate daemonize;
 #[macro_use]
 extern crate failure;
 extern crate fallible_iterator;
@@ -188,6 +186,7 @@ extern crate libc;
 extern crate log;
 extern crate log_panics;
 extern crate log_reroute;
+extern crate nix;
 extern crate parking_lot;
 extern crate serde;
 #[macro_use]
@@ -204,10 +203,15 @@ pub mod validation;
 
 use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::ffi::OsString;
 use std::fmt::Debug;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::iter;
 use std::marker::PhantomData;
+use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::io::AsRawFd;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process;
@@ -219,10 +223,10 @@ use std::time::Duration;
 
 use arc_swap::{ArcSwap, Lease};
 use config::{Config, Environment, File, FileFormat};
-use daemonize::{Daemonize, Stdio};
 use failure::{Error, Fail};
 use fallible_iterator::FallibleIterator;
 use log::LevelFilter;
+use nix::unistd::{self, ForkResult, Gid, Uid};
 use parking_lot::Mutex;
 use serde::Deserialize;
 use signal_hook::iterator::Signals;
@@ -257,7 +261,6 @@ struct Daemon {
     #[serde(default)]
     group: SecId,
     pid_file: Option<PathBuf>,
-    chroot: Option<PathBuf>,
     workdir: Option<PathBuf>,
 }
 
@@ -548,35 +551,54 @@ where
     }
 
     fn daemonize(&self, daemon: &Daemon) -> Result<(), Error> {
+        // TODO: Discovering by name
+        // TODO: Tests for this
         debug!("Preparing to daemonize with {:?}", daemon);
-        let mut daemonize = Daemonize::new();
-        if let Some(ref pid_file) = daemon.pid_file {
-            daemonize = daemonize.pid_file(pid_file);
+        let workdir = daemon
+            .workdir
+            .as_ref()
+            .map(|pb| pb as &Path)
+            .unwrap_or_else(|| Path::new("/"));
+        trace!("Changing working directory to {:?}", workdir);
+        env::set_current_dir(workdir)?;
+        if !self.debug {
+            trace!("Redirecting stdio");
+            let devnull = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open("/dev/null")?;
+            for fd in &[0, 1, 2] {
+                unistd::dup2(devnull.as_raw_fd(), *fd)?;
+            }
+            trace!("Doing double fork");
+            if let ForkResult::Parent { .. } = unistd::fork()? {
+                process::exit(0);
+            }
+            unistd::setsid()?;
         }
-        if let Some(ref chroot) = daemon.chroot {
-            daemonize = daemonize.chroot(chroot);
+        if let ForkResult::Parent { .. } = unistd::fork()? {
+            process::exit(0);
         }
-        if let Some(ref workdir) = daemon.workdir {
-            daemonize = daemonize.working_directory(workdir);
+        if let Some(ref file) = daemon.pid_file {
+            let mut f = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o644)
+                .open(file)?;
+            writeln!(f, "{}", unistd::getpid())?;
         }
-        daemonize = match daemon.user {
-            SecId::Name(ref name) => daemonize.user(name as &str),
-            SecId::Id(id) => daemonize.user(id),
-            SecId::Nothing => daemonize,
-        };
-        daemonize = match daemon.group {
-            SecId::Name(ref name) => daemonize.group(name as &str),
-            SecId::Id(id) => daemonize.group(id),
-            SecId::Nothing => daemonize,
-        };
-        if self.debug {
-            daemonize = daemonize
-                .stdin(Stdio::no_redirect())
-                .stdout(Stdio::no_redirect())
-                .stderr(Stdio::no_redirect())
-                .background(false);
+        match daemon.group {
+            SecId::Id(id) => unistd::setgid(Gid::from_raw(id))?,
+            SecId::Name(_) => unimplemented!("Discovering group name"),
+            SecId::Nothing => (),
         }
-        daemonize.start()?;
+        match daemon.user {
+            SecId::Id(id) => unistd::setuid(Uid::from_raw(id))?,
+            SecId::Name(_) => unimplemented!("Discovering user name"),
+            SecId::Nothing => (),
+        }
         Ok(())
     }
 
