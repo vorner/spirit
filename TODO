@@ -1,3 +1,5 @@
+* Helpers API
+  - Something to add both config_validator and on_terminate and tokio extension for that
 * Run on spirit itself too
 * Example inside readme, better explanation
 * Fill in TODOs in docs
