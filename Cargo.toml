@@ -14,6 +14,10 @@ license = "Apache-2.0/MIT"
 travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
+[features]
+# TODO: Select only parts of tokio, we don't need the full one
+tokio-helpers = ["futures", "tokio"]
+
 [dependencies]
 arc-swap = "~0.3"
 chrono = "~0.4"
@@ -21,6 +25,7 @@ config = "~0.9"
 failure = "~0.1"
 fallible-iterator = "~0.1"
 fern = { version = "~0.5", features = ["syslog-4"] }
+futures = { version = "~0.1", optional = true }
 itertools = "~0.7"
 libc = "~0.2"
 log = "~0.4"
@@ -33,6 +38,7 @@ serde_derive = "~1"
 signal-hook = "~0.1"
 structopt = "~0.2"
 syslog = "~4"
+tokio = { version = "~0.1", optional = true }
 
 [dev-dependencies]
 futures = "~0.1"

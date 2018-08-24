@@ -180,6 +180,8 @@ extern crate config;
 extern crate failure;
 extern crate fallible_iterator;
 extern crate fern;
+#[cfg(feature = "tokio-helpers")]
+extern crate futures;
 extern crate itertools;
 extern crate libc;
 #[macro_use]
@@ -197,9 +199,33 @@ extern crate signal_hook;
 #[macro_use]
 extern crate structopt;
 extern crate syslog;
+#[cfg(feature = "tokio-helpers")]
+extern crate tokio;
 
 mod logging;
+#[cfg(feature = "tokio-helpers")]
+pub mod tokio_helpers;
 pub mod validation;
+#[cfg(not(feature = "tokio-helpers"))]
+mod tokio_helpers {
+    use std::marker::PhantomData;
+
+    pub(crate) struct TokioGutsInner<T>(PhantomData<T>);
+
+    impl<T> Default for TokioGutsInner<T> {
+        fn default() -> Self {
+            TokioGutsInner(PhantomData)
+        }
+    }
+
+    pub(crate) struct TokioGuts<T>(PhantomData<T>);
+
+    impl<T> From<TokioGutsInner<T>> for TokioGuts<T> {
+        fn from(inner: TokioGutsInner<T>) -> Self {
+            TokioGuts(inner.0)
+        }
+    }
+}
 
 use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
@@ -235,6 +261,7 @@ use structopt::clap::App;
 use structopt::StructOpt;
 
 use logging::{LogDestination, Logging};
+use tokio_helpers::{TokioGuts, TokioGutsInner};
 use validation::{Level as ValidationLevel, Results as ValidationResults};
 
 pub use logging::SyslogError;
@@ -448,6 +475,10 @@ where
     opts: O,
     previous_daemon: Mutex<Option<Daemon>>,
     terminate: AtomicBool,
+
+    // Either empty or top-level futures to spawn on tokio-run. It is unused in this module.
+    #[allow(dead_code)]
+    tokio_guts: TokioGuts<Arc<Spirit<S, O, C>>>,
 }
 
 /// A type alias for a `Spirit` with configuration held inside.
@@ -484,7 +515,7 @@ where
 
 impl<S, O, C> Spirit<S, O, C>
 where
-    S: Borrow<ArcSwap<C>> + 'static,
+    S: Borrow<ArcSwap<C>> + Send + Sync + 'static,
     for<'de> C: Deserialize<'de> + Send + Sync,
     O: StructOpt,
 {
@@ -504,6 +535,7 @@ where
             opts: PhantomData,
             sig_hooks: HashMap::new(),
             terminate_hooks: Vec::new(),
+            tokio_guts: TokioGutsInner::default(),
         }
     }
 
@@ -837,7 +869,10 @@ where
 /// The builder of [`Spirit`](struct.Spirit.html).
 ///
 /// This is returned by the [`Spirit::new`](struct.Spirit.html#new).
-pub struct Builder<S, O = Empty, C = Empty> {
+pub struct Builder<S, O = Empty, C = Empty>
+where
+    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
+{
     config: S,
     config_default_paths: Vec<PathBuf>,
     config_defaults: Option<(String, FileFormat)>,
@@ -848,6 +883,7 @@ pub struct Builder<S, O = Empty, C = Empty> {
     opts: PhantomData<O>,
     sig_hooks: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
     terminate_hooks: Vec<Box<FnMut() + Send>>,
+    tokio_guts: TokioGutsInner<Arc<Spirit<S, O, C>>>,
 }
 
 impl<S, O, C> Builder<S, O, C>
@@ -923,6 +959,7 @@ where
             opts: opts.other,
             previous_daemon: Mutex::new(None),
             terminate: AtomicBool::new(false),
+            tokio_guts: self.tokio_guts.into(),
         };
         spirit.config_reload()?;
         let signals = Signals::new(interesting_signals)?;
