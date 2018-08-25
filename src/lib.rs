@@ -837,9 +837,9 @@ where
                         let path = entry.path();
                         let meta = path.symlink_metadata()?;
                         if meta.is_file() && (filter)(&path) {
-                            trace!("Skipping {:?}", path);
                             Ok(Some(path))
                         } else {
+                            trace!("Skipping {:?}", path);
                             Ok(None)
                         }
                     }).filter_map(|path| path)

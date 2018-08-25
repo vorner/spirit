@@ -50,37 +50,17 @@ mod content {
     extern crate tokio;
 
     use std::collections::HashSet;
-    use std::net::TcpListener as StdTcpListener;
     use std::sync::Arc;
 
-    use config::FileFormat;
-    use failure::Error;
-    use spirit::helpers::tokio::Task;
-    use spirit::{Empty, Spirit, SpiritInner};
-    use self::tokio::net::TcpListener;
+    use self::tokio::net::TcpStream;
     use self::tokio::prelude::*;
     use self::tokio::reactor::Handle;
+    use config::FileFormat;
+    use failure::Error;
+    use spirit::helpers::tokio::{Task, TcpListen};
+    use spirit::{Empty, Spirit, SpiritInner};
 
     // Configuration. It has the same shape as the one in hws.rs.
-
-    fn default_host() -> String {
-        "::".to_owned()
-    }
-
-    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
-    struct Listen {
-        port: u16,
-        #[serde(default = "default_host")]
-        host: String,
-    }
-
-    impl Listen {
-        fn create(&self) -> Result<TcpListener, Error> {
-            let std_socket = StdTcpListener::bind((&self.host as &str, self.port))?;
-            let tokio_socket = TcpListener::from_std(std_socket, &Handle::default())?;
-            Ok(tokio_socket)
-        }
-    }
 
     #[derive(Default, Deserialize)]
     struct Ui {
@@ -89,12 +69,12 @@ mod content {
 
     #[derive(Default, Deserialize)]
     struct Config {
-        listen: HashSet<Listen>,
+        listen: HashSet<TcpListen>,
         ui: Ui,
     }
 
     impl Config {
-        fn listen(&self) -> HashSet<Listen> {
+        fn listen(&self) -> HashSet<TcpListen> {
             self.listen.clone()
         }
     }
@@ -111,41 +91,27 @@ mod content {
     msg = "Hello world"
     "#;
 
-    // This is more exercise for tokio programming than about spirit…
-    fn handle_listener(
+    fn handle_connection(
         spirit: &SpiritInner<Empty, Config>,
-        listener: TcpListener,
+        conn: TcpStream,
     ) -> impl Future<Item = (), Error = Error> {
-        let spirit = Arc::clone(spirit);
-        listener.incoming()
-            // FIXME: tk-listen to ignore things like the other side closing connection before we
-            // accept
-            .for_each(move |conn| {
-                let addr = conn.peer_addr()
-                    .map(|addr| addr.to_string())
-                    .unwrap_or_else(|_| "<unknown>".to_owned());
-                debug!("Handling connection {}", addr);
-                let mut msg = spirit.config().ui.msg.clone().into_bytes();
-                msg.push(b'\n');
-                let write = tokio::io::write_all(conn, msg)
-                    .map(|_| ()) // Throw away the connection and close it
-                    .or_else(move |e| {
-                        warn!("Failed to write message to {}: {}", addr, e);
-                        future::ok(())
-                    });
-                tokio::spawn(write);
+        let addr = conn
+            .peer_addr()
+            .map(|addr| addr.to_string())
+            .unwrap_or_else(|_| "<unknown>".to_owned());
+        debug!("Handling connection {}", addr);
+        let mut msg = spirit.config().ui.msg.clone().into_bytes();
+        msg.push(b'\n');
+        tokio::io::write_all(conn, msg)
+            .map(|_| ()) // Throw away the connection and close it
+            .or_else(move |e| {
+                warn!("Failed to write message to {}: {}", addr, e);
                 future::ok(())
             })
-            .map_err(Error::from)
     }
 
     pub fn main() {
-        let helper = Task {
-            extract: Config::listen,
-            build: Listen::create,
-            to_task: handle_listener,
-            name: "listener",
-        };
+        let helper = TcpListen::helper(Config::listen, handle_connection, "listener");
         Spirit::<_, Empty, _>::new(Config::default())
             .config_defaults(DEFAULT_CONFIG, FileFormat::Toml)
             .config_exts(&["toml", "ini", "json"])

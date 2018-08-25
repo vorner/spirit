@@ -4,6 +4,7 @@ use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::mem;
+use std::net::TcpListener as StdTcpListener;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -14,7 +15,9 @@ use parking_lot::Mutex;
 use serde::Deserialize;
 use structopt::StructOpt;
 use tokio;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
+use tokio::reactor::Handle;
 
 use super::super::validation::Result as ValidationResult;
 use super::super::{Builder, Spirit, ValidationResults};
@@ -141,7 +144,10 @@ impl Task<(), (), (), ()> {
 }
 
 impl<Extract, Build, ToTask, Name> Task<Extract, Build, ToTask, Name> {
-    pub fn with_extract<NewExtract>(self, extract: NewExtract) -> Task<NewExtract, Build, ToTask, Name> {
+    pub fn with_extract<NewExtract>(
+        self,
+        extract: NewExtract,
+    ) -> Task<NewExtract, Build, ToTask, Name> {
         Task {
             extract: extract,
             build: self.build,
@@ -157,7 +163,10 @@ impl<Extract, Build, ToTask, Name> Task<Extract, Build, ToTask, Name> {
             name: self.name,
         }
     }
-    pub fn with_to_task<NewToTask>(self, to_task: NewToTask) -> Task<Extract, Build, NewToTask, Name> {
+    pub fn with_to_task<NewToTask>(
+        self,
+        to_task: NewToTask,
+    ) -> Task<Extract, Build, NewToTask, Name> {
         Task {
             extract: self.extract,
             build: self.build,
@@ -183,7 +192,7 @@ where
     O: Debug + StructOpt + Sync + Send + 'static,
     Extract: FnMut(&C) -> ExtractIt + Send + 'static,
     ExtractIt: IntoIterator<Item = SubCfg>,
-    SubCfg: Eq + Debug + Hash + Send + 'static,
+    SubCfg: PartialEq + Debug + Send + 'static,
     Build: FnMut(&SubCfg) -> Result<Resource, Error> + Send + 'static,
     Resource: Send + 'static,
     ToTask: FnMut(&Arc<Spirit<S, O, C>>, Resource) -> InnerTask + Send + 'static,
@@ -238,16 +247,20 @@ where
             })
         };
 
-        let cache = Arc::new(Mutex::new(HashMap::<SubCfg, Arc<RemoteDrop>>::new()));
+        let cache = Arc::new(Mutex::new(Vec::<(SubCfg, Arc<RemoteDrop>)>::new()));
         let validator = move |_: &Arc<C>, cfg: &mut C, _: &O| -> ValidationResults {
             let mut results = ValidationResults::new();
             let orig_cache = cache.lock();
-            let mut new_cache = HashMap::<SubCfg, Arc<RemoteDrop>>::new();
+            let mut new_cache = Vec::<(SubCfg, Arc<RemoteDrop>)>::new();
             let mut to_send = Vec::new();
             for sub in extract(cfg) {
-                if let Some(previous) = orig_cache.get(&sub).cloned() {
+                let previous = orig_cache
+                    .iter()
+                    .find(|(cfg, _)| cfg == &sub)
+                    .map(|(_, remote)| Arc::clone(remote));
+                if let Some(previous) = previous {
                     debug!("Reusing previous instance of {} for {:?}", name, sub);
-                    new_cache.insert(sub, previous);
+                    new_cache.push((sub, previous));
                 } else {
                     trace!("Creating new instance of {} for {:?}", name, sub);
                     match build(&sub) {
@@ -261,13 +274,13 @@ where
                                 confirm_drop: confirm_sender,
                                 cfg: format!("{:?}", sub),
                             });
-                            new_cache.insert(
+                            new_cache.push((
                                 sub,
                                 Arc::new(RemoteDrop {
                                     request_drop: Some(req_sender),
                                     drop_confirmed: Some(confirm_recv),
                                 }),
-                            );
+                            ));
                         }
                         Err(e) => {
                             let msg = format!("Creationg of {} for {:?} failed: {}", name, sub, e);
@@ -294,5 +307,67 @@ where
         };
 
         builder.config_validator(validator).tokio_task(installer)
+    }
+}
+
+fn default_host() -> String {
+    "::".to_owned()
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct TcpListen {
+    port: u16,
+    #[serde(default = "default_host")]
+    host: String,
+}
+
+impl TcpListen {
+    pub fn create(&self) -> Result<TcpListener, Error> {
+        let std_socket = StdTcpListener::bind((&self.host as &str, self.port))?;
+        let tokio_socket = TcpListener::from_std(std_socket, &Handle::default())?;
+        Ok(tokio_socket)
+    }
+
+    pub fn helper<Extract, ExtractIt, Conn, ConnFut, Name, S, O, C>(
+        extract: Extract,
+        conn: Conn,
+        name: Name,
+    ) -> impl Helper<S, O, C>
+    where
+        S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
+        for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+        O: Debug + StructOpt + Sync + Send + 'static,
+        Extract: FnMut(&C) -> ExtractIt + Send + 'static,
+        ExtractIt: IntoIterator<Item = Self>,
+        Conn: Fn(&Arc<Spirit<S, O, C>>, TcpStream) -> ConnFut + Sync + Send + 'static,
+        ConnFut: Future<Item = (), Error = Error> + Send + 'static,
+        Name: Clone + Display + Send + Sync + 'static,
+    {
+        let conn = Arc::new(conn);
+        // TODO: Better logging
+        let to_task = move |spirit: &Arc<Spirit<S, O, C>>, listener: TcpListener| {
+            let spirit = Arc::clone(spirit);
+            let conn = Arc::clone(&conn);
+            listener.incoming()
+                // FIXME: tk-listen to ignore things like the other side closing connection before we
+                // accept
+                .map_err(Error::from)
+                .for_each(move |new_conn| {
+                    let handle_conn = conn(&spirit, new_conn)
+                        .or_else(move |e| {
+                            // TODO: Better logging, with name
+                            warn!("Failed to handle connection: {}", e);
+                            future::ok(())
+                        });
+                    tokio::spawn(handle_conn);
+                    future::ok(())
+                })
+        };
+        Task {
+            extract,
+            build: TcpListen::create,
+            to_task,
+            name,
+        }
     }
 }
