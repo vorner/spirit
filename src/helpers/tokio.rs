@@ -129,6 +129,52 @@ pub struct Task<Extract, Build, ToTask, Name> {
     pub name: Name,
 }
 
+impl Task<(), (), (), ()> {
+    pub fn new() -> Self {
+        Task {
+            extract: (),
+            build: (),
+            to_task: (),
+            name: (),
+        }
+    }
+}
+
+impl<Extract, Build, ToTask, Name> Task<Extract, Build, ToTask, Name> {
+    pub fn with_extract<NewExtract>(self, extract: NewExtract) -> Task<NewExtract, Build, ToTask, Name> {
+        Task {
+            extract: extract,
+            build: self.build,
+            to_task: self.to_task,
+            name: self.name,
+        }
+    }
+    pub fn with_build<NewBuild>(self, build: NewBuild) -> Task<Extract, NewBuild, ToTask, Name> {
+        Task {
+            extract: self.extract,
+            build: build,
+            to_task: self.to_task,
+            name: self.name,
+        }
+    }
+    pub fn with_to_task<NewToTask>(self, to_task: NewToTask) -> Task<Extract, Build, NewToTask, Name> {
+        Task {
+            extract: self.extract,
+            build: self.build,
+            to_task: to_task,
+            name: self.name,
+        }
+    }
+    pub fn with_name<NewName>(self, name: NewName) -> Task<Extract, Build, ToTask, NewName> {
+        Task {
+            extract: self.extract,
+            build: self.build,
+            to_task: self.to_task,
+            name: name,
+        }
+    }
+}
+
 impl<S, O, C, SubCfg, Resource, Extract, ExtractIt, Build, ToTask, InnerTask, Name> Helper<S, O, C>
     for Task<Extract, Build, ToTask, Name>
 where
