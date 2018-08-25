@@ -3,8 +3,8 @@
     test(attr(deny(warnings)))
 )]
 #![cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
-#![forbid(missing_docs, unsafe_code)]
-#![deny(warnings)]
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
 
 //! A helper to create unix daemons.
 //!
@@ -202,30 +202,9 @@ extern crate syslog;
 #[cfg(feature = "tokio-helpers")]
 extern crate tokio;
 
+pub mod helpers;
 mod logging;
-#[cfg(feature = "tokio-helpers")]
-pub mod tokio_helpers;
 pub mod validation;
-#[cfg(not(feature = "tokio-helpers"))]
-mod tokio_helpers {
-    use std::marker::PhantomData;
-
-    pub(crate) struct TokioGutsInner<T>(PhantomData<T>);
-
-    impl<T> Default for TokioGutsInner<T> {
-        fn default() -> Self {
-            TokioGutsInner(PhantomData)
-        }
-    }
-
-    pub(crate) struct TokioGuts<T>(PhantomData<T>);
-
-    impl<T> From<TokioGutsInner<T>> for TokioGuts<T> {
-        fn from(inner: TokioGutsInner<T>) -> Self {
-            TokioGuts(inner.0)
-        }
-    }
-}
 
 use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
@@ -260,9 +239,12 @@ use signal_hook::iterator::Signals;
 use structopt::clap::App;
 use structopt::StructOpt;
 
+use helpers::tokio::{TokioGuts, TokioGutsInner};
+use helpers::Helper;
 use logging::{LogDestination, Logging};
-use tokio_helpers::{TokioGuts, TokioGutsInner};
-use validation::{Level as ValidationLevel, Results as ValidationResults};
+use validation::{
+    Error as ValidationError, Level as ValidationLevel, Results as ValidationResults,
+};
 
 pub use logging::SyslogError;
 
@@ -420,6 +402,19 @@ struct Hooks<O, C> {
     config_validators: Vec<Box<FnMut(&Arc<C>, &mut C, &O) -> ValidationResults + Send>>,
     sigs: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
     terminate: Vec<Box<FnMut() + Send>>,
+}
+
+impl<O, C> Default for Hooks<O, C> {
+    fn default() -> Self {
+        let no_filter = Box::new(|_: &_| false);
+        Hooks {
+            config_filter: no_filter,
+            config: Vec::new(),
+            config_validators: Vec::new(),
+            sigs: HashMap::new(),
+            terminate: Vec::new(),
+        }
+    }
 }
 
 /// The main manipulation handle/struct of the library.
@@ -699,7 +694,7 @@ where
                     abort();
                 }
             }
-            return Err(results.into());
+            return Err(ValidationError.into());
         }
         debug!("Validation successful, installing new config");
         for r in &mut results.0 {
@@ -767,6 +762,8 @@ where
     ///
     /// * Calls the `on_terminate` callbacks.
     /// * Sets the [`is_terminated`](#method.is_terminated) flag is set.
+    /// * Drops all callbacks from spirit. This allows destruction/termination of parts of program
+    ///   by dropping remote handles or similar things.
     /// * The background thread terminates.
     ///
     /// # Warning
@@ -779,6 +776,7 @@ where
             hook();
         }
         self.terminate.store(true, Ordering::Relaxed);
+        *self.hooks.lock() = Hooks::default();
     }
 
     fn background(&self, signals: &Signals) {
@@ -1206,6 +1204,10 @@ where
             config_validators: validators,
             ..self
         }
+    }
+
+    pub fn helper<H: Helper<S, O, C>>(self, helper: H) -> Self {
+        helper.apply(self)
     }
 
     /// Adds a callback for notification about new configurations.

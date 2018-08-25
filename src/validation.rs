@@ -4,6 +4,12 @@
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::slice::Iter;
 
+/// An error caused by failed validation
+// TODO: Better content
+#[derive(Debug, Fail)]
+#[fail(display = "Config validation failed")]
+pub struct Error;
+
 /// A level of [`validation result`](struct.Result.html).
 ///
 /// This determines the log level at which the result (message) will appear. It also can determine
@@ -51,8 +57,8 @@ impl Default for Level {
 pub struct Result {
     level: Level,
     description: String,
-    pub(crate) on_abort: Option<Box<FnMut() + Sync + Send>>,
-    pub(crate) on_success: Option<Box<FnMut() + Sync + Send>>,
+    pub(crate) on_abort: Option<Box<FnMut()>>,
+    pub(crate) on_success: Option<Box<FnMut()>>,
 }
 
 impl Result {
@@ -100,7 +106,7 @@ impl Result {
     }
 
     /// Attaches (replaces) the success action.
-    pub fn on_success<F: FnOnce() + Send + Sync + 'static>(self, f: F) -> Self {
+    pub fn on_success<F: FnOnce() + 'static>(self, f: F) -> Self {
         let mut f = Some(f);
         let wrapper = move || (f.take().unwrap())();
         Self {
@@ -110,7 +116,7 @@ impl Result {
     }
 
     /// Attaches (replaces) the failure action.
-    pub fn on_abort<F: FnOnce() + Send + Sync + 'static>(self, f: F) -> Self {
+    pub fn on_abort<F: FnOnce() + 'static>(self, f: F) -> Self {
         let mut f = Some(f);
         let wrapper = move || (f.take().unwrap())();
         Self {
@@ -188,8 +194,7 @@ impl From<(Level, &'static str)> for Result {
 /// A validator can actually return multiple results at once (to, for example, produce multiple
 /// messages). This is a storage of multiple results which can be created by either converting a
 /// single or iterator or by merging multiple `Results` objects.
-#[derive(Debug, Default, Fail)]
-#[fail(display = "Validation failed")] // TODO: Something better
+#[derive(Debug, Default)]
 pub struct Results(pub(crate) Vec<Result>);
 
 impl Results {
