@@ -605,9 +605,11 @@ where
                 process::exit(0);
             }
             unistd::setsid()?;
-        }
-        if let ForkResult::Parent { .. } = unistd::fork()? {
-            process::exit(0);
+            if let ForkResult::Parent { .. } = unistd::fork()? {
+                process::exit(0);
+            }
+        } else {
+            trace!("Not backgrounding due to debug");
         }
         if let Some(ref file) = daemon.pid_file {
             let mut f = OpenOptions::new()

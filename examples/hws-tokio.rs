@@ -21,9 +21,9 @@
 //! about it). It would be possible to solve, but it would make the code even more complex and the
 //! race condition is quite short and unlikely.
 
+#![allow(unused_imports)]
 extern crate config;
 extern crate failure;
-extern crate futures;
 #[macro_use]
 extern crate log;
 extern crate parking_lot;
@@ -31,108 +31,129 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate spirit;
-extern crate tokio;
 
-use std::collections::HashSet;
-use std::net::TcpListener as StdTcpListener;
-use std::sync::Arc;
+#[cfg(not(feature = "tokio-helpers"))]
+mod content {
+    // A trick to make the example not fail compilation if features are missing
+    // The real code is in the next version of `mod content`
+    use std::process;
 
-use config::FileFormat;
-use failure::Error;
-use spirit::helpers::tokio::Task;
-use spirit::{Empty, Spirit, SpiritInner};
-use tokio::net::TcpListener;
-use tokio::prelude::*;
-use tokio::reactor::Handle;
-
-// Configuration. It has the same shape as the one in hws.rs.
-
-fn default_host() -> String {
-    "::".to_owned()
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
-struct Listen {
-    port: u16,
-    #[serde(default = "default_host")]
-    host: String,
-}
-
-impl Listen {
-    fn create(&self) -> Result<TcpListener, Error> {
-        let std_socket = StdTcpListener::bind((&self.host as &str, self.port))?;
-        let tokio_socket = TcpListener::from_std(std_socket, &Handle::default())?;
-        Ok(tokio_socket)
+    pub fn main() {
+        eprintln!("This works only if the crate is compiled with the tokio-helpers feature");
+        eprintln!("Try `cargo run --all-features --example hws-tokio`");
+        process::exit(1);
     }
 }
 
-#[derive(Default, Deserialize)]
-struct Ui {
-    msg: String,
-}
+#[cfg(feature = "tokio-helpers")]
+mod content {
+    extern crate tokio;
 
-#[derive(Default, Deserialize)]
-struct Config {
-    listen: HashSet<Listen>,
-    ui: Ui,
-}
+    use std::collections::HashSet;
+    use std::net::TcpListener as StdTcpListener;
+    use std::sync::Arc;
 
-impl Config {
-    fn listen(&self) -> HashSet<Listen> {
-        self.listen.clone()
+    use config::FileFormat;
+    use failure::Error;
+    use spirit::helpers::tokio::Task;
+    use spirit::{Empty, Spirit, SpiritInner};
+    use self::tokio::net::TcpListener;
+    use self::tokio::prelude::*;
+    use self::tokio::reactor::Handle;
+
+    // Configuration. It has the same shape as the one in hws.rs.
+
+    fn default_host() -> String {
+        "::".to_owned()
     }
-}
 
-const DEFAULT_CONFIG: &str = r#"
-[[listen]]
-port = 1234
+    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+    struct Listen {
+        port: u16,
+        #[serde(default = "default_host")]
+        host: String,
+    }
 
-[[listen]]
-port = 5678
-host = "localhost"
+    impl Listen {
+        fn create(&self) -> Result<TcpListener, Error> {
+            let std_socket = StdTcpListener::bind((&self.host as &str, self.port))?;
+            let tokio_socket = TcpListener::from_std(std_socket, &Handle::default())?;
+            Ok(tokio_socket)
+        }
+    }
 
-[ui]
-msg = "Hello world"
-"#;
+    #[derive(Default, Deserialize)]
+    struct Ui {
+        msg: String,
+    }
 
-// This is more exercise for tokio programming than about spirit…
-fn handle_listener(
-    spirit: &SpiritInner<Empty, Config>,
-    listener: TcpListener,
-) -> impl Future<Item = (), Error = Error> {
-    let spirit = Arc::clone(spirit);
-    listener.incoming()
-        // FIXME: tk-listen to ignore things like the other side closing connection before we
-        // accept
-        .for_each(move |conn| {
-            let addr = conn.peer_addr()
-                .map(|addr| addr.to_string())
-                .unwrap_or_else(|_| "<unknown>".to_owned());
-            debug!("Handling connection {}", addr);
-            let mut msg = spirit.config().ui.msg.clone().into_bytes();
-            msg.push(b'\n');
-            let write = tokio::io::write_all(conn, msg)
-                .map(|_| ()) // Throw away the connection and close it
-                .or_else(move |e| {
-                    warn!("Failed to write message to {}: {}", addr, e);
-                    future::ok(())
-                });
-            tokio::spawn(write);
-            future::ok(())
-        })
-        .map_err(Error::from)
+    #[derive(Default, Deserialize)]
+    struct Config {
+        listen: HashSet<Listen>,
+        ui: Ui,
+    }
+
+    impl Config {
+        fn listen(&self) -> HashSet<Listen> {
+            self.listen.clone()
+        }
+    }
+
+    const DEFAULT_CONFIG: &str = r#"
+    [[listen]]
+    port = 1234
+
+    [[listen]]
+    port = 5678
+    host = "localhost"
+
+    [ui]
+    msg = "Hello world"
+    "#;
+
+    // This is more exercise for tokio programming than about spirit…
+    fn handle_listener(
+        spirit: &SpiritInner<Empty, Config>,
+        listener: TcpListener,
+    ) -> impl Future<Item = (), Error = Error> {
+        let spirit = Arc::clone(spirit);
+        listener.incoming()
+            // FIXME: tk-listen to ignore things like the other side closing connection before we
+            // accept
+            .for_each(move |conn| {
+                let addr = conn.peer_addr()
+                    .map(|addr| addr.to_string())
+                    .unwrap_or_else(|_| "<unknown>".to_owned());
+                debug!("Handling connection {}", addr);
+                let mut msg = spirit.config().ui.msg.clone().into_bytes();
+                msg.push(b'\n');
+                let write = tokio::io::write_all(conn, msg)
+                    .map(|_| ()) // Throw away the connection and close it
+                    .or_else(move |e| {
+                        warn!("Failed to write message to {}: {}", addr, e);
+                        future::ok(())
+                    });
+                tokio::spawn(write);
+                future::ok(())
+            })
+            .map_err(Error::from)
+    }
+
+    pub fn main() {
+        let helper = Task {
+            extract: Config::listen,
+            build: Listen::create,
+            to_task: handle_listener,
+            name: "listener",
+        };
+        Spirit::<_, Empty, _>::new(Config::default())
+            .config_defaults(DEFAULT_CONFIG, FileFormat::Toml)
+            .config_exts(&["toml", "ini", "json"])
+            .helper(helper)
+            .run_tokio();
+    }
 }
 
 fn main() {
-    let helper = Task {
-        extract: Config::listen,
-        build: Listen::create,
-        to_task: handle_listener,
-        name: "listener",
-    };
-    Spirit::<_, Empty, _>::new(Config::default())
-        .config_defaults(DEFAULT_CONFIG, FileFormat::Toml)
-        .config_exts(&["toml", "ini", "json"])
-        .helper(helper)
-        .run_tokio();
+    content::main()
 }

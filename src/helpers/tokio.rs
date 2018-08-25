@@ -113,10 +113,12 @@ struct RemoteDrop {
 
 impl Drop for RemoteDrop {
     fn drop(&mut self) {
+        trace!("Requesting remote drop");
         // Ask the other side to drop the thing
         let _ = self.request_drop.take().unwrap().send(());
         // And wait for it to actually happen
         let _ = self.drop_confirmed.take().unwrap().wait();
+        trace!("Remote drop done");
     }
 }
 
@@ -150,6 +152,7 @@ where
             mut to_task,
             name,
         } = self;
+        debug!("Installing helper {}", name);
         // Note: this depends on the specific drop order to avoid races
         struct Install<R> {
             resource: R,
@@ -170,13 +173,17 @@ where
                     cfg,
                 } = install;
                 let name = installer_name.clone();
+                debug!("Installing resource {} with config {}", name, cfg);
                 // Get the task itself
                 let task = to_task(&spirit, resource).into_future();
+                let err_name = name.clone();
+                let err_cfg = cfg.clone();
                 // Wrap it in the cancelation routine
                 let wrapped = task
-                    .map_err(move |e| error!("Task {} on cfg {} failed: {}", name, cfg, e))
+                    .map_err(move |e| error!("Task {} on cfg {} failed: {}", err_name, err_cfg, e))
                     .select(drop_req.map_err(|_| ())) // Cancelation is OK too
-                    .then(|orig| {
+                    .then(move |orig| {
+                        debug!("Terminated resource {} on cfg {}", name, cfg);
                         drop(orig); // Make sure the original future is dropped first.
                         confirm_drop.send(())
                     })
@@ -226,13 +233,16 @@ where
             }
             let sender = install_sender.clone();
             let cache = Arc::clone(&cache);
+            let name = name.clone();
             results.merge(ValidationResult::nothing().on_success(move || {
                 for install in to_send {
+                    trace!("Sending {} to the reactor", install.cfg);
                     sender
                         .unbounded_send(install)
                         .expect("The tokio end got dropped");
                 }
                 *cache.lock() = new_cache;
+                debug!("New version of {} sent", name);
             }));
             results
         };
