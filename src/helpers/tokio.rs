@@ -120,13 +120,15 @@ impl Drop for RemoteDrop {
     }
 }
 
-// TODO: A lot of logging
-pub fn task<S, O, C, SubCfg, Resource, Extract, ExtractIt, Build, ToTask, Task, Name>(
-    mut extract: Extract,
-    mut build: Build,
-    mut to_task: ToTask,
-    name: Name,
-) -> impl Helper<S, O, C>
+pub struct Task<Extract, Build, ToTask, Name> {
+    pub extract: Extract,
+    pub build: Build,
+    pub to_task: ToTask,
+    pub name: Name,
+}
+
+impl<S, O, C, SubCfg, Resource, Extract, ExtractIt, Build, ToTask, InnerTask, Name> Helper<S, O, C>
+    for Task<Extract, Build, ToTask, Name>
 where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
     for<'de> C: Deserialize<'de> + Send + Sync + 'static,
@@ -136,30 +138,37 @@ where
     SubCfg: Eq + Debug + Hash + Send + 'static,
     Build: FnMut(&SubCfg) -> Result<Resource, Error> + Send + 'static,
     Resource: Send + 'static,
-    ToTask: FnMut(&Arc<Spirit<S, O, C>>, Resource) -> Task + Send + 'static,
-    Task: IntoFuture<Item = (), Error = Error> + Send + 'static,
-    <Task as IntoFuture>::Future: Send,
+    ToTask: FnMut(&Arc<Spirit<S, O, C>>, Resource) -> InnerTask + Send + 'static,
+    InnerTask: IntoFuture<Item = (), Error = Error> + Send + 'static,
+    <InnerTask as IntoFuture>::Future: Send,
     Name: Clone + Display + Send + Sync + 'static,
 {
-    // Note: this depends on the specific drop order to avoid races
-    struct Install<R> {
-        resource: R,
-        drop_req: oneshot::Receiver<()>,
-        confirm_drop: oneshot::Sender<()>,
-        cfg: String,
-    }
-    let (install_sender, install_receiver) = mpsc::unbounded::<Install<Resource>>();
+    fn apply(self, builder: Builder<S, O, C>) -> Builder<S, O, C> {
+        let Task {
+            mut extract,
+            mut build,
+            mut to_task,
+            name,
+        } = self;
+        // Note: this depends on the specific drop order to avoid races
+        struct Install<R> {
+            resource: R,
+            drop_req: oneshot::Receiver<()>,
+            confirm_drop: oneshot::Sender<()>,
+            cfg: String,
+        }
+        let (install_sender, install_receiver) = mpsc::unbounded::<Install<Resource>>();
 
-    let installer_name = name.clone();
-    let installer = move |spirit: &Arc<Spirit<S, O, C>>| {
-        let spirit = Arc::clone(spirit);
-        install_receiver.for_each(
-            move |Install {
-                      resource,
-                      drop_req,
-                      confirm_drop,
-                      cfg,
-                  }| {
+        let installer_name = name.clone();
+        let installer = move |spirit: &Arc<Spirit<S, O, C>>| {
+            let spirit = Arc::clone(spirit);
+            install_receiver.for_each(move |install| {
+                let Install {
+                    resource,
+                    drop_req,
+                    confirm_drop,
+                    cfg,
+                } = install;
                 let name = installer_name.clone();
                 // Get the task itself
                 let task = to_task(&spirit, resource).into_future();
@@ -173,63 +182,61 @@ where
                     })
                     .map_err(|_| ()); // If nobody waits for confirm_drop, that's OK.
                 tokio::spawn(wrapped)
-            },
-        )
-    };
+            })
+        };
 
-    let cache = Arc::new(Mutex::new(HashMap::<SubCfg, Arc<RemoteDrop>>::new()));
-    let validator = move |_: &Arc<C>, cfg: &mut C, _: &O| -> ValidationResults {
-        let mut results = ValidationResults::new();
-        let orig_cache = cache.lock();
-        let mut new_cache = HashMap::<SubCfg, Arc<RemoteDrop>>::new();
-        let mut to_send = Vec::new();
-        for sub in extract(cfg) {
-            if let Some(previous) = orig_cache.get(&sub).cloned() {
-                debug!("Reusing previous instance of {} for {:?}", name, sub);
-                new_cache.insert(sub, previous);
-            } else {
-                trace!("Creating new instance of {} for {:?}", name, sub);
-                match build(&sub) {
-                    Ok(resource) => {
-                        debug!("Successfully created instance of {} for {:?}", name, sub);
-                        let (req_sender, req_recv) = oneshot::channel();
-                        let (confirm_sender, confirm_recv) = oneshot::channel();
-                        to_send.push(Install {
-                            resource,
-                            drop_req: req_recv,
-                            confirm_drop: confirm_sender,
-                            cfg: format!("{:?}", sub),
-                        });
-                        new_cache.insert(
-                            sub,
-                            Arc::new(RemoteDrop {
-                                request_drop: Some(req_sender),
-                                drop_confirmed: Some(confirm_recv),
-                            }),
-                        );
-                    }
-                    Err(e) => {
-                        let msg = format!("Creationg of {} for {:?} failed: {}", name, sub, e);
-                        debug!("{}", msg); // The error will appear together for the validator
-                        results.merge(ValidationResult::error(msg));
+        let cache = Arc::new(Mutex::new(HashMap::<SubCfg, Arc<RemoteDrop>>::new()));
+        let validator = move |_: &Arc<C>, cfg: &mut C, _: &O| -> ValidationResults {
+            let mut results = ValidationResults::new();
+            let orig_cache = cache.lock();
+            let mut new_cache = HashMap::<SubCfg, Arc<RemoteDrop>>::new();
+            let mut to_send = Vec::new();
+            for sub in extract(cfg) {
+                if let Some(previous) = orig_cache.get(&sub).cloned() {
+                    debug!("Reusing previous instance of {} for {:?}", name, sub);
+                    new_cache.insert(sub, previous);
+                } else {
+                    trace!("Creating new instance of {} for {:?}", name, sub);
+                    match build(&sub) {
+                        Ok(resource) => {
+                            debug!("Successfully created instance of {} for {:?}", name, sub);
+                            let (req_sender, req_recv) = oneshot::channel();
+                            let (confirm_sender, confirm_recv) = oneshot::channel();
+                            to_send.push(Install {
+                                resource,
+                                drop_req: req_recv,
+                                confirm_drop: confirm_sender,
+                                cfg: format!("{:?}", sub),
+                            });
+                            new_cache.insert(
+                                sub,
+                                Arc::new(RemoteDrop {
+                                    request_drop: Some(req_sender),
+                                    drop_confirmed: Some(confirm_recv),
+                                }),
+                            );
+                        }
+                        Err(e) => {
+                            let msg = format!("Creationg of {} for {:?} failed: {}", name, sub, e);
+                            debug!("{}", msg); // The error will appear together for the validator
+                            results.merge(ValidationResult::error(msg));
+                        }
                     }
                 }
             }
-        }
-        let sender = install_sender.clone();
-        let cache = Arc::clone(&cache);
-        results.merge(ValidationResult::nothing().on_success(move || {
-            for install in to_send {
-                sender
-                    .unbounded_send(install)
-                    .expect("The tokio end got dropped");
-            }
-            *cache.lock() = new_cache;
-        }));
-        results
-    };
+            let sender = install_sender.clone();
+            let cache = Arc::clone(&cache);
+            results.merge(ValidationResult::nothing().on_success(move || {
+                for install in to_send {
+                    sender
+                        .unbounded_send(install)
+                        .expect("The tokio end got dropped");
+                }
+                *cache.lock() = new_cache;
+            }));
+            results
+        };
 
-    let apply =
-        move |builder: Builder<S, O, C>| builder.config_validator(validator).tokio_task(installer);
-    TokioApply(apply, PhantomData)
+        builder.config_validator(validator).tokio_task(installer)
+    }
 }

@@ -39,6 +39,7 @@ use std::sync::Arc;
 
 use config::FileFormat;
 use failure::Error;
+use spirit::helpers::tokio::Task;
 use spirit::{Empty, Spirit, SpiritInner};
 use tokio::net::TcpListener;
 use tokio::prelude::*;
@@ -123,11 +124,15 @@ fn handle_listener(
 }
 
 fn main() {
-    let listen_helper =
-        spirit::helpers::tokio::task(Config::listen, Listen::create, handle_listener, "listener");
+    let helper = Task {
+        extract: Config::listen,
+        build: Listen::create,
+        to_task: handle_listener,
+        name: "listener",
+    };
     Spirit::<_, Empty, _>::new(Config::default())
         .config_defaults(DEFAULT_CONFIG, FileFormat::Toml)
         .config_exts(&["toml", "ini", "json"])
-        .helper(listen_helper)
+        .helper(helper)
         .run_tokio();
 }
