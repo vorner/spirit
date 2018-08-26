@@ -333,12 +333,42 @@ fn default_max_conn() -> usize {
     1000
 }
 
+pub trait Scaled {
+    fn scaled<Name: Display>(&self, name: &Name) -> (usize, ValidationResults);
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct TcpListen<ExtraCfg = Empty> {
-    #[serde(flatten)]
-    listen: Listen,
+pub struct Scale {
     #[serde(default = "default_scale")]
     scale: usize,
+}
+
+impl Scaled for Scale {
+    fn scaled<Name: Display>(&self, name: &Name) -> (usize, ValidationResults) {
+        if self.scale > 0 {
+            (self.scale, ValidationResults::new())
+        } else {
+            let msg = format!("Turning scale in {} from 0 to 1", name);
+            (1, ValidationResult::warning(msg).into())
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct Singleton {}
+
+impl Scaled for Singleton {
+    fn scaled<Name: Display>(&self, _: &Name) -> (usize, ValidationResults) {
+        (1, ValidationResults::new())
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct TcpListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
+    #[serde(flatten)]
+    listen: Listen,
+    #[serde(flatten)]
+    scale: ScaleMode,
     #[serde(rename = "error-sleep-ms", default = "default_error_sleep")]
     error_sleep_ms: u64,
     #[serde(rename = "max-conn", default = "default_max_conn")]
@@ -413,12 +443,7 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
         let extract_name = name.clone();
         let extract = move |cfg: &C| {
             extract(cfg).into_iter().map(|c| {
-                let (scale, results) = if c.scale > 0 {
-                    (c.scale, ValidationResults::new())
-                } else {
-                    let msg = format!("Turning scale in {} from 0 to 1", extract_name);
-                    (1, ValidationResult::warning(msg).into())
-                };
+                let (scale, results) = c.scale.scaled(&extract_name);
                 let sleep = Duration::from_millis(c.error_sleep_ms);
                 (c.listen, (c.extra_cfg, sleep, c.max_conn), scale, results)
             })
@@ -449,7 +474,6 @@ where
         builder: Builder<S, O, C>,
     ) -> Builder<S, O, C>
     where
-        Self: Sized, // TODO: Why does rustc insist on this one?
         Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
         ExtractedIter: IntoIterator<Item = Self>,
         Name: Clone + Display + Send + Sync + 'static,
@@ -459,13 +483,11 @@ where
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct UdpListen<ExtraCfg = Empty> {
+pub struct UdpListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
     #[serde(flatten)]
     listen: Listen,
-    // TODO: Make scaling configurable by a type parameter somehow, as this might confuse the
-    // future.
-    #[serde(default = "default_scale")]
-    scale: usize,
+    #[serde(flatten)]
+    scale: ScaleMode,
     #[serde(flatten)]
     extra_cfg: ExtraCfg,
 }
@@ -504,12 +526,7 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> UdpListen<ExtraCfg> {
         let extract_name = name.clone();
         let extract = move |cfg: &C| {
             extract(cfg).into_iter().map(|c| {
-                let (scale, results) = if c.scale > 0 {
-                    (c.scale, ValidationResults::new())
-                } else {
-                    let msg = format!("Turning scale in {} from 0 to 1", extract_name);
-                    (1, ValidationResult::warning(msg).into())
-                };
+                let (scale, results) = c.scale.scaled(&extract_name);
                 (c.listen, c.extra_cfg, scale, results)
             })
         };
@@ -539,7 +556,6 @@ where
         builder: Builder<S, O, C>,
     ) -> Builder<S, O, C>
     where
-        Self: Sized, // TODO: Why does rustc insist on this one?
         Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
         ExtractedIter: IntoIterator<Item = Self>,
         Name: Clone + Display + Send + Sync + 'static,
