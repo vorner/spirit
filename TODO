@@ -11,6 +11,7 @@
 * Contexts for errors
 * Ability to manipulate callbacks at runtime
 * More logging configuration and targets
+* Figure out how to plug in further logging configurations
 * Network logging reconnects
 * Metrics
 * support for capabilities
