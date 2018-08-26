@@ -55,7 +55,8 @@ mod content {
     use self::tokio::prelude::*;
     use self::tokio::reactor::Handle;
     use failure::Error;
-    use spirit::helpers::tokio::{Task, TcpListen};
+    use spirit::helpers;
+    use spirit::helpers::tokio::TcpListen;
     use spirit::{Empty, Spirit, SpiritInner};
 
     // Configuration. It has the same shape as the one in hws.rs.
@@ -110,7 +111,7 @@ mod content {
     }
 
     pub fn main() {
-        let helper = TcpListen::helper(Config::listen, handle_connection, "listener");
+        let helper = helpers::cfg_helper(Config::listen, handle_connection, "listener");
         Spirit::<_, Empty, _>::new(Config::default())
             .config_defaults(DEFAULT_CONFIG)
             .config_exts(&["toml", "ini", "json"])

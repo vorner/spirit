@@ -20,7 +20,7 @@ use tokio::reactor::Handle;
 
 use super::super::validation::Result as ValidationResult;
 use super::super::{Builder, Empty, Spirit, ValidationResults};
-use super::Helper;
+use super::{Helper, IteratedCfgHelper};
 
 type BoxTask = Box<dyn Future<Item = (), Error = ()> + Send>;
 // Should be Box<FnOnce>, but it doesn't work. So we wrap Option<FnOnce> into FnMut, pull it out
@@ -476,5 +476,30 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
             to_task,
             name,
         }
+    }
+}
+
+impl<S, O, C, Conn, ConnFut, ExtraCfg> IteratedCfgHelper<S, O, C, Conn> for TcpListen<ExtraCfg>
+where
+    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
+    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
+    ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
+    Conn: Fn(&Arc<Spirit<S, O, C>>, TcpStream, &ExtraCfg) -> ConnFut + Sync + Send + 'static,
+    ConnFut: Future<Item = (), Error = Error> + Send + 'static,
+{
+    fn apply<Extractor, ExtractedIter, Name>(
+        extractor: Extractor,
+        action: Conn,
+        name: Name,
+        builder: Builder<S, O, C>,
+    ) -> Builder<S, O, C>
+    where
+        Self: Sized, // TODO: Why does rustc insist on this one?
+        Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
+        ExtractedIter: IntoIterator<Item = Self>,
+        Name: Clone + Display + Send + Sync + 'static,
+    {
+        Self::helper(extractor, action, name).apply(builder)
     }
 }
