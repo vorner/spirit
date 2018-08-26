@@ -3,6 +3,7 @@ use std::fmt::{Debug, Display};
 use std::mem;
 use std::net::TcpListener as StdTcpListener;
 use std::sync::Arc;
+use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use failure::Error;
@@ -11,6 +12,7 @@ use futures::Future;
 use parking_lot::Mutex;
 use serde::Deserialize;
 use structopt::StructOpt;
+use tk_listen::ListenExt;
 use tokio;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
@@ -353,6 +355,14 @@ fn default_scale() -> usize {
     1
 }
 
+fn default_error_sleep() -> u64 {
+    100
+}
+
+fn default_max_conn() -> usize {
+    1000
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Listen {
     port: u16,
@@ -375,6 +385,10 @@ pub struct TcpListen<ExtraCfg = Empty> {
     listen: Listen,
     #[serde(default = "default_scale")]
     scale: usize,
+    #[serde(rename = "error-sleep-ms", default = "default_error_sleep")]
+    error_sleep_ms: u64,
+    #[serde(rename = "max-conn", default = "default_max_conn")]
+    max_conn: usize,
     #[serde(flatten)]
     extra_cfg: ExtraCfg,
 }
@@ -396,32 +410,52 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
         Name: Clone + Display + Send + Sync + 'static,
     {
         let conn = Arc::new(conn);
+
         let to_task_name = name.clone();
         let to_task =
-            move |spirit: &Arc<Spirit<S, O, C>>, listener: Arc<StdTcpListener>, cfg: ExtraCfg| {
+            move |spirit: &Arc<Spirit<S, O, C>>,
+                  listener: Arc<StdTcpListener>,
+                  (cfg, error_sleep, max_conn): (ExtraCfg, Duration, usize)| {
                 let spirit = Arc::clone(spirit);
                 let conn = Arc::clone(&conn);
                 let name = to_task_name.clone();
                 listener
-                    .try_clone()
+                    .try_clone() // Another copy of the listener
+                    // std → tokio socket conversion
                     .and_then(|listener| TcpListener::from_std(listener, &Handle::default()))
                     .into_future()
-                    .and_then(|listener| {
+                    .and_then(move |listener| {
                         listener.incoming()
-                        // FIXME: tk-listen to ignore things like the other side closing connection before we
-                        // accept
-                        .for_each(move |new_conn| {
-                            let name = name.clone();
-                            let handle_conn = conn(&spirit, new_conn, &cfg)
-                                .or_else(move |e| {
-                                    warn!("Failed to handle connection on {}: {}", name, e);
-                                    future::ok(())
-                                });
-                            tokio::spawn(handle_conn);
-                            future::ok(())
-                        })
+                            // Handle errors like too many open FDs gracefully
+                            .sleep_on_error(error_sleep)
+                            .map(move |new_conn| {
+                                let name = name.clone();
+                                // The listen below keeps track of how many parallel connections
+                                // there are. But it does so inside the same future, which prevents
+                                // the separate connections to be handled in parallel on a thread
+                                // pool. So we spawn the future to handle the connection itself.
+                                // But we want to keep the future alive so the listen doesn't think
+                                // it already terminated, therefore the done-channel.
+                                let (done_send, done_recv) = oneshot::channel();
+                                let handle_conn = conn(&spirit, new_conn, &cfg)
+                                    .then(move |r| {
+                                        if let Err(e) = r {
+                                            error!("Failed to handle connection on {}: {}", name, e);
+                                        }
+                                        // Ignore the other side going away. This may happen if the
+                                        // listener terminated, but the connection lingers for
+                                        // longer.
+                                        let _ = done_send.send(());
+                                        future::ok(())
+                                    });
+                                tokio::spawn(handle_conn);
+                                done_recv.then(|_| future::ok(()))
+                            })
+                            .listen(max_conn)
+                            .map_err(|()| unreachable!("tk-listen never errors"))
                     }).map_err(Error::from)
             };
+
         let extract_name = name.clone();
         let extract = move |cfg: &C| {
             extract(cfg).into_iter().map(|c| {
@@ -431,9 +465,11 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
                     let msg = format!("Turning scale in {} from 0 to 1", extract_name);
                     (1, ValidationResult::warning(msg).into())
                 };
-                (c.listen, c.extra_cfg, scale, results)
+                let sleep = Duration::from_millis(c.error_sleep_ms);
+                (c.listen, (c.extra_cfg, sleep, c.max_conn), scale, results)
             })
         };
+
         Task {
             extract,
             build: Listen::create_tcp,

@@ -198,6 +198,8 @@ extern crate signal_hook;
 extern crate structopt;
 extern crate syslog;
 #[cfg(feature = "tokio-helpers")]
+extern crate tk_listen;
+#[cfg(feature = "tokio-helpers")]
 extern crate tokio;
 
 pub mod helpers;

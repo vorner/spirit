@@ -38,6 +38,7 @@ serde_derive = "~1"
 signal-hook = "~0.1"
 structopt = "~0.2"
 syslog = "~4"
+tk-listen = "~0.2"
 tokio = { version = "~0.1", optional = true }
 
 [dev-dependencies]
