@@ -94,6 +94,7 @@ mod content {
     fn handle_connection(
         spirit: &SpiritInner<Empty, Config>,
         conn: TcpStream,
+        _: &Empty,
     ) -> impl Future<Item = (), Error = Error> {
         let addr = conn
             .peer_addr()

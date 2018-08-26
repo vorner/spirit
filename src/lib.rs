@@ -4,7 +4,7 @@
 )]
 #![cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
 #![forbid(unsafe_code)]
-#![warn(missing_docs)]
+//#![warn(missing_docs)] TODO
 
 //! A helper to create unix daemons.
 //!
@@ -393,7 +393,7 @@ pub struct InvalidFileType(PathBuf);
 /// When the application doesn't need the configuration (in excess of the automatic part provided
 /// by this library) or it doesn't need any command line options of its own, this struct can be
 /// used to plug the type parameter.
-#[derive(Debug, Deserialize, StructOpt)]
+#[derive(Copy, Clone, Debug, Default, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd, StructOpt)]
 pub struct Empty {}
 
 struct Hooks<O, C> {

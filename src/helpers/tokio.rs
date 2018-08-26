@@ -1,8 +1,5 @@
 use std::borrow::Borrow;
-use std::collections::HashMap;
 use std::fmt::{Debug, Display};
-use std::hash::Hash;
-use std::marker::PhantomData;
 use std::mem;
 use std::net::TcpListener as StdTcpListener;
 use std::sync::Arc;
@@ -20,7 +17,7 @@ use tokio::prelude::*;
 use tokio::reactor::Handle;
 
 use super::super::validation::Result as ValidationResult;
-use super::super::{Builder, Spirit, ValidationResults};
+use super::super::{Builder, Empty, Spirit, ValidationResults};
 use super::Helper;
 
 type BoxTask = Box<dyn Future<Item = (), Error = ()> + Send>;
@@ -92,20 +89,6 @@ where
             }));
             Ok(())
         })
-    }
-}
-
-struct TokioApply<B, F: FnOnce(B) -> B>(F, PhantomData<fn(B)>);
-
-impl<S, O, C, F> Helper<S, O, C> for TokioApply<Builder<S, O, C>, F>
-where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-    F: FnOnce(Builder<S, O, C>) -> Builder<S, O, C>,
-{
-    fn apply(self, builder: Builder<S, O, C>) -> Builder<S, O, C> {
-        (self.0)(builder)
     }
 }
 
@@ -184,18 +167,19 @@ impl<Extract, Build, ToTask, Name> Task<Extract, Build, ToTask, Name> {
     }
 }
 
-impl<S, O, C, SubCfg, Resource, Extract, ExtractIt, Build, ToTask, InnerTask, Name> Helper<S, O, C>
+impl<S, O, C, SubCfg, Resource, Extract, ExtractIt, ExtraCfg, Build, ToTask, InnerTask, Name> Helper<S, O, C>
     for Task<Extract, Build, ToTask, Name>
 where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
     for<'de> C: Deserialize<'de> + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
     Extract: FnMut(&C) -> ExtractIt + Send + 'static,
-    ExtractIt: IntoIterator<Item = SubCfg>,
-    SubCfg: PartialEq + Debug + Send + 'static,
+    ExtractIt: IntoIterator<Item = (SubCfg, ExtraCfg, usize)>,
+    ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
+    SubCfg: Clone + Debug + PartialEq + Send + 'static,
     Build: FnMut(&SubCfg) -> Result<Resource, Error> + Send + 'static,
-    Resource: Send + 'static,
-    ToTask: FnMut(&Arc<Spirit<S, O, C>>, Resource) -> InnerTask + Send + 'static,
+    Resource: Clone + Send + 'static,
+    ToTask: FnMut(&Arc<Spirit<S, O, C>>, Resource, ExtraCfg) -> InnerTask + Send + 'static,
     InnerTask: IntoFuture<Item = (), Error = Error> + Send + 'static,
     <InnerTask as IntoFuture>::Future: Send,
     Name: Clone + Display + Send + Sync + 'static,
@@ -209,13 +193,21 @@ where
         } = self;
         debug!("Installing helper {}", name);
         // Note: this depends on the specific drop order to avoid races
-        struct Install<R> {
+        struct Install<R, ExtraCfg> {
             resource: R,
             drop_req: oneshot::Receiver<()>,
             confirm_drop: oneshot::Sender<()>,
             cfg: String,
+            extra_conf: ExtraCfg,
         }
-        let (install_sender, install_receiver) = mpsc::unbounded::<Install<Resource>>();
+        #[derive(Clone)]
+        struct Cache<SubCfg, ExtraCfg, Resource> {
+            sub_cfg: SubCfg,
+            extra_cfg: ExtraCfg,
+            resource: Resource,
+            remote: Vec<Arc<RemoteDrop>>,
+        }
+        let (install_sender, install_receiver) = mpsc::unbounded::<Install<Resource, ExtraCfg>>();
 
         let installer_name = name.clone();
         let installer = move |spirit: &Arc<Spirit<S, O, C>>| {
@@ -226,11 +218,12 @@ where
                     drop_req,
                     confirm_drop,
                     cfg,
+                    extra_conf,
                 } = install;
                 let name = installer_name.clone();
                 debug!("Installing resource {} with config {}", name, cfg);
                 // Get the task itself
-                let task = to_task(&spirit, resource).into_future();
+                let task = to_task(&spirit, resource, extra_conf).into_future();
                 let err_name = name.clone();
                 let err_cfg = cfg.clone();
                 // Wrap it in the cancelation routine
@@ -247,49 +240,77 @@ where
             })
         };
 
-        let cache = Arc::new(Mutex::new(Vec::<(SubCfg, Arc<RemoteDrop>)>::new()));
+        let cache = Arc::new(Mutex::new(Vec::new()));
         let validator = move |_: &Arc<C>, cfg: &mut C, _: &O| -> ValidationResults {
             let mut results = ValidationResults::new();
             let orig_cache = cache.lock();
-            let mut new_cache = Vec::<(SubCfg, Arc<RemoteDrop>)>::new();
+            let mut new_cache = Vec::new();
             let mut to_send = Vec::new();
             for sub in extract(cfg) {
+                let (sub, extra, mut arity) = sub;
+
                 let previous = orig_cache
                     .iter()
-                    .find(|(cfg, _)| cfg == &sub)
-                    .map(|(_, remote)| Arc::clone(remote));
-                if let Some(previous) = previous {
+                    .find(|Cache { sub_cfg, .. }| sub_cfg == &sub);
+
+                let mut cached = if let Some(previous) = previous {
                     debug!("Reusing previous instance of {} for {:?}", name, sub);
-                    new_cache.push((sub, previous));
+                    previous.clone()
                 } else {
                     trace!("Creating new instance of {} for {:?}", name, sub);
                     match build(&sub) {
                         Ok(resource) => {
                             debug!("Successfully created instance of {} for {:?}", name, sub);
-                            let (req_sender, req_recv) = oneshot::channel();
-                            let (confirm_sender, confirm_recv) = oneshot::channel();
-                            to_send.push(Install {
+                            Cache {
+                                sub_cfg: sub.clone(),
+                                extra_cfg: extra.clone(),
                                 resource,
-                                drop_req: req_recv,
-                                confirm_drop: confirm_sender,
-                                cfg: format!("{:?}", sub),
-                            });
-                            new_cache.push((
-                                sub,
-                                Arc::new(RemoteDrop {
-                                    request_drop: Some(req_sender),
-                                    drop_confirmed: Some(confirm_recv),
-                                }),
-                            ));
+                                remote: Vec::new(),
+                            }
                         }
                         Err(e) => {
                             let msg = format!("Creationg of {} for {:?} failed: {}", name, sub, e);
                             debug!("{}", msg); // The error will appear together for the validator
                             results.merge(ValidationResult::error(msg));
+                            continue;
                         }
                     }
+                };
+
+                if extra != cached.extra_cfg {
+                    debug!("Extra config for {:?} differs (old: {:?}, new: {:?}", sub, cached.extra_cfg, extra);
+                    // If we have no old remotes here, they'll get dropped on installation and
+                    // we'll „scale up“ to the current arity.
+                    cached.remote.clear();
                 }
+
+                if cached.remote.len() > arity {
+                    debug!("Scaling down {} from {} to {}", name, cached.remote.len(), arity);
+                    cached.remote.drain(arity..);
+                }
+
+                if cached.remote.len() < arity {
+                    debug!("Scaling up {} from {} to {}", name, cached.remote.len(), arity);
+                    while cached.remote.len() < arity {
+                        let (req_sender, req_recv) = oneshot::channel();
+                        let (confirm_sender, confirm_recv) = oneshot::channel();
+                        to_send.push(Install {
+                            resource: cached.resource.clone(),
+                            drop_req: req_recv,
+                            confirm_drop: confirm_sender,
+                            cfg: format!("{:?}", sub),
+                            extra_conf: extra.clone(),
+                        });
+                        cached.remote.push(Arc::new(RemoteDrop {
+                            request_drop: Some(req_sender),
+                            drop_confirmed: Some(confirm_recv),
+                        }));
+                    }
+                }
+
+                new_cache.push(cached);
             }
+
             let sender = install_sender.clone();
             let cache = Arc::clone(&cache);
             let name = name.clone();
@@ -314,22 +335,36 @@ fn default_host() -> String {
     "::".to_owned()
 }
 
+fn default_scale() -> usize {
+    1
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct TcpListen {
+pub struct Listen {
     port: u16,
     #[serde(default = "default_host")]
     host: String,
 }
 
-impl TcpListen {
-    pub fn create(&self) -> Result<TcpListener, Error> {
-        let std_socket = StdTcpListener::bind((&self.host as &str, self.port))?;
-        let tokio_socket = TcpListener::from_std(std_socket, &Handle::default())?;
-        Ok(tokio_socket)
+impl Listen {
+    pub fn create_tcp(&self) -> Result<Arc<StdTcpListener>, Error> {
+        Ok(Arc::new(StdTcpListener::bind((&self.host as &str, self.port))?))
     }
+}
 
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct TcpListen<ExtraCfg = Empty> {
+    #[serde(flatten)]
+    listen: Listen,
+    #[serde(default = "default_scale")]
+    scale: usize,
+    #[serde(flatten)]
+    extra_cfg: ExtraCfg
+}
+
+impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
     pub fn helper<Extract, ExtractIt, Conn, ConnFut, Name, S, O, C>(
-        extract: Extract,
+        mut extract: Extract,
         conn: Conn,
         name: Name,
     ) -> impl Helper<S, O, C>
@@ -339,33 +374,40 @@ impl TcpListen {
         O: Debug + StructOpt + Sync + Send + 'static,
         Extract: FnMut(&C) -> ExtractIt + Send + 'static,
         ExtractIt: IntoIterator<Item = Self>,
-        Conn: Fn(&Arc<Spirit<S, O, C>>, TcpStream) -> ConnFut + Sync + Send + 'static,
+        Conn: Fn(&Arc<Spirit<S, O, C>>, TcpStream, &ExtraCfg) -> ConnFut + Sync + Send + 'static,
         ConnFut: Future<Item = (), Error = Error> + Send + 'static,
         Name: Clone + Display + Send + Sync + 'static,
     {
         let conn = Arc::new(conn);
         // TODO: Better logging
-        let to_task = move |spirit: &Arc<Spirit<S, O, C>>, listener: TcpListener| {
+        let to_task = move |spirit: &Arc<Spirit<S, O, C>>, listener: Arc<StdTcpListener>, cfg: ExtraCfg| {
             let spirit = Arc::clone(spirit);
             let conn = Arc::clone(&conn);
-            listener.incoming()
-                // FIXME: tk-listen to ignore things like the other side closing connection before we
-                // accept
-                .map_err(Error::from)
-                .for_each(move |new_conn| {
-                    let handle_conn = conn(&spirit, new_conn)
-                        .or_else(move |e| {
-                            // TODO: Better logging, with name
-                            warn!("Failed to handle connection: {}", e);
+            listener.try_clone()
+                .and_then(|listener| TcpListener::from_std(listener, &Handle::default()))
+                .into_future()
+                .and_then(|listener| {
+                    listener.incoming()
+                        // FIXME: tk-listen to ignore things like the other side closing connection before we
+                        // accept
+                        .for_each(move |new_conn| {
+                            let handle_conn = conn(&spirit, new_conn, &cfg)
+                                .or_else(move |e| {
+                                    // TODO: Better logging, with name
+                                    warn!("Failed to handle connection: {}", e);
+                                    future::ok(())
+                                });
+                            tokio::spawn(handle_conn);
                             future::ok(())
-                        });
-                    tokio::spawn(handle_conn);
-                    future::ok(())
+                        })
                 })
+                .map_err(Error::from)
         };
+        // TODO: Handle 0
+        let extract = move |cfg: &C| extract(cfg).into_iter().map(|c| (c.listen, c.extra_cfg, c.scale));
         Task {
             extract,
-            build: TcpListen::create,
+            build: Listen::create_tcp,
             to_task,
             name,
         }

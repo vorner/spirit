@@ -1,5 +1,6 @@
 [[listen]]
 port = 1234
+scale = 2
 
 [[listen]]
 port = 5678
@@ -15,4 +16,4 @@ type = "stderr"
 [[logging]]
 level = "DEBUG"
 type = "file"
-filename = "hws.log"
+filename = "/tmp/hws.log"
