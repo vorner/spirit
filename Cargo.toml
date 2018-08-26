@@ -21,7 +21,7 @@ tokio-helpers = ["futures", "tokio"]
 [dependencies]
 arc-swap = "~0.3"
 chrono = "~0.4"
-config = "~0.9"
+config = { version = "~0.9", features = ["toml"] }
 failure = "~0.1"
 fallible-iterator = "~0.1"
 fern = { version = "~0.5", features = ["syslog-4"] }

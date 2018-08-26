@@ -59,7 +59,6 @@
 //! # Examples
 //!
 //! ```rust
-//! extern crate config;
 //! #[macro_use]
 //! extern crate log;
 //! #[macro_use]
@@ -70,7 +69,6 @@
 //! use std::time::Duration;
 //! use std::thread;
 //!
-//! use config::FileFormat;
 //! use spirit::{Empty, Spirit};
 //!
 //! #[derive(Debug, Default, Deserialize)]
@@ -87,7 +85,7 @@
 //! fn main() {
 //!     Spirit::<_, Empty, _>::new(Cfg::default())
 //!         // Provide default values for the configuration
-//!         .config_defaults(DEFAULT_CFG, FileFormat::Toml)
+//!         .config_defaults(DEFAULT_CFG)
 //!         // If the program is passed a directory, load files with these extensions from there
 //!         .config_exts(&["toml", "ini", "json"])
 //!         .on_terminate(|| debug!("Asked to terminate"))
@@ -462,7 +460,7 @@ where
     hooks: Mutex<Hooks<O, C>>,
     // TODO: Mode selection for directories
     config_files: Vec<PathBuf>,
-    config_defaults: Option<(String, FileFormat)>,
+    config_defaults: Option<String>,
     config_env: Option<String>,
     config_overrides: HashMap<String, String>,
     debug: bool,
@@ -818,9 +816,9 @@ where
         // To avoid problems with trying to parse without any configuration present (it would
         // complain that it found unit and whatever the config was is expected instead).
         config.merge(File::from_str("", FileFormat::Toml))?;
-        if let Some((ref defaults, format)) = self.config_defaults {
+        if let Some(ref defaults) = self.config_defaults {
             trace!("Loading config defaults");
-            config.merge(File::from_str(defaults, format))?;
+            config.merge(File::from_str(defaults, FileFormat::Toml))?;
         }
         for path in &self.config_files {
             if path.is_file() {
@@ -875,7 +873,7 @@ where
 {
     config: S,
     config_default_paths: Vec<PathBuf>,
-    config_defaults: Option<(String, FileFormat)>,
+    config_defaults: Option<String>,
     config_env: Option<String>,
     config_hooks: Vec<Box<FnMut(&Arc<C>) + Send>>,
     config_filter: Box<FnMut(&Path) -> bool + Send>,
@@ -1042,10 +1040,11 @@ where
 
     /// Specifies the default configuration.
     ///
-    /// This „loads“ the lowest layer of the configuration from the passed string.
-    pub fn config_defaults<D: Into<String>>(self, config: D, format: FileFormat) -> Self {
+    /// This „loads“ the lowest layer of the configuration from the passed string. The expected
+    /// format is TOML.
+    pub fn config_defaults<D: Into<String>>(self, config: D) -> Self {
         Self {
-            config_defaults: Some((config.into(), format)),
+            config_defaults: Some(config.into()),
             ..self
         }
     }
@@ -1058,13 +1057,11 @@ where
     /// # Examples
     ///
     /// ```rust
-    /// extern crate config;
     /// extern crate failure;
     /// #[macro_use]
     /// extern crate serde_derive;
     /// extern crate spirit;
     ///
-    /// use config::FileFormat;
     /// use failure::Error;
     /// use spirit::{Empty, Spirit};
     ///
@@ -1079,7 +1076,7 @@ where
     ///
     /// fn main() {
     ///     Spirit::<_, Empty, _>::new(Cfg::default())
-    ///         .config_defaults(DEFAULT_CFG, FileFormat::Toml)
+    ///         .config_defaults(DEFAULT_CFG)
     ///         .config_env("HELLO")
     ///         .run(|spirit| -> Result<(), Error> {
     ///             println!("{}", spirit.config().message);

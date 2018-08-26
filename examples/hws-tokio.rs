@@ -22,7 +22,6 @@
 //! race condition is quite short and unlikely.
 
 #![allow(unused_imports)]
-extern crate config;
 extern crate failure;
 #[macro_use]
 extern crate log;
@@ -55,7 +54,6 @@ mod content {
     use self::tokio::net::TcpStream;
     use self::tokio::prelude::*;
     use self::tokio::reactor::Handle;
-    use config::FileFormat;
     use failure::Error;
     use spirit::helpers::tokio::{Task, TcpListen};
     use spirit::{Empty, Spirit, SpiritInner};
@@ -114,7 +112,7 @@ mod content {
     pub fn main() {
         let helper = TcpListen::helper(Config::listen, handle_connection, "listener");
         Spirit::<_, Empty, _>::new(Config::default())
-            .config_defaults(DEFAULT_CONFIG, FileFormat::Toml)
+            .config_defaults(DEFAULT_CONFIG)
             .config_exts(&["toml", "ini", "json"])
             .helper(helper)
             .run_tokio();

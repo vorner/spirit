@@ -11,7 +11,6 @@
 //! application.
 
 extern crate arc_swap;
-extern crate config;
 #[macro_use]
 extern crate failure;
 #[macro_use]
@@ -29,7 +28,6 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 
 use arc_swap::ArcSwap;
-use config::FileFormat;
 use failure::Error;
 use spirit::validation::Result as ValidationResult;
 use spirit::Spirit;
@@ -128,7 +126,7 @@ fn main() -> Result<(), Error> {
         // Set the default config values. This is very similar to passing the first file on command
         // line, except that nobody can lose this one as it is baked into the application. Any
         // files passed by the user can override the values.
-        .config_defaults(DEFAULT_CONFIG, FileFormat::Toml)
+        .config_defaults(DEFAULT_CONFIG)
         // If the user passes a directory path instead of file path, take files with these
         // extensions and load config from there.
         .config_exts(&["toml", "ini", "json"])
