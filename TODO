@@ -1,7 +1,3 @@
-* The tokio helpers don't handle well if single socket gets different auxiliary configuration
-  - We would create a new one, but we would still have the old somewhere.
-  - We probably want some way to cache the socket itself but recreate the future.
-  - We probably want to use it to be able to multiply the listeners
 * Validate the config once again after switching the working directory?
 * Update docs for the helper APIs
 * Turn all paths to absolute on startup

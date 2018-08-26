@@ -167,8 +167,8 @@ impl<Extract, Build, ToTask, Name> Task<Extract, Build, ToTask, Name> {
     }
 }
 
-impl<S, O, C, SubCfg, Resource, Extract, ExtractIt, ExtraCfg, Build, ToTask, InnerTask, Name> Helper<S, O, C>
-    for Task<Extract, Build, ToTask, Name>
+impl<S, O, C, SubCfg, Resource, Extract, ExtractIt, ExtraCfg, Build, ToTask, InnerTask, Name>
+    Helper<S, O, C> for Task<Extract, Build, ToTask, Name>
 where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
     for<'de> C: Deserialize<'de> + Send + Sync + 'static,
@@ -278,19 +278,32 @@ where
                 };
 
                 if extra != cached.extra_cfg {
-                    debug!("Extra config for {:?} differs (old: {:?}, new: {:?}", sub, cached.extra_cfg, extra);
+                    debug!(
+                        "Extra config for {:?} differs (old: {:?}, new: {:?}",
+                        sub, cached.extra_cfg, extra
+                    );
                     // If we have no old remotes here, they'll get dropped on installation and
                     // we'll „scale up“ to the current arity.
                     cached.remote.clear();
                 }
 
                 if cached.remote.len() > arity {
-                    debug!("Scaling down {} from {} to {}", name, cached.remote.len(), arity);
+                    debug!(
+                        "Scaling down {} from {} to {}",
+                        name,
+                        cached.remote.len(),
+                        arity
+                    );
                     cached.remote.drain(arity..);
                 }
 
                 if cached.remote.len() < arity {
-                    debug!("Scaling up {} from {} to {}", name, cached.remote.len(), arity);
+                    debug!(
+                        "Scaling up {} from {} to {}",
+                        name,
+                        cached.remote.len(),
+                        arity
+                    );
                     while cached.remote.len() < arity {
                         let (req_sender, req_recv) = oneshot::channel();
                         let (confirm_sender, confirm_recv) = oneshot::channel();
@@ -348,7 +361,10 @@ pub struct Listen {
 
 impl Listen {
     pub fn create_tcp(&self) -> Result<Arc<StdTcpListener>, Error> {
-        Ok(Arc::new(StdTcpListener::bind((&self.host as &str, self.port))?))
+        Ok(Arc::new(StdTcpListener::bind((
+            &self.host as &str,
+            self.port,
+        ))?))
     }
 }
 
@@ -359,7 +375,7 @@ pub struct TcpListen<ExtraCfg = Empty> {
     #[serde(default = "default_scale")]
     scale: usize,
     #[serde(flatten)]
-    extra_cfg: ExtraCfg
+    extra_cfg: ExtraCfg,
 }
 
 impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
@@ -380,14 +396,16 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
     {
         let conn = Arc::new(conn);
         // TODO: Better logging
-        let to_task = move |spirit: &Arc<Spirit<S, O, C>>, listener: Arc<StdTcpListener>, cfg: ExtraCfg| {
-            let spirit = Arc::clone(spirit);
-            let conn = Arc::clone(&conn);
-            listener.try_clone()
-                .and_then(|listener| TcpListener::from_std(listener, &Handle::default()))
-                .into_future()
-                .and_then(|listener| {
-                    listener.incoming()
+        let to_task =
+            move |spirit: &Arc<Spirit<S, O, C>>, listener: Arc<StdTcpListener>, cfg: ExtraCfg| {
+                let spirit = Arc::clone(spirit);
+                let conn = Arc::clone(&conn);
+                listener
+                    .try_clone()
+                    .and_then(|listener| TcpListener::from_std(listener, &Handle::default()))
+                    .into_future()
+                    .and_then(|listener| {
+                        listener.incoming()
                         // FIXME: tk-listen to ignore things like the other side closing connection before we
                         // accept
                         .for_each(move |new_conn| {
@@ -400,11 +418,14 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
                             tokio::spawn(handle_conn);
                             future::ok(())
                         })
-                })
-                .map_err(Error::from)
-        };
+                    }).map_err(Error::from)
+            };
         // TODO: Handle 0
-        let extract = move |cfg: &C| extract(cfg).into_iter().map(|c| (c.listen, c.extra_cfg, c.scale));
+        let extract = move |cfg: &C| {
+            extract(cfg)
+                .into_iter()
+                .map(|c| (c.listen, c.extra_cfg, c.scale))
+        };
         Task {
             extract,
             build: Listen::create_tcp,
