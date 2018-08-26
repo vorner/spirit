@@ -2,8 +2,7 @@
 * Update docs for the helper APIs
 * Turn all paths to absolute on startup
 * Helpers API
-  - The builder stuff
-  - Some helper functions to generate tcp and udp listeners
+  - Something to keep an open TCP connection somewhere and retry connecting?
   - Custom derive so the helpers can be directly attached to the config.
 * Don't box the tasks sent to tokio ‒ the extra box is extra indirection on *each* poll and we want to avoid that. Do a chain of trait objects that directly spawn into tokio.
 * Run on spirit itself too

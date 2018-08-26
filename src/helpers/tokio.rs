@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 use std::fmt::{Debug, Display};
 use std::mem;
-use std::net::TcpListener as StdTcpListener;
+use std::net::{TcpListener as StdTcpListener, UdpSocket as StdUdpSocket};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,7 +14,7 @@ use serde::Deserialize;
 use structopt::StructOpt;
 use tk_listen::ListenExt;
 use tokio;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::prelude::*;
 use tokio::reactor::Handle;
 
@@ -115,58 +115,6 @@ pub struct Task<Extract, Build, ToTask, Name> {
     pub build: Build,
     pub to_task: ToTask,
     pub name: Name,
-}
-
-impl Task<(), (), (), ()> {
-    pub fn new() -> Self {
-        Task {
-            extract: (),
-            build: (),
-            to_task: (),
-            name: (),
-        }
-    }
-}
-
-impl<Extract, Build, ToTask, Name> Task<Extract, Build, ToTask, Name> {
-    pub fn with_extract<NewExtract>(
-        self,
-        extract: NewExtract,
-    ) -> Task<NewExtract, Build, ToTask, Name> {
-        Task {
-            extract: extract,
-            build: self.build,
-            to_task: self.to_task,
-            name: self.name,
-        }
-    }
-    pub fn with_build<NewBuild>(self, build: NewBuild) -> Task<Extract, NewBuild, ToTask, Name> {
-        Task {
-            extract: self.extract,
-            build: build,
-            to_task: self.to_task,
-            name: self.name,
-        }
-    }
-    pub fn with_to_task<NewToTask>(
-        self,
-        to_task: NewToTask,
-    ) -> Task<Extract, Build, NewToTask, Name> {
-        Task {
-            extract: self.extract,
-            build: self.build,
-            to_task: to_task,
-            name: self.name,
-        }
-    }
-    pub fn with_name<NewName>(self, name: NewName) -> Task<Extract, Build, ToTask, NewName> {
-        Task {
-            extract: self.extract,
-            build: self.build,
-            to_task: self.to_task,
-            name: name,
-        }
-    }
 }
 
 impl<S, O, C, SubCfg, Resource, Extract, ExtractIt, ExtraCfg, Build, ToTask, InnerTask, Name>
@@ -355,14 +303,6 @@ fn default_scale() -> usize {
     1
 }
 
-fn default_error_sleep() -> u64 {
-    100
-}
-
-fn default_max_conn() -> usize {
-    1000
-}
-
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Listen {
     port: u16,
@@ -377,6 +317,20 @@ impl Listen {
             self.port,
         ))?))
     }
+    pub fn create_udp(&self) -> Result<Arc<StdUdpSocket>, Error> {
+        Ok(Arc::new(StdUdpSocket::bind((
+            &self.host as &str,
+            self.port,
+        ))?))
+    }
+}
+
+fn default_error_sleep() -> u64 {
+    100
+}
+
+fn default_max_conn() -> usize {
+    1000
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -491,6 +445,96 @@ where
     fn apply<Extractor, ExtractedIter, Name>(
         extractor: Extractor,
         action: Conn,
+        name: Name,
+        builder: Builder<S, O, C>,
+    ) -> Builder<S, O, C>
+    where
+        Self: Sized, // TODO: Why does rustc insist on this one?
+        Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
+        ExtractedIter: IntoIterator<Item = Self>,
+        Name: Clone + Display + Send + Sync + 'static,
+    {
+        Self::helper(extractor, action, name).apply(builder)
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct UdpListen<ExtraCfg = Empty> {
+    #[serde(flatten)]
+    listen: Listen,
+    // TODO: Make scaling configurable by a type parameter somehow, as this might confuse the
+    // future.
+    #[serde(default = "default_scale")]
+    scale: usize,
+    #[serde(flatten)]
+    extra_cfg: ExtraCfg,
+}
+
+impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> UdpListen<ExtraCfg> {
+    pub fn helper<Extract, ExtractIt, Action, Fut, Name, S, O, C>(
+        mut extract: Extract,
+        action: Action,
+        name: Name,
+    ) -> impl Helper<S, O, C>
+    where
+        S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
+        for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+        O: Debug + StructOpt + Sync + Send + 'static,
+        Extract: FnMut(&C) -> ExtractIt + Send + 'static,
+        ExtractIt: IntoIterator<Item = Self>,
+        Action: Fn(&Arc<Spirit<S, O, C>>, UdpSocket, &ExtraCfg) -> Fut + Sync + Send + 'static,
+        Fut: Future<Item = (), Error = Error> + Send + 'static,
+        Name: Clone + Display + Send + Sync + 'static,
+    {
+        let action = Arc::new(action);
+
+        let to_task =
+            move |spirit: &Arc<Spirit<S, O, C>>, socket: Arc<StdUdpSocket>, cfg: ExtraCfg| {
+                let spirit = Arc::clone(spirit);
+                let action = Arc::clone(&action);
+                socket
+                    .try_clone() // Another copy of the listener
+                    // std → tokio socket conversion
+                    .and_then(|socket| UdpSocket::from_std(socket, &Handle::default()))
+                    .map_err(Error::from)
+                    .into_future()
+                    .and_then(move |socket| action(&spirit, socket, &cfg))
+            };
+
+        let extract_name = name.clone();
+        let extract = move |cfg: &C| {
+            extract(cfg).into_iter().map(|c| {
+                let (scale, results) = if c.scale > 0 {
+                    (c.scale, ValidationResults::new())
+                } else {
+                    let msg = format!("Turning scale in {} from 0 to 1", extract_name);
+                    (1, ValidationResult::warning(msg).into())
+                };
+                (c.listen, c.extra_cfg, scale, results)
+            })
+        };
+
+        Task {
+            extract,
+            build: Listen::create_udp,
+            to_task,
+            name,
+        }
+    }
+}
+
+impl<S, O, C, Action, Fut, ExtraCfg> IteratedCfgHelper<S, O, C, Action> for UdpListen<ExtraCfg>
+where
+    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
+    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
+    ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
+    Action: Fn(&Arc<Spirit<S, O, C>>, UdpSocket, &ExtraCfg) -> Fut + Sync + Send + 'static,
+    Fut: Future<Item = (), Error = Error> + Send + 'static,
+{
+    fn apply<Extractor, ExtractedIter, Name>(
+        extractor: Extractor,
+        action: Action,
         name: Name,
         builder: Builder<S, O, C>,
     ) -> Builder<S, O, C>
