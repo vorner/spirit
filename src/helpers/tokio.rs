@@ -174,7 +174,7 @@ where
     for<'de> C: Deserialize<'de> + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
     Extract: FnMut(&C) -> ExtractIt + Send + 'static,
-    ExtractIt: IntoIterator<Item = (SubCfg, ExtraCfg, usize)>,
+    ExtractIt: IntoIterator<Item = (SubCfg, ExtraCfg, usize, ValidationResults)>,
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
     SubCfg: Clone + Debug + PartialEq + Send + 'static,
     Build: FnMut(&SubCfg) -> Result<Resource, Error> + Send + 'static,
@@ -247,7 +247,8 @@ where
             let mut new_cache = Vec::new();
             let mut to_send = Vec::new();
             for sub in extract(cfg) {
-                let (sub, extra, mut arity) = sub;
+                let (sub, extra, mut scale, sub_results) = sub;
+                results.merge(sub_results);
 
                 let previous = orig_cache
                     .iter()
@@ -283,28 +284,28 @@ where
                         sub, cached.extra_cfg, extra
                     );
                     // If we have no old remotes here, they'll get dropped on installation and
-                    // we'll „scale up“ to the current arity.
+                    // we'll „scale up“ to the current scale.
                     cached.remote.clear();
                 }
 
-                if cached.remote.len() > arity {
+                if cached.remote.len() > scale {
                     debug!(
                         "Scaling down {} from {} to {}",
                         name,
                         cached.remote.len(),
-                        arity
+                        scale
                     );
-                    cached.remote.drain(arity..);
+                    cached.remote.drain(scale..);
                 }
 
-                if cached.remote.len() < arity {
+                if cached.remote.len() < scale {
                     debug!(
                         "Scaling up {} from {} to {}",
                         name,
                         cached.remote.len(),
-                        arity
+                        scale
                     );
-                    while cached.remote.len() < arity {
+                    while cached.remote.len() < scale {
                         let (req_sender, req_recv) = oneshot::channel();
                         let (confirm_sender, confirm_recv) = oneshot::channel();
                         to_send.push(Install {
@@ -395,11 +396,12 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
         Name: Clone + Display + Send + Sync + 'static,
     {
         let conn = Arc::new(conn);
-        // TODO: Better logging
+        let to_task_name = name.clone();
         let to_task =
             move |spirit: &Arc<Spirit<S, O, C>>, listener: Arc<StdTcpListener>, cfg: ExtraCfg| {
                 let spirit = Arc::clone(spirit);
                 let conn = Arc::clone(&conn);
+                let name = to_task_name.clone();
                 listener
                     .try_clone()
                     .and_then(|listener| TcpListener::from_std(listener, &Handle::default()))
@@ -409,10 +411,10 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
                         // FIXME: tk-listen to ignore things like the other side closing connection before we
                         // accept
                         .for_each(move |new_conn| {
+                            let name = name.clone();
                             let handle_conn = conn(&spirit, new_conn, &cfg)
                                 .or_else(move |e| {
-                                    // TODO: Better logging, with name
-                                    warn!("Failed to handle connection: {}", e);
+                                    warn!("Failed to handle connection on {}: {}", name, e);
                                     future::ok(())
                                 });
                             tokio::spawn(handle_conn);
@@ -420,11 +422,17 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
                         })
                     }).map_err(Error::from)
             };
-        // TODO: Handle 0
+        let extract_name = name.clone();
         let extract = move |cfg: &C| {
-            extract(cfg)
-                .into_iter()
-                .map(|c| (c.listen, c.extra_cfg, c.scale))
+            extract(cfg).into_iter().map(|c| {
+                let (scale, results) = if c.scale > 0 {
+                    (c.scale, ValidationResults::new())
+                } else {
+                    let msg = format!("Turning scale in {} from 0 to 1", extract_name);
+                    (1, ValidationResult::warning(msg).into())
+                };
+                (c.listen, c.extra_cfg, scale, results)
+            })
         };
         Task {
             extract,
