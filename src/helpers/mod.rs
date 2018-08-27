@@ -1,7 +1,9 @@
 use std::borrow::Borrow;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 use arc_swap::ArcSwap;
+use serde::Deserialize;
+use structopt::StructOpt;
 
 use super::Builder;
 
@@ -98,16 +100,27 @@ where
     }
 }
 
-pub fn cfg_helper<S, O, C, Cfg, Extractor, Action, Name>(
-    extractor: Extractor,
-    action: Action,
-    name: Name,
-) -> impl Helper<S, O, C>
+impl<S, O, C> Builder<S, O, C>
 where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    Extractor: FnMut(&C) -> Cfg + Send + 'static,
-    Cfg: CfgHelper<S, O, C, Action>,
-    Name: Clone + Display + Send + Sync + 'static,
+    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
 {
-    move |builder| CfgHelper::apply(extractor, action, name, builder)
+    pub fn helper<H: Helper<S, O, C>>(self, helper: H) -> Self {
+        helper.apply(self)
+    }
+
+    pub fn config_helper<Cfg, Extractor, Action, Name>(
+        self,
+        extractor: Extractor,
+        action: Action,
+        name: Name,
+    ) -> Self
+    where
+        Extractor: FnMut(&C) -> Cfg + Send + 'static,
+        Cfg: CfgHelper<S, O, C, Action>,
+        Name: Clone + Display + Send + Sync + 'static,
+    {
+        CfgHelper::apply(extractor, action, name, self)
+    }
 }

@@ -111,11 +111,10 @@ mod content {
     }
 
     pub fn main() {
-        let helper = helpers::cfg_helper(Config::listen, handle_connection, "listener");
         Spirit::<_, Empty, _>::new(Config::default())
             .config_defaults(DEFAULT_CONFIG)
             .config_exts(&["toml", "ini", "json"])
-            .helper(helper)
+            .config_helper(Config::listen, handle_connection, "listen")
             .run_tokio();
     }
 }

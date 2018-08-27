@@ -240,7 +240,6 @@ use structopt::clap::App;
 use structopt::StructOpt;
 
 use helpers::tokio::{TokioGuts, TokioGutsInner};
-use helpers::Helper;
 use logging::{LogDestination, Logging};
 use validation::{
     Error as ValidationError, Level as ValidationLevel, Results as ValidationResults,
@@ -1207,10 +1206,6 @@ where
             config_validators: validators,
             ..self
         }
-    }
-
-    pub fn helper<H: Helper<S, O, C>>(self, helper: H) -> Self {
-        helper.apply(self)
     }
 
     /// Adds a callback for notification about new configurations.
