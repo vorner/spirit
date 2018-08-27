@@ -320,9 +320,9 @@ struct CommonOpts {
     #[structopt(parse(from_os_str))]
     configs: Vec<PathBuf>,
 
-    /// Debug support - Don't go into background (daemonize) and don't redirect stdio.
-    #[structopt(short = "d", long = "debug")]
-    debug: bool,
+    /// Daemonize ‒ go to background.
+    #[structopt(short = "d", long = "daemonize")]
+    daemonize: bool,
 
     /// Log to stderr with this log level.
     #[structopt(short = "l", long = "log", raw(number_of_values = "1"))]
@@ -466,7 +466,7 @@ where
     config_defaults: Option<String>,
     config_env: Option<String>,
     config_overrides: HashMap<String, String>,
-    debug: bool,
+    daemonize: bool,
     extra_logger: Option<Logging>,
     opts: O,
     previous_daemon: Mutex<Option<Daemon>>,
@@ -591,7 +591,7 @@ where
             .unwrap_or_else(|| Path::new("/"));
         trace!("Changing working directory to {:?}", workdir);
         env::set_current_dir(workdir)?;
-        if !self.debug {
+        if self.daemonize {
             trace!("Redirecting stdio");
             let devnull = OpenOptions::new()
                 .read(true)
@@ -609,8 +609,6 @@ where
             if let ForkResult::Parent { .. } = unistd::fork()? {
                 process::exit(0);
             }
-        } else {
-            trace!("Not backgrounding due to debug");
         }
         if let Some(ref file) = daemon.pid_file {
             let mut f = OpenOptions::new()
@@ -948,7 +946,7 @@ where
             config_defaults: self.config_defaults,
             config_env: self.config_env,
             config_overrides: opts.common.config_overrides.into_iter().collect(),
-            debug: opts.common.debug,
+            daemonize: opts.common.daemonize,
             extra_logger,
             hooks: Mutex::new(Hooks {
                 config: self.config_hooks,

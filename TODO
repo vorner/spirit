@@ -16,5 +16,3 @@
 * Metrics
 * support for capabilities
 * Features
-* Helpers with set-like configuration, like sockets
-* Ose daemonize from crate once available (or integrate)

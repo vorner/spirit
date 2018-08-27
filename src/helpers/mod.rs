@@ -106,7 +106,7 @@ where
     for<'de> C: Deserialize<'de> + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
 {
-    pub fn helper<H: Helper<S, O, C>>(self, helper: H) -> Self {
+    pub fn with<H: Helper<S, O, C>>(self, helper: H) -> Self {
         helper.apply(self)
     }
 
