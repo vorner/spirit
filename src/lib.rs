@@ -65,7 +65,6 @@
 //! extern crate serde_derive;
 //! extern crate spirit;
 //!
-//! use std::io::Error;
 //! use std::time::Duration;
 //! use std::thread;
 //!
@@ -92,7 +91,7 @@
 //!         .on_config(|cfg| debug!("New config loaded: {:?}", cfg))
 //!         // Run the closure, logging the error nicely if it happens (note: no error happens
 //!         // here)
-//!         .run(|spirit| -> Result<(), Error> {
+//!         .run(|spirit: &_| {
 //!             while !spirit.is_terminated() {
 //!                 let cfg = spirit.config(); // Get a new version of config every round
 //!                 thread::sleep(Duration::from_secs(cfg.sleep));
@@ -206,6 +205,7 @@ pub mod helpers;
 mod logging;
 pub mod validation;
 
+use std::any::TypeId;
 use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -239,7 +239,6 @@ use signal_hook::iterator::Signals;
 use structopt::clap::App;
 use structopt::StructOpt;
 
-use helpers::tokio::{TokioGuts, TokioGutsInner};
 use logging::{LogDestination, Logging};
 use validation::{
     Error as ValidationError, Level as ValidationLevel, Results as ValidationResults,
@@ -450,7 +449,7 @@ impl<O, C> Default for Hooks<O, C> {
 ///     .on_config(|_new_cfg| {
 ///         // Adapt to new config here
 ///     })
-///     .run(|_spirit| -> Result<(), std::io::Error> {
+///     .run(|_spirit| {
 ///         // Application runs here
 ///         Ok(())
 ///     });
@@ -471,10 +470,6 @@ where
     opts: O,
     previous_daemon: Mutex<Option<Daemon>>,
     terminate: AtomicBool,
-
-    // Either empty or top-level futures to spawn on tokio-run. It is unused in this module.
-    #[allow(dead_code)]
-    tokio_guts: TokioGuts<Arc<Spirit<S, O, C>>>,
 }
 
 /// A type alias for a `Spirit` with configuration held inside.
@@ -498,7 +493,7 @@ where
     /// use spirit::{Empty, Spirit};
     ///
     /// Spirit::<_, Empty, _>::new(Empty {})
-    ///     .run(|spirit| -> Result<(), std::io::Error> {
+    ///     .run(|spirit| {
     ///         println!("The config is: {:?}", spirit.config());
     ///         Ok(())
     ///     });
@@ -521,6 +516,8 @@ where
     /// from outside as well as through the [`config`](#method.config) method.
     pub fn with_config_storage(config: S) -> Builder<S, O, C> {
         Builder {
+            before_bodies: Vec::new(),
+            body_wrappers: Vec::new(),
             config,
             config_default_paths: Vec::new(),
             config_defaults: None,
@@ -530,8 +527,8 @@ where
             config_validators: Vec::new(),
             opts: PhantomData,
             sig_hooks: HashMap::new(),
+            singletons: HashSet::new(),
             terminate_hooks: Vec::new(),
-            tokio_guts: TokioGutsInner::default(),
         }
     }
 
@@ -562,7 +559,7 @@ where
     /// use arc_swap::Lease;
     /// use spirit::{Empty, Spirit};
     ///
-    /// let spirit = Spirit::<_, Empty, _>::new(Empty {})
+    /// let (spirit, _, _) = Spirit::<_, Empty, _>::new(Empty {})
     ///     .build()
     ///     .unwrap();
     ///
@@ -741,7 +738,7 @@ where
     ///
     /// use spirit::{Empty, Spirit};
     ///
-    /// let spirit = Spirit::<_, Empty, _>::new(Empty {})
+    /// let (spirit, _, _) = Spirit::<_, Empty, _>::new(Empty {})
     ///     .build()
     ///     .unwrap();
     ///
@@ -865,6 +862,36 @@ where
     }
 }
 
+trait Body<Param>: Send {
+    fn run(&mut self, Param) -> Result<(), Error>;
+}
+
+impl<F: FnOnce(Param) -> Result<(), Error> + Send, Param> Body<Param> for Option<F> {
+    fn run(&mut self, param: Param) -> Result<(), Error> {
+        (self.take().expect("Body called multiple times"))(param)
+    }
+}
+
+pub struct InnerBody(Box<Body<()>>);
+
+impl InnerBody {
+    pub fn run(mut self) -> Result<(), Error> {
+        self.0.run(())
+    }
+}
+
+pub struct WrappedBody(Box<Body<InnerBody>>);
+
+impl WrappedBody {
+    pub fn run(mut self, inner: InnerBody) -> Result<(), Error> {
+        self.0.run(inner)
+    }
+}
+
+type Wrapper<S, O, C> = Box<for<'a> Body<(&'a Arc<Spirit<S, O, C>>, InnerBody)>>;
+// TODO: Syntax how to get & here?
+type SpiritBody<S, O, C> = Box<for<'a> Body<&'a Arc<Spirit<S, O, C>>>>;
+
 /// The builder of [`Spirit`](struct.Spirit.html).
 ///
 /// This is returned by the [`Spirit::new`](struct.Spirit.html#new).
@@ -872,6 +899,8 @@ pub struct Builder<S, O = Empty, C = Empty>
 where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
 {
+    before_bodies: Vec<SpiritBody<S, O, C>>,
+    body_wrappers: Vec<Wrapper<S, O, C>>,
     config: S,
     config_default_paths: Vec<PathBuf>,
     config_defaults: Option<String>,
@@ -881,8 +910,8 @@ where
     config_validators: Vec<Box<FnMut(&Arc<C>, &mut C, &O) -> ValidationResults + Send>>,
     opts: PhantomData<O>,
     sig_hooks: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
+    singletons: HashSet<TypeId>,
     terminate_hooks: Vec<Box<FnMut() + Send>>,
-    tokio_guts: TokioGutsInner<Arc<Spirit<S, O, C>>>,
 }
 
 impl<S, O, C> Builder<S, O, C>
@@ -891,6 +920,23 @@ where
     for<'de> C: Deserialize<'de> + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
 {
+    pub fn before_body<B>(mut self, body: B) -> Self
+    where
+        B: FnOnce(&Arc<Spirit<S, O, C>>) -> Result<(), Error> + Send + 'static,
+    {
+        self.before_bodies.push(Box::new(Some(body)));
+        self
+    }
+
+    pub fn body_wrapper<W>(mut self, wrapper: W) -> Self
+    where
+        W: FnOnce(&Arc<Spirit<S, O, C>>, InnerBody) -> Result<(), Error> + Send + 'static,
+    {
+        let wrapper = move |(spirit, inner): (&_, _)| wrapper(spirit, inner);
+        self.body_wrappers.push(Box::new(Some(wrapper)));
+        self
+    }
+
     /// Finish building the Spirit.
     ///
     /// This transitions from the configuration phase of Spirit to actually creating it and
@@ -907,7 +953,8 @@ where
     ///
     /// Unless in debug mode, this forks. You want to run this before you start any threads, or
     /// you'll lose them.
-    pub fn build(self) -> Result<Arc<Spirit<S, O, C>>, Error> {
+    // TODO: The new return value
+    pub fn build(self) -> Result<(Arc<Spirit<S, O, C>>, InnerBody, WrappedBody), Error> {
         let mut logger = Logging {
             destination: LogDestination::StdErr,
             level: LevelFilter::Warn,
@@ -958,7 +1005,6 @@ where
             opts: opts.other,
             previous_daemon: Mutex::new(None),
             terminate: AtomicBool::new(false),
-            tokio_guts: self.tokio_guts.into(),
         };
         spirit.config_reload()?;
         let signals = Signals::new(interesting_signals)?;
@@ -981,7 +1027,30 @@ where
                     }
                 }
             }).unwrap(); // Could fail only if the name contained \0
-        Ok(spirit)
+        debug!(
+            "Building bodies from {} before-bodies and {} wrappers",
+            self.before_bodies.len(),
+            self.body_wrappers.len()
+        );
+        let spirit_body = Arc::clone(&spirit);
+        let bodies = self.before_bodies;
+        let inner = move |()| {
+            for mut body in bodies {
+                body.run(&spirit_body)?;
+            }
+            Ok(())
+        };
+        let body_wrappers = self.body_wrappers;
+        let inner = InnerBody(Box::new(Some(inner)));
+        let spirit_body = Arc::clone(&spirit);
+        let mut wrapped = WrappedBody(Box::new(Some(|inner: InnerBody| inner.run())));
+        for mut wrapper in body_wrappers.into_iter().rev() {
+            // TODO: Can we get rid of this clone?
+            let spirit = Arc::clone(&spirit_body);
+            let applied = move |inner: InnerBody| wrapper.run((&spirit, inner));
+            wrapped = WrappedBody(Box::new(Some(applied)));
+        }
+        Ok((spirit, inner, wrapped))
     }
 
     /// Build the spirit and run the application, handling all relevant errors.
@@ -998,7 +1067,7 @@ where
     /// use spirit::{Empty, Spirit};
     ///
     /// Spirit::<_, Empty, _>::new(Empty {})
-    ///     .run(|spirit| -> Result<(), std::io::Error> {
+    ///     .run(|spirit| {
     ///         while !spirit.is_terminated() {
     ///             // Some reasonable work here
     ///             thread::sleep(Duration::from_millis(100));
@@ -1008,14 +1077,14 @@ where
     ///         Ok(())
     ///     });
     /// ```
-    pub fn run<E, M>(self, main: M)
-    where
-        E: Into<Error>,
-        M: FnOnce(Arc<Spirit<S, O, C>>) -> Result<(), E>,
-    {
+    pub fn run<B: FnOnce(&Arc<Spirit<S, O, C>>) -> Result<(), Error> + Send + 'static>(
+        self,
+        body: B,
+    ) {
         let result = log_errors(|| {
-            self.build()
-                .and_then(|spirit| main(spirit).map_err(Into::into))
+            let (_spirit, inner, wrapped) = self.before_body(body).build()?;
+            debug!("Running bodies");
+            wrapped.run(inner)
         });
         if result.is_err() {
             process::exit(1);

@@ -1,6 +1,5 @@
 use std::borrow::Borrow;
 use std::fmt::{Debug, Display};
-use std::mem;
 use std::net::{TcpListener as StdTcpListener, UdpSocket as StdUdpSocket};
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,82 +16,11 @@ use tokio;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::prelude::*;
 use tokio::reactor::Handle;
+use tokio::runtime::Runtime as TokioRuntime;
 
 use super::super::validation::Result as ValidationResult;
 use super::super::{Builder, Empty, Spirit, ValidationResults};
 use super::{Helper, IteratedCfgHelper};
-
-type BoxTask = Box<dyn Future<Item = (), Error = ()> + Send>;
-// Should be Box<FnOnce>, but it doesn't work. So we wrap Option<FnOnce> into FnMut, pull it out
-// and make sure not to call it twice (which would panic).
-type TaskBuilder<T> = Box<dyn FnMut(&T) -> BoxTask + Send>;
-
-pub(crate) struct TokioGutsInner<T> {
-    tasks: Vec<TaskBuilder<T>>,
-}
-
-// TODO: Why can't derive?
-impl<T> Default for TokioGutsInner<T> {
-    fn default() -> Self {
-        TokioGutsInner { tasks: Vec::new() }
-    }
-}
-
-pub(crate) struct TokioGuts<T>(Mutex<TokioGutsInner<T>>);
-
-impl<T> From<TokioGutsInner<T>> for TokioGuts<T> {
-    fn from(inner: TokioGutsInner<T>) -> Self {
-        TokioGuts(Mutex::new(inner))
-    }
-}
-
-impl<S, O, C> Spirit<S, O, C>
-where
-    S: Borrow<ArcSwap<C>> + Send + Sync + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync,
-    O: StructOpt,
-{
-    pub fn tokio_spawn_tasks(me: &Arc<Self>) {
-        let mut extracted = Vec::new();
-        mem::swap(&mut extracted, &mut me.tokio_guts.0.lock().tasks);
-        for mut task in extracted.drain(..) {
-            tokio::spawn(task(me));
-        }
-    }
-}
-
-impl<S, O, C> Builder<S, O, C>
-where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-{
-    pub fn tokio_task<F, Fut>(mut self, task: F) -> Self
-    where
-        F: FnOnce(&Arc<Spirit<S, O, C>>) -> Fut + Send + 'static,
-        Fut: Future<Item = (), Error = ()> + Send + 'static,
-    {
-        let mut task = Some(task);
-        // We effectively simulate FnOnce by FnMut that'd panic on another call
-        let wrapper = move |spirit: &_| -> BoxTask {
-            let task = task.take().unwrap();
-            let fut = task(spirit);
-            Box::new(fut)
-        };
-        self.tokio_guts.tasks.push(Box::new(wrapper));
-        self
-    }
-
-    pub fn run_tokio(self) {
-        self.run(|spirit| -> Result<(), Error> {
-            tokio::run(future::lazy(move || {
-                Spirit::tokio_spawn_tasks(&spirit);
-                future::ok(())
-            }));
-            Ok(())
-        })
-    }
-}
 
 struct RemoteDrop {
     request_drop: Option<oneshot::Sender<()>>,
@@ -291,7 +219,13 @@ where
             results
         };
 
-        builder.config_validator(validator).tokio_task(installer)
+        builder
+            .config_validator(validator)
+            .with_singleton(Runtime)
+            .before_body(move |spirit| {
+                tokio::spawn(installer(spirit));
+                Ok(())
+            })
     }
 }
 
@@ -508,10 +442,13 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> UdpListen<ExtraCfg> {
         Fut: Future<Item = (), Error = Error> + Send + 'static,
         Name: Clone + Display + Send + Sync + 'static,
     {
+        trace!("Creating UDP listen helper for {}", name);
         let action = Arc::new(action);
 
+        let to_task_name = name.clone();
         let to_task =
             move |spirit: &Arc<Spirit<S, O, C>>, socket: Arc<StdUdpSocket>, cfg: ExtraCfg| {
+                trace!("Running UDP listener {} for {:?}", to_task_name, cfg);
                 let spirit = Arc::clone(spirit);
                 let action = Arc::clone(&action);
                 socket
@@ -525,6 +462,7 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> UdpListen<ExtraCfg> {
 
         let extract_name = name.clone();
         let extract = move |cfg: &C| {
+            trace!("Extracting {}", extract_name);
             extract(cfg).into_iter().map(|c| {
                 let (scale, results) = c.scale.scaled(&extract_name);
                 (c.listen, c.extra_cfg, scale, results)
@@ -561,5 +499,21 @@ where
         Name: Clone + Display + Send + Sync + 'static,
     {
         Self::helper(extractor, action, name).apply(builder)
+    }
+}
+
+pub struct Runtime;
+
+impl<S, O, C> Helper<S, O, C> for Runtime
+where
+    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
+    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
+{
+    fn apply(self, builder: Builder<S, O, C>) -> Builder<S, O, C> {
+        trace!("Wrapping in tokio runtime");
+        builder.body_wrapper(|_spirit, inner| {
+            TokioRuntime::new()?.block_on_all(future::lazy(move || inner.run()))
+        })
     }
 }

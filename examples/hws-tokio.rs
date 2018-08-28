@@ -115,7 +115,7 @@ mod content {
             .config_defaults(DEFAULT_CONFIG)
             .config_exts(&["toml", "ini", "json"])
             .config_helper(Config::listen, handle_connection, "listen")
-            .run_tokio();
+            .run(|_| Ok(()));
     }
 }
 

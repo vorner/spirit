@@ -1,3 +1,4 @@
+use std::any::TypeId;
 use std::borrow::Borrow;
 use std::fmt::{Debug, Display};
 
@@ -9,27 +10,6 @@ use super::Builder;
 
 #[cfg(feature = "tokio-helpers")]
 pub mod tokio;
-
-#[cfg(not(feature = "tokio-helpers"))]
-pub(crate) mod tokio {
-    use std::marker::PhantomData;
-
-    pub(crate) struct TokioGutsInner<T>(PhantomData<T>);
-
-    impl<T> Default for TokioGutsInner<T> {
-        fn default() -> Self {
-            TokioGutsInner(PhantomData)
-        }
-    }
-
-    pub(crate) struct TokioGuts<T>(PhantomData<T>);
-
-    impl<T> From<TokioGutsInner<T>> for TokioGuts<T> {
-        fn from(inner: TokioGutsInner<T>) -> Self {
-            TokioGuts(inner.0)
-        }
-    }
-}
 
 pub trait Helper<S, O, C>
 where
@@ -106,10 +86,6 @@ where
     for<'de> C: Deserialize<'de> + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
 {
-    pub fn with<H: Helper<S, O, C>>(self, helper: H) -> Self {
-        helper.apply(self)
-    }
-
     pub fn config_helper<Cfg, Extractor, Action, Name>(
         self,
         extractor: Extractor,
@@ -121,6 +97,25 @@ where
         Cfg: CfgHelper<S, O, C, Action>,
         Name: Clone + Display + Send + Sync + 'static,
     {
+        trace!("Adding config helper for {}", name);
         CfgHelper::apply(extractor, action, name, self)
+    }
+
+    pub fn singleton<T: 'static>(&mut self) -> bool {
+        self.singletons.insert(TypeId::of::<T>())
+    }
+
+    pub fn with<H: Helper<S, O, C>>(self, helper: H) -> Self {
+        trace!("Adding a helper");
+        helper.apply(self)
+    }
+
+    pub fn with_singleton<T: Helper<S, O, C> + 'static>(mut self, singleton: T) -> Self {
+        if self.singleton::<T>() {
+            self.with(singleton)
+        } else {
+            trace!("Singleton already exists");
+            self
+        }
     }
 }
