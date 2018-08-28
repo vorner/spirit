@@ -177,8 +177,6 @@ extern crate config;
 extern crate failure;
 extern crate fallible_iterator;
 extern crate fern;
-#[cfg(feature = "tokio-helpers")]
-extern crate futures;
 extern crate itertools;
 extern crate libc;
 #[macro_use]
@@ -196,10 +194,6 @@ extern crate signal_hook;
 #[macro_use]
 extern crate structopt;
 extern crate syslog;
-#[cfg(feature = "tokio-helpers")]
-extern crate tk_listen;
-#[cfg(feature = "tokio-helpers")]
-extern crate tokio;
 
 pub mod helpers;
 mod logging;

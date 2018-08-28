@@ -8,9 +8,6 @@ use structopt::StructOpt;
 
 use super::Builder;
 
-#[cfg(feature = "tokio-helpers")]
-pub mod tokio;
-
 pub trait Helper<S, O, C>
 where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
