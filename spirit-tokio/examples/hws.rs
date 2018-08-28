@@ -24,15 +24,12 @@ extern crate spirit_tokio;
 extern crate tokio;
 
 use std::collections::HashSet;
-use std::sync::Arc;
 
 use failure::Error;
-use spirit::helpers;
-use spirit_tokio::TcpListen;
 use spirit::{Empty, Spirit, SpiritInner};
+use spirit_tokio::TcpListen;
 use tokio::net::TcpStream;
 use tokio::prelude::*;
-use tokio::reactor::Handle;
 
 // Configuration. It has the same shape as the one in hws.rs.
 
