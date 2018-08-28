@@ -4,7 +4,7 @@
 )]
 #![cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
 #![forbid(unsafe_code)]
-//#![warn(missing_docs)] TODO
+#![warn(missing_docs)]
 
 //! A helper to create unix daemons.
 //!
@@ -110,8 +110,8 @@
 //!
 //! ## Command line options
 //!
-//! * `debug`: When this is set, the program doesn't become a daemon and stays in the foreground.
-//!   It preserves the stdio.
+//! * `daemonize`: When this is set, the program becomes instead of staying in the foreground. It
+//!   closes stdio.
 //! * `config-override`: Override configuration value.
 //! * `log`: In addition to the logging in configuration file, also log with the given severity to
 //!   stderr.
@@ -122,7 +122,7 @@
 //! [filter](struct.Builder.html#method.config_files) ‒ are also loaded).
 //!
 //! ```sh
-//! ./program --debug --log info --log-module program=trace --config-override ui.message=something
+//! ./program --log info --log-module program=trace --config-override ui.message=something
 //! ```
 //!
 //! ## Configuration options
@@ -943,10 +943,21 @@ where
     /// want spirit to take care of nice error logging (even for your application's top level
     /// errors), use [`run`](#method.run).
     ///
+    /// # Result
+    ///
+    /// On success, this returns three things:
+    ///
+    /// * The `spirit` handle, allowing to manipulate it (shutdown, read configuration, ...)
+    /// * The before-body hooks (see [`before_body`](#method.before_body).
+    /// * The body wrappers ([`body_wrapper`](#method.body_wrapper)).
+    ///
+    /// The two latter ones are often set by helpers, so you should not ignore them.
+    ///
     /// # Warning
     ///
-    /// Unless in debug mode, this forks. You want to run this before you start any threads, or
-    /// you'll lose them.
+    /// If asked to go to background, this uses `fork`. Therefore, start any threads after you call
+    /// `build` (or from within [`run`](#method.run)), or you'll lose them ‒ only the thread doing
+    /// fork is preserved across it.
     // TODO: The new return value
     pub fn build(self) -> Result<(Arc<Spirit<S, O, C>>, InnerBody, WrappedBody), Error> {
         let mut logger = Logging {
@@ -1053,6 +1064,11 @@ where
     /// the errors are logged (either to the place where logs are sent to in configuration, or to
     /// stderr if the error happens before logging is initialized ‒ for example if configuration
     /// can't be read). The application then terminates with failure exit code.
+    ///
+    /// It first wraps all the calls in the provided wrappers
+    /// ([`body_wrapper`](#method.body_wrapper)) and runs the before body hooks
+    /// ([`before_body`](#method.before_body)) before starting the real body provided as parameter.
+    /// These are usually provided by helpers.
     ///
     /// ```rust
     /// use std::thread;

@@ -135,7 +135,7 @@ fn main() -> Result<(), Error> {
         // We are a bit lazy here. Changing the set of ports we listen on at runtime is hard to do.
         // Therefore we simply warn about a change that doesn't take an effect.
         //
-        // The hws-tokio example has a working update of listening ports.
+        // The hws example in spirit-tokio has a working update of listening ports.
         .config_validator(move |old, new, _| {
             let mut results = Vec::new();
             if !initial && old.listen != new.listen {

@@ -1,27 +1,17 @@
 //! A tokio-based hello world service.
 //!
-//! Look at hws.rs first, that one is simpler.
+//! Look at hws.rs in core spirit first, that one is simpler.
 //!
 //! Unlike that one, it supports reconfiguring of everything ‒ including the ports it listens on.
-//! This is currently a bit tricky, something next versions will want to provide some helpers for.
 //!
-//! # The ports reconfiguration
+//! # The configuration helpers
 //!
-//! Because we can't know if creating a listening socket will work or not, we have to try it as
-//! part of the config validation (with checking if the socket already exists from before). If the
-//! configuration fails, the new sockets are dropped. If it succeeds, they are sent to the tokio
-//! runtime over a channel and the runtime installs them.
-//!
-//! The configuration keeps a oneshot channel for each socket. The runtime drops the socket
-//! whenever the oneshot fires ‒ which includes when it is dropped. This is used for remotely
-//! dropping the sockets. It is used for removing sockets as well as shutting the whole process
-//! down (by dropping all of them).
-//!
-//! There's a small race condition around removing and then re-creating the same socket (think
-//! about it). It would be possible to solve, but it would make the code even more complex and the
-//! race condition is quite short and unlikely.
+//! The port reconfiguration is done by using a helper. By using the provided struct inside the
+//! configuration, the helper is able to spawn and shut down tasks inside tokio as needed. You only
+//! need to provide it with a function to extract that bit of configuration, the action to take (in
+//! case of TCP, the action is handling one incoming connection) and a name (which is used in
+//! logs).
 
-#![allow(unused_imports)]
 extern crate failure;
 #[macro_use]
 extern crate log;
@@ -53,11 +43,14 @@ struct Ui {
 
 #[derive(Default, Deserialize)]
 struct Config {
+    /// On which ports (and interfaces) to listen.
     listen: HashSet<TcpListen>,
+    /// The UI (there's only the message to send).
     ui: Ui,
 }
 
 impl Config {
+    /// A function to extract the tcp ports configuration.
     fn listen(&self) -> HashSet<TcpListen> {
         self.listen.clone()
     }
@@ -75,6 +68,7 @@ host = "localhost"
 msg = "Hello world"
 "#;
 
+/// Handle one connection, the tokio way.
 fn handle_connection(
     spirit: &SpiritInner<Empty, Config>,
     conn: TcpStream,
