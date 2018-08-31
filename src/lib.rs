@@ -866,24 +866,40 @@ impl<F: FnOnce(Param) -> Result<(), Error> + Send, Param> Body<Param> for Option
     }
 }
 
+/// A workaround type for `Box<FnOnce() -> Result<(), Error>`.
+///
+/// Since it is not possible to use the aforementioned type in any meaningful way in Rust yet, this
+/// works around the problem. The type has a [`run`](#method.run) method which does the same thing.
+///
+/// This is passed as parameter to the [`body_wrapper`](struct.Builder.html#method.body_wrapper).
+///
+/// It is also returned as part of the [`build`](struct.Builder.html#method.build)'s result.
 pub struct InnerBody(Box<Body<()>>);
 
 impl InnerBody {
+    /// Run the body.
     pub fn run(mut self) -> Result<(), Error> {
         self.0.run(())
     }
 }
 
-pub struct WrappedBody(Box<Body<InnerBody>>);
+/// A wrapper around a body.
+///
+/// These are essentially boxed closures submitted by
+/// [`body_wrapper`](struct.Builder.html#method.body_wrapper) (or all of them folded together), but
+/// in a form that is usable (in contrast to `Box<FnOnce(InnerBody) -> Result(), Error>`). It
+/// is part of the return value of [`build`](struct.Builder.html#method.build) and the caller
+/// should call it eventually.
+pub struct WrapBody(Box<Body<InnerBody>>);
 
-impl WrappedBody {
+impl WrapBody {
+    /// Call the closure inside.
     pub fn run(mut self, inner: InnerBody) -> Result<(), Error> {
         self.0.run(inner)
     }
 }
 
 type Wrapper<S, O, C> = Box<for<'a> Body<(&'a Arc<Spirit<S, O, C>>, InnerBody)>>;
-// TODO: Syntax how to get & here?
 type SpiritBody<S, O, C> = Box<for<'a> Body<&'a Arc<Spirit<S, O, C>>>>;
 
 /// The builder of [`Spirit`](struct.Spirit.html).
@@ -914,6 +930,35 @@ where
     for<'de> C: Deserialize<'de> + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
 {
+    /// Add a closure run before the main body.
+    ///
+    /// The [`run`](#method.run) will first execute all closures submitted through this method
+    /// before running the real body. They are run in the order of submissions.
+    ///
+    /// The purpose of this is mostly integration with helpers ‒ they often need some last minute
+    /// preparation.
+    ///
+    /// In case of using only build, the bodies are composed into one object and returned as part
+    /// of the result (the inner body).
+    ///
+    /// # Errors
+    ///
+    /// If any of the before-bodies in the chain return an error, the processing ends there and the
+    /// error is returned right away.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use spirit::{Empty, Spirit};
+    /// Spirit::<_, Empty, _>::new(Empty {})
+    ///     .before_body(|_spirit| {
+    ///         println!("Run first");
+    ///         Ok(())
+    ///     }).run(|_spirit| {
+    ///         println!("Run second");
+    ///         Ok(())
+    ///     });
+    /// ```
     pub fn before_body<B>(mut self, body: B) -> Self
     where
         B: FnOnce(&Arc<Spirit<S, O, C>>) -> Result<(), Error> + Send + 'static,
@@ -922,6 +967,35 @@ where
         self
     }
 
+    /// Wrap the body run by the [`run`](#method.run) into this closure.
+    ///
+    /// The inner body is passed as an object with a [`run`](struct.InnerBody.html#method.run)
+    /// method, not as a closure, due to a limitation around boxed `FnOnce`.
+    ///
+    /// It is expected the wrapper executes the inner body as part of itself and propagates any
+    /// returned error.
+    ///
+    /// In case of multiple wrappers, the ones submitted later on are placed inside the sooner
+    /// ones ‒ the first one is the outermost.
+    ///
+    /// In case of using only [`build`](#method.build), all the wrappers composed together are
+    /// returned as part of the result.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use spirit::{Empty, Spirit};
+    /// Spirit::<_, Empty, _>::new(Empty {})
+    ///     .body_wrapper(|_spirit, inner| {
+    ///         println!("Run first");
+    ///         inner.run()?;
+    ///         println!("Run third");
+    ///         Ok(())
+    ///     }).run(|_spirit| {
+    ///         println!("Run second");
+    ///         Ok(())
+    ///     });
+    /// ```
     pub fn body_wrapper<W>(mut self, wrapper: W) -> Self
     where
         W: FnOnce(&Arc<Spirit<S, O, C>>, InnerBody) -> Result<(), Error> + Send + 'static,
@@ -959,7 +1033,7 @@ where
     /// `build` (or from within [`run`](#method.run)), or you'll lose them ‒ only the thread doing
     /// fork is preserved across it.
     // TODO: The new return value
-    pub fn build(self) -> Result<(Arc<Spirit<S, O, C>>, InnerBody, WrappedBody), Error> {
+    pub fn build(self) -> Result<(Arc<Spirit<S, O, C>>, InnerBody, WrapBody), Error> {
         let mut logger = Logging {
             destination: LogDestination::StdErr,
             level: LevelFilter::Warn,
@@ -1048,12 +1122,12 @@ where
         let body_wrappers = self.body_wrappers;
         let inner = InnerBody(Box::new(Some(inner)));
         let spirit_body = Arc::clone(&spirit);
-        let mut wrapped = WrappedBody(Box::new(Some(|inner: InnerBody| inner.run())));
+        let mut wrapped = WrapBody(Box::new(Some(|inner: InnerBody| inner.run())));
         for mut wrapper in body_wrappers.into_iter().rev() {
             // TODO: Can we get rid of this clone?
             let spirit = Arc::clone(&spirit_body);
             let applied = move |inner: InnerBody| wrapper.run((&spirit, inner));
-            wrapped = WrappedBody(Box::new(Some(applied)));
+            wrapped = WrapBody(Box::new(Some(applied)));
         }
         Ok((spirit, inner, wrapped))
     }

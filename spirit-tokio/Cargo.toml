@@ -6,6 +6,7 @@ description = "Tokio helpers for Spirit"
 documentation = "https://docs.rs/spirit-tokio"
 repository = "https://github.com/vorner/spirit"
 license = "Apache-2.0/MIT"
+readme = "README.md"
 
 [badges]
 travis-ci = { repository = "vorner/spirit" }
@@ -23,4 +24,10 @@ spirit = { version = "~0.1", path = ".." }
 structopt = "~0.2"
 tk-listen = "~0.2"
 tokio = "~0.1.8"
+
+[dev-dependencies]
+futures = "~0.1"
+lazy_static = "~1"
+tokio = "~0.1"
+version-sync = "~0.5"
 

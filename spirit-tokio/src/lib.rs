@@ -1,3 +1,11 @@
+#![doc(
+    html_root_url = "https://docs.rs/spirit-tokio/0.1.0/spirit_tokio/",
+    test(attr(deny(warnings)))
+)]
+#![cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
+
 extern crate arc_swap;
 extern crate failure;
 extern crate futures;
@@ -24,9 +32,9 @@ use futures::sync::{mpsc, oneshot};
 use futures::Future;
 use parking_lot::Mutex;
 use serde::Deserialize;
+use spirit::helpers::{Helper, IteratedCfgHelper};
 use spirit::validation::{Result as ValidationResult, Results as ValidationResults};
 use spirit::{Builder, Empty, Spirit};
-use spirit::helpers::{Helper, IteratedCfgHelper};
 use structopt::StructOpt;
 use tk_listen::ListenExt;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};

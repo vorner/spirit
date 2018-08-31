@@ -43,7 +43,5 @@ structopt = "~0.2"
 syslog = "~4"
 
 [dev-dependencies]
-futures = "~0.1"
 lazy_static = "~1"
-tokio = "~0.1"
 version-sync = "~0.5"
