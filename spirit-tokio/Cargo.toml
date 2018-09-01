@@ -13,7 +13,6 @@ travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-arc-swap = "~0.3"
 failure = "~0.1"
 futures = "~0.1"
 log = "~0.4"
@@ -30,4 +29,3 @@ futures = "~0.1"
 lazy_static = "~1"
 tokio = "~0.1"
 version-sync = "~0.5"
-

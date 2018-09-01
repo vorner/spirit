@@ -10,7 +10,6 @@
 //! and see the changes to the logging and the message take effect without restarting the
 //! application.
 
-extern crate arc_swap;
 #[macro_use]
 extern crate failure;
 #[macro_use]
@@ -27,10 +26,9 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{mpsc, Arc};
 use std::thread;
 
-use arc_swap::ArcSwap;
 use failure::Error;
 use spirit::validation::Result as ValidationResult;
-use spirit::Spirit;
+use spirit::{ArcSwap, Spirit};
 
 // In this part, we define how our configuration looks like. Just like with the `config` crate
 // (which is actually used internally), the configuration is loaded using the serde's Deserialize.

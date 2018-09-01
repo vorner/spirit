@@ -220,7 +220,8 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use arc_swap::{ArcSwap, Lease};
+pub use arc_swap::ArcSwap;
+use arc_swap::Lease;
 use config::{Config, Environment, File, FileFormat};
 use failure::{Error, Fail};
 use fallible_iterator::FallibleIterator;
