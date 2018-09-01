@@ -39,7 +39,7 @@ use tk_listen::ListenExt;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::prelude::*;
 use tokio::reactor::Handle;
-use tokio::runtime::Runtime as TokioRuntime;
+use tokio::runtime;
 
 struct RemoteDrop {
     request_drop: Option<oneshot::Sender<()>>,
@@ -240,7 +240,7 @@ where
 
         builder
             .config_validator(validator)
-            .with_singleton(Runtime)
+            .with_singleton(Runtime::default())
             .before_body(move |spirit| {
                 tokio::spawn(installer(spirit));
                 Ok(())
@@ -569,7 +569,19 @@ where
     }
 }
 
-pub struct Runtime;
+pub type TokioBody = Box<Future<Item = (), Error = Error> + Send>;
+
+pub enum Runtime {
+    ThreadPool(Box<FnMut(&mut runtime::Builder) + Send>),
+    CurrentThread(Box<FnMut(&mut runtime::current_thread::Builder) + Send>),
+    Custom(Box<FnMut(TokioBody) -> Result<(), Error> + Send>),
+}
+
+impl Default for Runtime {
+    fn default() -> Self {
+        Runtime::ThreadPool(Box::new(|_| {}))
+    }
+}
 
 impl<S, O, C> Helper<S, O, C> for Runtime
 where
@@ -580,7 +592,23 @@ where
     fn apply(self, builder: Builder<S, O, C>) -> Builder<S, O, C> {
         trace!("Wrapping in tokio runtime");
         builder.body_wrapper(|_spirit, inner| {
-            TokioRuntime::new()?.block_on_all(future::lazy(move || inner.run()))
+            let fut = future::lazy(move || inner.run());
+            match self {
+                Runtime::ThreadPool(mut mod_builder) => {
+                    let mut builder = runtime::Builder::new();
+                    mod_builder(&mut builder);
+                    builder.build()?.block_on_all(fut)
+                }
+                Runtime::CurrentThread(mut mod_builder) => {
+                    let mut builder = runtime::current_thread::Builder::new();
+                    mod_builder(&mut builder);
+                    let mut runtime = builder.build()?;
+                    let result = runtime.block_on(fut);
+                    runtime.run()?;
+                    result
+                }
+                Runtime::Custom(mut callback) => callback(Box::new(fut)),
+            }
         })
     }
 }
