@@ -13,7 +13,7 @@
 //! services out there. And then there's the very boring part of turning the prototype
 //! implementation into a well-behaved service and handling all the things expected of all of them.
 //!
-//! This crate is supposed to help with the former. Before using, you should know the following:
+//! This crate is supposed to help with the latter. Before using, you should know the following:
 //!
 //! * This is an early version and while already (hopefully) useful, it is expected to expand and
 //!   maybe change a bit in future versions. There are certainly parts of functionality I still
@@ -37,6 +37,9 @@
 //! the table. It just takes other crates doing something useful and gluing them together to form
 //! something most daemons want to do.
 //!
+//! Composing these things together the crate allows for cutting down on your own boilerplate code
+//! around configuration handling, signal handling, command line arguments and daemonization.
+//!
 //! Using the builder pattern, you create a singleton [`Spirit`] object. That one starts a
 //! background thread that runs some callbacks configured previous when things happen.
 //!
@@ -55,6 +58,17 @@
 //! [`Deserialize`]: https://docs.rs/serde/*/serde/trait.Deserialize.html
 //! [config]: https://crates.io/crates/config
 //! [signal-hook]: https://crates.io/crates/signal-hook
+//!
+//! # Helpers
+//!
+//! It brings the idea of helpers. A helper is something that plugs a certain functionality into
+//! the main crate, to cut down on some more specific boiler-plate code. These are usually provided
+//! by other crates. To list some:
+//!
+//! * `spirit-tokio`: Integrates basic tokio primitives ‒ auto-reconfiguration for TCP and UDP
+//!   sockets and starting the runtime.
+//!
+//! (Others will come over time)
 //!
 //! # Examples
 //!
@@ -155,8 +169,8 @@
 //!
 //! Influences how daemonization is done.
 //!
-//! * `user`: The user to become. Either a numeric ID or name. If not present, it doesn't change
-//!   the user.
+//! * `user`: The user to become. Either a numeric ID or name (not yet implemented). If not
+//!   present, it doesn't change the user.
 //! * `group`: Similar as user, but with group.
 //! * `pid_file`: A pid file to write on startup. If not present, nothing is stored.
 //! * `workdir`: A working directory it'll switch into. If not set, defaults to `/`.
