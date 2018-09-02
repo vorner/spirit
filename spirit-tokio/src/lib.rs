@@ -6,6 +6,67 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+//! A collection of helpers integrating tokio primitives into [spirit]
+//!
+//! The crate provides few helper implementations that handle listening socket auto-reconfiguration
+//! based on configuration.
+//!
+//! # Examples
+//!
+//! ```rust
+//! extern crate failure;
+//! extern crate serde;
+//! #[macro_use]
+//! extern crate serde_derive;
+//! extern crate spirit;
+//! extern crate spirit_tokio;
+//! extern crate tokio;
+//!
+//! use std::default::Default;
+//!
+//! use failure::Error;
+//! use spirit::{Empty, Spirit, SpiritInner};
+//! use spirit_tokio::TcpListen;
+//! use tokio::net::TcpStream;
+//! use tokio::prelude::*;
+//!
+//! const DEFAULT_CONFIG: &str = r#"
+//! [listening_socket]
+//! port = 1234
+//! "#;
+//! #[derive(Default, Deserialize)]
+//! struct Config {
+//!     listening_socket: TcpListen,
+//! }
+//!
+//! impl Config {
+//!     fn listening_socket(&self) -> TcpListen {
+//!         self.listening_socket.clone()
+//!     }
+//! }
+//!
+//! fn connection(_: &SpiritInner<Empty, Config>, conn: TcpStream, _: &Empty) -> impl Future<Item = (), Error = Error> {
+//!     tokio::io::write_all(conn, "Hello\n")
+//!         .map(|_| ())
+//!         .map_err(Error::from)
+//! }
+//!
+//! fn main() {
+//!     Spirit::<_, Empty, _>::new(Config::default())
+//!         .config_defaults(DEFAULT_CONFIG)
+//!         .config_helper(Config::listening_socket, connection, "Listener")
+//!         .run(|spirit| {
+//! #           spirit.terminate();
+//!             Ok(())
+//!         });
+//! }
+//! ```
+//!
+//! Further examples are in the
+//! [git repository](https://github.com/vorner/spirit/tree/master/spirit-tokio/examples).
+//!
+//! [spirit]: https://crates.io/crates/spirit.
+
 extern crate failure;
 extern crate futures;
 #[macro_use]
@@ -41,6 +102,7 @@ use tokio::prelude::*;
 use tokio::reactor::Handle;
 use tokio::runtime;
 
+// TODO: Make this public, it may be useful to other helper crates.
 struct RemoteDrop {
     request_drop: Option<oneshot::Sender<()>>,
     drop_confirmed: Option<oneshot::Receiver<()>>,
@@ -57,10 +119,27 @@ impl Drop for RemoteDrop {
     }
 }
 
+/// An inner tokio task helper.
+///
+/// This is mostly used internally, but it is also made public as it may be useful for authors of
+/// other tokio-related helpers.
+///
+/// There are several stages with some tokio resource. First, the configuration is extracted using
+/// the `extract` closure. Note that the closure should return an iterator of configurations. Then,
+/// it is turned into a base resource by the `build` closure. The resource is then sent into the
+/// tokio runtime where the `to_task` is run on it, to turn it into a future/task to be spawned on
+/// the runtime.
+///
+/// See the bounds on the `Helper` trait implementation for exact signatures.
 pub struct Task<Extract, Build, ToTask, Name> {
+    /// A closure used to extract configuration.
     pub extract: Extract,
+    /// A closure to turn one bit of configuration into some kind of resource.
     pub build: Build,
+    /// Wraps a resource, adds some activity around it and returns a future to be spawned onto
+    /// tokio.
     pub to_task: ToTask,
+    /// A name used in logging.
     pub name: Name,
 }
 
@@ -256,20 +335,42 @@ fn default_scale() -> usize {
     1
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+/// A description of listening interface and port.
+///
+/// This can be used as part of configuration to describe a socket.
+///
+/// Note that the `Default` implementation is there to provide something on creation of `Spirit`,
+/// but isn't very useful.
+///
+/// It contains these configuration options:
+///
+/// * `port` (mandatory)
+/// * `host` (optional, if not present, `*` is used)
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Listen {
     port: u16,
     #[serde(default = "default_host")]
     host: String,
 }
 
+impl Default for Listen {
+    fn default() -> Self {
+        Listen {
+            port: 0,
+            host: default_host(),
+        }
+    }
+}
+
 impl Listen {
+    /// Creates a TCP socket described by the loaded configuration.
     pub fn create_tcp(&self) -> Result<Arc<StdTcpListener>, Error> {
         Ok(Arc::new(StdTcpListener::bind((
             &self.host as &str,
             self.port,
         ))?))
     }
+    /// Creates a UDP socket described by the loaded configuration.
     pub fn create_udp(&self) -> Result<Arc<StdUdpSocket>, Error> {
         Ok(Arc::new(StdUdpSocket::bind((
             &self.host as &str,
@@ -286,14 +387,41 @@ fn default_max_conn() -> usize {
     1000
 }
 
+/// Description of scaling into multiple tasks.
+///
+/// The helpers in this crate allow creating multiple copies of the socket. If using the default
+/// (threadpool) tokio executor, it makes it possible to share the load across multiple threads.
+///
+/// Note that in case of TCP, even if there's just one instance of the listening sockets, the
+/// individual connections still can be handled by multiple threads, as each accepted connection is
+/// a separate task. However, if you use UDP or have too many (lightweight) connections to saturate
+/// the single listening instance, having more than one can help.
+///
+/// While it is possible to define on `Scaled` types, it is expected the provided ones should be
+/// enough.
 pub trait Scaled {
+    /// Returns how many instances there should be.
+    ///
+    /// And accompanies it with optional validation results, to either refuse or warn about the
+    /// configuration.
     fn scaled<Name: Display>(&self, name: &Name) -> (usize, ValidationResults);
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+/// A scaling configuration provided by user.
+///
+/// This contains a single option `scale` (which is embedded inside the relevant configuration
+/// section), specifying the number of parallel instances. If the configuration is not provided,
+/// this contains `1`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Scale {
     #[serde(default = "default_scale")]
     scale: usize,
+}
+
+impl Default for Scale {
+    fn default() -> Self {
+        Scale { scale: 1 }
+    }
 }
 
 impl Scaled for Scale {
@@ -307,6 +435,10 @@ impl Scaled for Scale {
     }
 }
 
+/// Turns scaling off and provides a single instance.
+///
+/// This contains no configuration options and work just as a „plug“ type to fill in a type
+/// parameter.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Singleton {}
 
@@ -316,7 +448,34 @@ impl Scaled for Singleton {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+/// A configuration fragment of a TCP listening socket.
+///
+/// This describes a TCP listening socket. It works as an iterated configuration helper ‒ if you
+/// extract a vector of these from configuration and an action to handle one TCP connection, it
+/// manages the listening itself when attached to spirit.
+///
+/// # Type parameters
+///
+/// * `ExtraCfg`: Any additional configuration options, passed to the action callback. Defaults to
+///   an empty set of parameters.
+/// * `ScaleMode`: A description of how to scale into multiple listening instances.
+///
+/// # Configuration options
+///
+/// Aside from the options from the type parameters above, these options are present:
+///
+/// * `host`: The host/interface to listen on, defaults to `*`.
+/// * `port`: Mandatory, the port to listen to.
+/// * `error_sleep_ms`: If there's a recoverable error like „Too many open files“, this many
+///   milliseconds is waited before trying to accept more connections. Defaults to 100.
+/// * `max_conn`: Maximum number of parallel connections. This is per one instance, therefore the
+///   total number of connections being handled is `scale * max_conn` (if scaling is enabled).
+///   Defaults to 1000.
+///
+/// # Example
+///
+/// TODO (adjust the one from the crate level config)
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct TcpListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
     #[serde(flatten)]
     listen: Listen,
@@ -330,7 +489,30 @@ pub struct TcpListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
     extra_cfg: ExtraCfg,
 }
 
+impl<ExtraCfg: Default, ScaleMode: Default + Scaled> Default for TcpListen<ExtraCfg, ScaleMode> {
+    fn default() -> Self {
+        Self {
+            listen: Listen::default(),
+            scale: ScaleMode::default(),
+            error_sleep_ms: default_error_sleep(),
+            max_conn: default_max_conn(),
+            extra_cfg: ExtraCfg::default(),
+        }
+    }
+}
+
 impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
+    /// Provides a helper for this configuration.
+    ///
+    /// While you are free to use this directly, it is more commonly used through
+    /// `spirit::Builder::config_helper` with an extractor returning iterator of this type.
+    ///
+    /// # Parameters
+    ///
+    /// * `extract`: Closure that extracts an iterator of `TcpListen` out of the whole
+    ///   configuration.
+    /// * `conn`: An action to be taken on each accepted connection.
+    /// * `name`: How to call the instances in logs.
     pub fn helper<Extract, ExtractIt, Conn, ConnFut, Name, S, O, C>(
         mut extract: Extract,
         conn: Conn,
@@ -459,6 +641,31 @@ where
     }
 }
 
+/// A configuration fragment describing a bound UDP socket.
+///
+/// This is similar to [`TcpListen`](struct.TcpListen.html), but for UDP sockets. While the action
+/// on a TCP socket is called for each new accepted connection, the action for UDP socket is used
+/// to handle the whole UDP socket created from this configuration.
+///
+/// # Type parameters
+///
+/// * `ExtraCfg`: Extra options folded into this configuration, for application specific options.
+///   They are passed to the action.
+/// * `ScaleMode`: How scaling should be done. If scaling is enabled, the action should handle
+///   situation where it runs in multiple instances. However, even in case scaling is disabled, the
+///   action needs to handle being „restarted“ ‒ if there's a new configuration for the socket, the
+///   old future is dropped and new one, with a new socket, is created.
+///
+/// # Configuration options
+///
+/// In addition to options provided by the above type parameters, these are present:
+///
+/// * `host`: The hostname/interface to bind to. Defaults to `*`.
+/// * `port`: The port to bind the UDP socket to (mandatory). While it is possible to create
+///   unbound UDP sockets with an OS-assigned port, these don't need the configuration and are not
+///   created by this configuration fragment.
+///
+/// #
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct UdpListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
     #[serde(flatten)]
@@ -470,6 +677,10 @@ pub struct UdpListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
 }
 
 impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> UdpListen<ExtraCfg> {
+    /// Returns a helper for handling reconfiguration of the UDP sockets.
+    ///
+    /// While it can be used manually, it is usually used through the
+    /// `spirit::Builder::config_helper` with extractor returning an iterator of `UdpListen`.
     pub fn helper<Extract, ExtractIt, Action, Fut, Name, S, O, C>(
         mut extract: Extract,
         action: Action,
@@ -569,12 +780,58 @@ where
     }
 }
 
+/// A body run on tokio runtime.
+///
+/// When specifying custom tokio runtime through the [`Runtime`](enum.Runtime.html) helper, this is
+/// the future to be run inside the runtime.
 pub type TokioBody = Box<Future<Item = (), Error = Error> + Send>;
 
+/// A helper to initialize a tokio runtime as part of spirit.
+///
+/// The helpers in this crate ([`TcpListen`](struct.TcpListen.html),
+/// [`UdpListen`](struct.UdpListen.html)) use this to make sure they have a runtime to handle the
+/// sockets on.
+///
+/// If you prefer to specify configuration of the runtime to use, instead of the default one, you
+/// can create an instance of this helper yourself and register it *before registering any socket
+/// helpers*, which will take precedence and the sockets will use the one provided by you.
+///
+/// Note that the provided closures are `FnMut` mostly because `Box<FnOnce>` doesn't work. They
+/// will be called just once, so you can use `Option<T>` inside and consume the value by
+/// `take.unwrap()`.
+///
+/// # Future compatibility
+///
+/// More options may be added into the enum at any time. Such change will not be considered a
+/// breaking change.
+///
+/// # Examples
+///
+/// TODO: Something with registering it first and registering another helper later on.
 pub enum Runtime {
+    /// Use the threadpool runtime.
+    ///
+    /// The threadpool runtime is the default (both in tokio and spirit).
+    ///
+    /// This allows you to modify the builder prior to starting it, specifying custom options.
     ThreadPool(Box<FnMut(&mut runtime::Builder) + Send>),
+    /// Use the current thread runtime.
+    ///
+    /// If you prefer to run everything in a single thread, use this variant. The provided closure
+    /// can modify the builder prior to starting it.
     CurrentThread(Box<FnMut(&mut runtime::current_thread::Builder) + Send>),
+    /// Use completely custom runtime.
+    ///
+    /// The provided closure should start the runtime and execute the provided future on it,
+    /// blocking until the runtime becomes empty.
+    ///
+    /// This allows combining arbitrary runtimes that are not directly supported by either tokio or
+    /// spirit.
     Custom(Box<FnMut(TokioBody) -> Result<(), Error> + Send>),
+    #[doc(hidden)]
+    __NonExhaustive__,
+    // TODO: Support loading this from configuration? But it won't be possible to modify at
+    // runtime, will it?
 }
 
 impl Default for Runtime {
@@ -608,6 +865,7 @@ where
                     result
                 }
                 Runtime::Custom(mut callback) => callback(Box::new(fut)),
+                Runtime::__NonExhaustive__ => unreachable!(),
             }
         })
     }
