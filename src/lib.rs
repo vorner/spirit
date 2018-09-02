@@ -615,6 +615,8 @@ where
             if let ForkResult::Parent { .. } = unistd::fork()? {
                 process::exit(0);
             }
+        } else {
+            trace!("Not going to background");
         }
         if let Some(ref file) = daemon.pid_file {
             let mut f = OpenOptions::new()
