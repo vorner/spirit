@@ -19,10 +19,10 @@ script:
       export RUST_BACKTRACE=1 &&
       cargo build &&
       cargo test --release --all &&
-      cargo doc --no-deps &&
-      (test "$TRAVIS_RUST_VERSION" != nightly || cargo test --release --benches) &&
-      (test "$TRAVIS_RUST_VERSION" != nightly || cargo clippy -- --deny clippy) &&
-      (test "$TRAVIS_RUST_VERSION" != nightly || cargo fmt)
+      cargo doc --no-deps --all &&
+      (test "$TRAVIS_RUST_VERSION" != nightly || cargo test --release --benches --all) &&
+      (test "$TRAVIS_RUST_VERSION" != nightly || cargo clippy --all -- --deny clippy) &&
+      (test "$TRAVIS_RUST_VERSION" != nightly || cargo fmt --all -- --check)
 
 matrix:
     allow_failures:
