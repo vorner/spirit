@@ -41,23 +41,23 @@
 //! around configuration handling, signal handling, command line arguments and daemonization.
 //!
 //! Using the builder pattern, you create a singleton [`Spirit`] object. That one starts a
-//! background thread that runs some callbacks configured previous when things happen.
+//! background thread that runs some callbacks configured previously when things happen.
 //!
-//! It takes two structs, one for command line arguments (using [StructOpt]) and another for
-//! configuration (implementing [serde]'s [`Deserialize`], loaded using the [config] crate). It
+//! It takes two structs, one for command line arguments (using [`StructOpt`]) and another for
+//! configuration (implementing [`serde`]'s [`Deserialize`], loaded using the [`config`] crate). It
 //! enriches both to add common options, like configuration overrides on the command line and
 //! logging into the configuration.
 //!
-//! The background thread listens to certain signals (like `SIGHUP`) using the [signal-hook] crate
+//! The background thread listens to certain signals (like `SIGHUP`) using the [`signal-hook`] crate
 //! and reloads the configuration when requested. It manages the logging backend to reopen on
 //! `SIGHUP` and reflect changes to the configuration.
 //!
 //! [`Spirit`]: struct.Spirit.html
-//! [StructOpt]: https://crates.io/crates/structopt
-//! [serde]: https://crates.io/crates/serde
+//! [`StructOpt`]: https://crates.io/crates/structopt
+//! [`serde`]: https://crates.io/crates/serde
 //! [`Deserialize`]: https://docs.rs/serde/*/serde/trait.Deserialize.html
-//! [config]: https://crates.io/crates/config
-//! [signal-hook]: https://crates.io/crates/signal-hook
+//! [`config`]: https://crates.io/crates/config
+//! [`signal-hook`]: https://crates.io/crates/signal-hook
 //!
 //! # Helpers
 //!
@@ -133,7 +133,7 @@
 //!
 //! Furthermore, it takes a list of paths ‒ both files and directories. They are loaded as
 //! configuration files (the directories are examined and files in them ‒ the ones passing a
-//! [filter](struct.Builder.html#method.config_files) ‒ are also loaded).
+//! [`filter`](struct.Builder.html#method.config_files) ‒ are also loaded).
 //!
 //! ```sh
 //! ./program --log info --log-module program=trace --config-override ui.message=something
@@ -169,8 +169,8 @@
 //!
 //! Influences how daemonization is done.
 //!
-//! * `user`: The user to become. Either a numeric ID or name (not yet implemented). If not
-//!   present, it doesn't change the user.
+//! * `user`: The user to become. Either a numeric ID or name. If not present, it doesn't change the
+//!   user.
 //! * `group`: Similar as user, but with group.
 //! * `pid_file`: A pid file to write on startup. If not present, nothing is stored.
 //! * `workdir`: A working directory it'll switch into. If not set, defaults to `/`.
@@ -199,6 +199,7 @@ extern crate log_panics;
 extern crate log_reroute;
 extern crate nix;
 extern crate parking_lot;
+extern crate privdrop;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -627,14 +628,21 @@ where
                 .open(file)?;
             writeln!(f, "{}", unistd::getpid())?;
         }
+        // PrivDrop implements the necessary libc lookups to find the group and
+        //  user entries matching the given names. If these queries fail,
+        //  because the user or group names are invalid, the function will fail.
         match daemon.group {
             SecId::Id(id) => unistd::setgid(Gid::from_raw(id))?,
-            SecId::Name(_) => unimplemented!("Discovering group name"),
+            SecId::Name(ref name) => privdrop::PrivDrop::default()
+                .group(&name)?
+                .apply()?,
             SecId::Nothing => (),
         }
         match daemon.user {
             SecId::Id(id) => unistd::setuid(Uid::from_raw(id))?,
-            SecId::Name(_) => unimplemented!("Discovering user name"),
+            SecId::Name(ref name) => privdrop::PrivDrop::default()
+                .user(&name)?
+                .apply()?,
             SecId::Nothing => (),
         }
         Ok(())
