@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit/0.1.0/spirit/",
+    html_root_url = "https://docs.rs/spirit/0.1.1/spirit/",
     test(attr(deny(warnings)))
 )]
 #![cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
