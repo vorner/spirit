@@ -448,6 +448,62 @@ impl Scaled for Singleton {
     }
 }
 
+/// An alternative (more concrete) trait to `IteratedCfgHelper` for futures/tokio integration.
+///
+/// While the `IteratedCfgHelper` is good for end-user integration with extractors, there are too
+/// many loose ends to be usable to reuse in implementing composed helpers.
+///
+/// This has more concrete parts (specifically, it mandates that it produces only one specific type
+/// of something), so higher level abstractions can reuse lower-level builders. The current use
+/// case is being able to wrap the creator of TcpStream (or other streams, like possible SSL
+/// stream, Unix domain streams, etc) to be able to put something on top of them (a HTTP server,
+/// for example), regardless of what stream is used underneath.
+pub trait ResourceMaker<S, O, C>
+where
+    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
+    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
+    Self: Sized,
+{
+    /// The kind of resource the low-level thing builds.
+    ///
+    /// This is, for example, the TCP stream.
+    type Resource;
+
+    /// Extra custom configuration carried in the config fragment.
+    ///
+    /// This allows some data to be passed from the configuration to the provided action without
+    /// interference by the maker. If not used, it can be ().
+    type ExtraCfg: Clone + Debug + PartialEq + Send + 'static;
+
+    /// Installs the pipeline.
+    ///
+    /// Similarly to helpers, this takes all the needed pieces and installs the pipeline to extract
+    /// part of configuration, turn it into a resource, apply the user action and spawn the
+    /// returned future into the builder.
+    ///
+    /// # Params
+    ///
+    /// * `extractor`: Closure that extracts a fragment from the configuration. This describe how
+    ///   the resource is created.
+    /// * `action`: Something the user wants to be done with each created resource.
+    /// * `name`: How the thing is called in the logs.
+    /// * `builder`: The builder to modify.
+    fn apply<Extractor, ExtractedIter, Action, ActionFut, Name>(
+        extractor: Extractor,
+        action: Action,
+        name: Name,
+        builder: Builder<S, O, C>,
+    ) -> Builder<S, O, C>
+    where
+        Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
+        ExtractedIter: IntoIterator<Item = Self>,
+        Action: Fn(&Arc<Spirit<S, O, C>>, Self::Resource, &Self::ExtraCfg)
+            -> ActionFut + Send + Sync + 'static,
+        ActionFut: Future<Item = (), Error = Error> + Send + 'static,
+        Name: Clone + Display + Send + Sync + 'static;
+}
+
 /// A configuration fragment of a TCP listening socket.
 ///
 /// This describes a TCP listening socket. It works as an iterated configuration helper ‒ if you
@@ -487,18 +543,6 @@ pub struct TcpListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
     max_conn: usize,
     #[serde(flatten)]
     extra_cfg: ExtraCfg,
-}
-
-impl<ExtraCfg: Default, ScaleMode: Default + Scaled> Default for TcpListen<ExtraCfg, ScaleMode> {
-    fn default() -> Self {
-        Self {
-            listen: Listen::default(),
-            scale: ScaleMode::default(),
-            error_sleep_ms: default_error_sleep(),
-            max_conn: default_max_conn(),
-            extra_cfg: ExtraCfg::default(),
-        }
-    }
 }
 
 impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
@@ -593,6 +637,18 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
     }
 }
 
+impl<ExtraCfg: Default, ScaleMode: Default + Scaled> Default for TcpListen<ExtraCfg, ScaleMode> {
+    fn default() -> Self {
+        Self {
+            listen: Listen::default(),
+            scale: ScaleMode::default(),
+            error_sleep_ms: default_error_sleep(),
+            max_conn: default_max_conn(),
+            extra_cfg: ExtraCfg::default(),
+        }
+    }
+}
+
 impl<S, O, C, Conn, ConnFut, ExtraCfg> IteratedCfgHelper<S, O, C, Conn> for TcpListen<ExtraCfg>
 where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
@@ -612,6 +668,33 @@ where
         Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
         ExtractedIter: IntoIterator<Item = Self>,
         Name: Clone + Display + Send + Sync + 'static,
+    {
+        Self::helper(extractor, action, name).apply(builder)
+    }
+}
+
+impl<S, O, C, ExtraCfg> ResourceMaker<S, O, C> for TcpListen<ExtraCfg>
+where
+    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
+    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
+    ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
+{
+    type Resource = TcpStream;
+    type ExtraCfg = ExtraCfg;
+    fn apply<Extractor, ExtractedIter, Action, ActionFut, Name>(
+        extractor: Extractor,
+        action: Action,
+        name: Name,
+        builder: Builder<S, O, C>
+    ) -> Builder<S, O, C>
+    where
+        Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
+        ExtractedIter: IntoIterator<Item = Self>,
+        Action: Fn(&Arc<Spirit<S, O, C>>, Self::Resource, &Self::ExtraCfg)
+            -> ActionFut + Send + Sync + 'static,
+        ActionFut: Future<Item = (), Error = Error> + Send + 'static,
+        Name: Clone + Display + Send + Sync + 'static
     {
         Self::helper(extractor, action, name).apply(builder)
     }
