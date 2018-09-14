@@ -1,0 +1,25 @@
+[package]
+name = "spirit-hyper"
+version = "0.1.0"
+authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
+description = "Hyper helpers for Spirit"
+documentation = "https://docs.rs/spirit-hyper"
+repository = "https://github.com/vorner/spirit"
+license = "Apache-2.0/MIT"
+readme = "README.md"
+
+[badges]
+travis-ci = { repository = "vorner/spirit" }
+maintenance = { status = "actively-developed" }
+
+[dependencies]
+arc-swap = "~0.3"
+failure = "~0.1"
+futures = "~0.1"
+hyper = "~0.12"
+serde = "~1"
+serde_derive = "~1"
+spirit = { path = "..", version = "~0.1" }
+spirit-tokio = { path = "../spirit-tokio", version = "~0.1" }
+structopt = "~0.2"
+tokio-io = "~0.1"
