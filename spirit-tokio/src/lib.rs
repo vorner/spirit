@@ -2,7 +2,6 @@
     html_root_url = "https://docs.rs/spirit-tokio/0.1.0/spirit_tokio/",
     test(attr(deny(warnings)))
 )]
-#![cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
@@ -210,8 +209,7 @@ where
                         debug!("Terminated resource {} on cfg {}", name, cfg);
                         drop(orig); // Make sure the original future is dropped first.
                         confirm_drop.send(())
-                    })
-                    .map_err(|_| ()); // If nobody waits for confirm_drop, that's OK.
+                    }).map_err(|_| ()); // If nobody waits for confirm_drop, that's OK.
                 tokio::spawn(wrapped)
             })
         };
@@ -498,8 +496,10 @@ where
     where
         Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
         ExtractedIter: IntoIterator<Item = Self>,
-        Action: Fn(&Arc<Spirit<S, O, C>>, Self::Resource, &Self::ExtraCfg)
-            -> ActionFut + Send + Sync + 'static,
+        Action: Fn(&Arc<Spirit<S, O, C>>, Self::Resource, &Self::ExtraCfg) -> ActionFut
+            + Send
+            + Sync
+            + 'static,
         ActionFut: Future<Item = (), Error = Error> + Send + 'static,
         Name: Clone + Display + Send + Sync + 'static;
 }
@@ -588,7 +588,8 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
                     .and_then(|listener| TcpListener::from_std(listener, &Handle::default()))
                     .into_future()
                     .and_then(move |listener| {
-                        listener.incoming()
+                        listener
+                            .incoming()
                             // Handle errors like too many open FDs gracefully
                             .sleep_on_error(error_sleep)
                             .map(move |new_conn| {
@@ -600,21 +601,19 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
                                 // But we want to keep the future alive so the listen doesn't think
                                 // it already terminated, therefore the done-channel.
                                 let (done_send, done_recv) = oneshot::channel();
-                                let handle_conn = conn(&spirit, new_conn, &cfg)
-                                    .then(move |r| {
-                                        if let Err(e) = r {
-                                            error!("Failed to handle connection on {}: {}", name, e);
-                                        }
-                                        // Ignore the other side going away. This may happen if the
-                                        // listener terminated, but the connection lingers for
-                                        // longer.
-                                        let _ = done_send.send(());
-                                        future::ok(())
-                                    });
+                                let handle_conn = conn(&spirit, new_conn, &cfg).then(move |r| {
+                                    if let Err(e) = r {
+                                        error!("Failed to handle connection on {}: {}", name, e);
+                                    }
+                                    // Ignore the other side going away. This may happen if the
+                                    // listener terminated, but the connection lingers for
+                                    // longer.
+                                    let _ = done_send.send(());
+                                    future::ok(())
+                                });
                                 tokio::spawn(handle_conn);
                                 done_recv.then(|_| future::ok(()))
-                            })
-                            .listen(max_conn)
+                            }).listen(max_conn)
                             .map_err(|()| unreachable!("tk-listen never errors"))
                     }).map_err(Error::from)
             };
@@ -686,15 +685,17 @@ where
         extractor: Extractor,
         action: Action,
         name: Name,
-        builder: Builder<S, O, C>
+        builder: Builder<S, O, C>,
     ) -> Builder<S, O, C>
     where
         Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
         ExtractedIter: IntoIterator<Item = Self>,
-        Action: Fn(&Arc<Spirit<S, O, C>>, Self::Resource, &Self::ExtraCfg)
-            -> ActionFut + Send + Sync + 'static,
+        Action: Fn(&Arc<Spirit<S, O, C>>, Self::Resource, &Self::ExtraCfg) -> ActionFut
+            + Send
+            + Sync
+            + 'static,
         ActionFut: Future<Item = (), Error = Error> + Send + 'static,
-        Name: Clone + Display + Send + Sync + 'static
+        Name: Clone + Display + Send + Sync + 'static,
     {
         Self::helper(extractor, action, name).apply(builder)
     }

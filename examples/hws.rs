@@ -87,7 +87,8 @@ msg = "Hello world"
 ///
 /// As the configuration is globally accessible, it can directly load the message from there.
 fn handle_conn(mut conn: TcpStream) {
-    let addr = conn.peer_addr()
+    let addr = conn
+        .peer_addr()
         .map(|addr| addr.to_string())
         // The address is just for logging, so don't hard-fail on that.
         .unwrap_or_else(|_| "<unknown>".to_owned());

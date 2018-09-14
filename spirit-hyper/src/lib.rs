@@ -2,7 +2,6 @@
     html_root_url = "https://docs.rs/spirit-hyper/0.1.0/spirit_hyper/",
     test(attr(deny(warnings)))
 )]
-#![cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
