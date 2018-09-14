@@ -88,7 +88,7 @@ use std::time::Duration;
 
 use failure::Error;
 use futures::sync::{mpsc, oneshot};
-use futures::Future;
+use futures::{Future, IntoFuture};
 use parking_lot::Mutex;
 use serde::Deserialize;
 use spirit::helpers::{CfgHelper, Helper, IteratedCfgHelper};
@@ -500,7 +500,8 @@ where
             + Send
             + Sync
             + 'static,
-        ActionFut: Future<Item = (), Error = Error> + Send + 'static,
+        ActionFut: IntoFuture<Item = (), Error = Error>,
+        ActionFut::Future: Send + 'static,
         Name: Clone + Display + Send + Sync + 'static;
 }
 
@@ -569,7 +570,8 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
         Extract: FnMut(&C) -> ExtractIt + Send + 'static,
         ExtractIt: IntoIterator<Item = Self>,
         Conn: Fn(&Arc<Spirit<S, O, C>>, TcpStream, &ExtraCfg) -> ConnFut + Sync + Send + 'static,
-        ConnFut: Future<Item = (), Error = Error> + Send + 'static,
+        ConnFut: IntoFuture<Item = (), Error = Error>,
+        ConnFut::Future: Send + 'static,
         Name: Clone + Display + Send + Sync + 'static,
     {
         let conn = Arc::new(conn);
@@ -601,16 +603,20 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
                                 // But we want to keep the future alive so the listen doesn't think
                                 // it already terminated, therefore the done-channel.
                                 let (done_send, done_recv) = oneshot::channel();
-                                let handle_conn = conn(&spirit, new_conn, &cfg).then(move |r| {
-                                    if let Err(e) = r {
-                                        error!("Failed to handle connection on {}: {}", name, e);
-                                    }
-                                    // Ignore the other side going away. This may happen if the
-                                    // listener terminated, but the connection lingers for
-                                    // longer.
-                                    let _ = done_send.send(());
-                                    future::ok(())
-                                });
+                                let handle_conn =
+                                    conn(&spirit, new_conn, &cfg).into_future().then(move |r| {
+                                        if let Err(e) = r {
+                                            error!(
+                                                "Failed to handle connection on {}: {}",
+                                                name, e
+                                            );
+                                        }
+                                        // Ignore the other side going away. This may happen if the
+                                        // listener terminated, but the connection lingers for
+                                        // longer.
+                                        let _ = done_send.send(());
+                                        future::ok(())
+                                    });
                                 tokio::spawn(handle_conn);
                                 done_recv.then(|_| future::ok(()))
                             }).listen(max_conn)
@@ -655,7 +661,8 @@ where
     O: Debug + StructOpt + Sync + Send + 'static,
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
     Conn: Fn(&Arc<Spirit<S, O, C>>, TcpStream, &ExtraCfg) -> ConnFut + Sync + Send + 'static,
-    ConnFut: Future<Item = (), Error = Error> + Send + 'static,
+    ConnFut: IntoFuture<Item = (), Error = Error>,
+    ConnFut::Future: Send + 'static,
 {
     fn apply<Extractor, ExtractedIter, Name>(
         extractor: Extractor,
@@ -694,7 +701,8 @@ where
             + Send
             + Sync
             + 'static,
-        ActionFut: Future<Item = (), Error = Error> + Send + 'static,
+        ActionFut: IntoFuture<Item = (), Error = Error>,
+        ActionFut::Future: Send + 'static,
         Name: Clone + Display + Send + Sync + 'static,
     {
         Self::helper(extractor, action, name).apply(builder)
@@ -708,7 +716,8 @@ where
     O: Debug + StructOpt + Sync + Send + 'static,
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
     Conn: Fn(&Arc<Spirit<S, O, C>>, TcpStream, &ExtraCfg) -> ConnFut + Sync + Send + 'static,
-    ConnFut: Future<Item = (), Error = Error> + Send + 'static,
+    ConnFut: IntoFuture<Item = (), Error = Error> + Send + 'static,
+    ConnFut::Future: Send + 'static,
 {
     fn apply<Extractor, Name>(
         mut extractor: Extractor,
