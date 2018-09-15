@@ -546,7 +546,11 @@ pub struct TcpListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
     extra_cfg: ExtraCfg,
 }
 
-impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> TcpListen<ExtraCfg> {
+impl<ExtraCfg, ScaleMode> TcpListen<ExtraCfg, ScaleMode>
+where
+    ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
+    ScaleMode: Scaled,
+{
     /// Provides a helper for this configuration.
     ///
     /// While you are free to use this directly, it is more commonly used through
@@ -654,7 +658,8 @@ impl<ExtraCfg: Default, ScaleMode: Default + Scaled> Default for TcpListen<Extra
     }
 }
 
-impl<S, O, C, Conn, ConnFut, ExtraCfg> IteratedCfgHelper<S, O, C, Conn> for TcpListen<ExtraCfg>
+impl<S, O, C, Conn, ConnFut, ExtraCfg, ScaleMode> IteratedCfgHelper<S, O, C, Conn>
+    for TcpListen<ExtraCfg, ScaleMode>
 where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
     for<'de> C: Deserialize<'de> + Send + Sync + 'static,
@@ -663,6 +668,7 @@ where
     Conn: Fn(&Arc<Spirit<S, O, C>>, TcpStream, &ExtraCfg) -> ConnFut + Sync + Send + 'static,
     ConnFut: IntoFuture<Item = (), Error = Error>,
     ConnFut::Future: Send + 'static,
+    ScaleMode: Scaled,
 {
     fn apply<Extractor, ExtractedIter, Name>(
         extractor: Extractor,
@@ -679,12 +685,13 @@ where
     }
 }
 
-impl<S, O, C, ExtraCfg> ResourceMaker<S, O, C> for TcpListen<ExtraCfg>
+impl<S, O, C, ExtraCfg, ScaleMode> ResourceMaker<S, O, C> for TcpListen<ExtraCfg, ScaleMode>
 where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
     for<'de> C: Deserialize<'de> + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
+    ScaleMode: Scaled,
 {
     type Resource = TcpStream;
     type ExtraCfg = ExtraCfg;
@@ -709,7 +716,8 @@ where
     }
 }
 
-impl<S, O, C, Conn, ConnFut, ExtraCfg> CfgHelper<S, O, C, Conn> for TcpListen<ExtraCfg>
+impl<S, O, C, Conn, ConnFut, ExtraCfg, ScaleMode> CfgHelper<S, O, C, Conn>
+    for TcpListen<ExtraCfg, ScaleMode>
 where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
     for<'de> C: Deserialize<'de> + Send + Sync + 'static,
@@ -718,6 +726,7 @@ where
     Conn: Fn(&Arc<Spirit<S, O, C>>, TcpStream, &ExtraCfg) -> ConnFut + Sync + Send + 'static,
     ConnFut: IntoFuture<Item = (), Error = Error> + Send + 'static,
     ConnFut::Future: Send + 'static,
+    ScaleMode: Scaled,
 {
     fn apply<Extractor, Name>(
         mut extractor: Extractor,
@@ -769,7 +778,11 @@ pub struct UdpListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
     extra_cfg: ExtraCfg,
 }
 
-impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> UdpListen<ExtraCfg> {
+impl<ExtraCfg, ScaleMode> UdpListen<ExtraCfg, ScaleMode>
+where
+    ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
+    ScaleMode: Scaled,
+{
     /// Returns a helper for handling reconfiguration of the UDP sockets.
     ///
     /// While it can be used manually, it is usually used through the
@@ -825,7 +838,8 @@ impl<ExtraCfg: Clone + Debug + PartialEq + Send + 'static> UdpListen<ExtraCfg> {
     }
 }
 
-impl<S, O, C, Action, Fut, ExtraCfg> IteratedCfgHelper<S, O, C, Action> for UdpListen<ExtraCfg>
+impl<S, O, C, Action, Fut, ExtraCfg, ScaleMode> IteratedCfgHelper<S, O, C, Action>
+    for UdpListen<ExtraCfg, ScaleMode>
 where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
     for<'de> C: Deserialize<'de> + Send + Sync + 'static,
@@ -833,6 +847,7 @@ where
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
     Action: Fn(&Arc<Spirit<S, O, C>>, UdpSocket, &ExtraCfg) -> Fut + Sync + Send + 'static,
     Fut: Future<Item = (), Error = Error> + Send + 'static,
+    ScaleMode: Scaled,
 {
     fn apply<Extractor, ExtractedIter, Name>(
         extractor: Extractor,
@@ -849,7 +864,8 @@ where
     }
 }
 
-impl<S, O, C, Action, Fut, ExtraCfg> CfgHelper<S, O, C, Action> for UdpListen<ExtraCfg>
+impl<S, O, C, Action, Fut, ExtraCfg, ScaleMode> CfgHelper<S, O, C, Action>
+    for UdpListen<ExtraCfg, ScaleMode>
 where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
     for<'de> C: Deserialize<'de> + Send + Sync + 'static,
@@ -857,6 +873,7 @@ where
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
     Action: Fn(&Arc<Spirit<S, O, C>>, UdpSocket, &ExtraCfg) -> Fut + Sync + Send + 'static,
     Fut: Future<Item = (), Error = Error> + Send + 'static,
+    ScaleMode: Scaled,
 {
     fn apply<Extractor, Name>(
         mut extractor: Extractor,
