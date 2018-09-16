@@ -48,7 +48,7 @@ where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
     for<'de> C: Deserialize<'de> + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
-    Transport: ResourceMaker<S, O, C>,
+    Transport: ResourceMaker<S, O, C, ()>,
     Transport::Resource: AsyncRead + AsyncWrite + Send + 'static,
     Action: Fn(&Arc<Spirit<S, O, C>>, &Transport::ExtraCfg) -> ActionFut + Sync + Send + 'static,
     ActionFut: IntoFuture<Item = (Srv, H), Error = Error>,
@@ -68,7 +68,7 @@ where
         ExtractedIter: IntoIterator<Item = Self>,
         Name: Clone + Display + Send + Sync + 'static,
     {
-        let inner_action = move |spirit: &_, resource, extra_cfg: &_| {
+        let inner_action = move |spirit: &_, resource, extra_cfg: &_, _: &()| {
             action(spirit, extra_cfg)
                 .into_future()
                 .and_then(|(srv, http)| {
@@ -80,7 +80,7 @@ where
         let inner_extractor = move |cfg: &_| {
             extractor(cfg)
                 .into_iter()
-                .map(|instance| instance.transport)
+                .map(|instance| (instance.transport, ()))
         };
         Transport::apply(inner_extractor, inner_action, name, builder)
     }

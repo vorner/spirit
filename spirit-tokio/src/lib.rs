@@ -456,7 +456,7 @@ impl Scaled for Singleton {
 /// case is being able to wrap the creator of TcpStream (or other streams, like possible SSL
 /// stream, Unix domain streams, etc) to be able to put something on top of them (a HTTP server,
 /// for example), regardless of what stream is used underneath.
-pub trait ResourceMaker<S, O, C>
+pub trait ResourceMaker<S, O, C, PipeThrough>
 where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
     for<'de> C: Deserialize<'de> + Send + Sync + 'static,
@@ -495,8 +495,9 @@ where
     ) -> Builder<S, O, C>
     where
         Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
-        ExtractedIter: IntoIterator<Item = Self>,
-        Action: Fn(&Arc<Spirit<S, O, C>>, Self::Resource, &Self::ExtraCfg) -> ActionFut
+        ExtractedIter: IntoIterator<Item = (Self, PipeThrough)>,
+        Action: Fn(&Arc<Spirit<S, O, C>>, Self::Resource, &Self::ExtraCfg, &PipeThrough)
+                -> ActionFut
             + Send
             + Sync
             + 'static,
@@ -685,26 +686,28 @@ where
     }
 }
 
-impl<S, O, C, ExtraCfg, ScaleMode> ResourceMaker<S, O, C> for TcpListen<ExtraCfg, ScaleMode>
+impl<S, O, C, ExtraCfg, PipeThrough, ScaleMode> ResourceMaker<S, O, C, PipeThrough>
+    for TcpListen<ExtraCfg, ScaleMode>
 where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
     for<'de> C: Deserialize<'de> + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
+    PipeThrough: Clone + Debug + PartialEq + Send + 'static,
     ScaleMode: Scaled,
 {
     type Resource = TcpStream;
     type ExtraCfg = ExtraCfg;
     fn apply<Extractor, ExtractedIter, Action, ActionFut, Name>(
-        extractor: Extractor,
+        mut extractor: Extractor,
         action: Action,
         name: Name,
         builder: Builder<S, O, C>,
     ) -> Builder<S, O, C>
     where
         Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
-        ExtractedIter: IntoIterator<Item = Self>,
-        Action: Fn(&Arc<Spirit<S, O, C>>, Self::Resource, &Self::ExtraCfg) -> ActionFut
+        ExtractedIter: IntoIterator<Item = (Self, PipeThrough)>,
+        Action: Fn(&Arc<Spirit<S, O, C>>, TcpStream, &Self::ExtraCfg, &PipeThrough) -> ActionFut
             + Send
             + Sync
             + 'static,
@@ -712,7 +715,22 @@ where
         ActionFut::Future: Send + 'static,
         Name: Clone + Display + Send + Sync + 'static,
     {
-        Self::helper(extractor, action, name).apply(builder)
+        let extractor = move |cfg: &_| {
+            extractor(cfg)
+                .into_iter()
+                .map(|(tcp, pipe_through)| TcpListen {
+                    listen: tcp.listen,
+                    scale: tcp.scale,
+                    error_sleep_ms: tcp.error_sleep_ms,
+                    max_conn: tcp.max_conn,
+                    extra_cfg: (tcp.extra_cfg, pipe_through),
+                })
+        };
+        let action = move |spirit: &_, stream, extra_cfg: &(_, _)| {
+            action(spirit, stream, &extra_cfg.0, &extra_cfg.1)
+        };
+        TcpListen::<(ExtraCfg, PipeThrough), ScaleMode>::helper(extractor, action, name)
+            .apply(builder)
     }
 }
 
