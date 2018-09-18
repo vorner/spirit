@@ -20,6 +20,7 @@ extern crate tokio_io;
 use std::borrow::Borrow;
 use std::error::Error;
 use std::fmt::{Debug, Display};
+use std::iter;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -32,7 +33,7 @@ use hyper::server::conn::{Connection, Http};
 use hyper::service::Service;
 use hyper::Body;
 use serde::Deserialize;
-use spirit::helpers::IteratedCfgHelper;
+use spirit::helpers::{CfgHelper, IteratedCfgHelper};
 use spirit::{Builder, Empty, Spirit};
 use spirit_tokio::{ResourceMaker, TcpListen};
 use structopt::StructOpt;
@@ -152,5 +153,34 @@ where
                 let _ = send.send(());
             }
         })
+    }
+}
+
+impl<S, O, C, Transport, Action, Srv, H> CfgHelper<S, O, C, Action> for HyperServer<Transport>
+where
+    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
+    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
+    Transport: ResourceMaker<S, O, C, ()>,
+    Transport::Resource: AsyncRead + AsyncWrite + Send + 'static,
+    Action: ConnAction<S, O, C, Transport::ExtraCfg> + Sync + Send + 'static,
+    Action::IntoFuture: IntoFuture<Item = (Srv, H), Error = FailError>,
+    <Action::IntoFuture as IntoFuture>::Future: Send + 'static,
+    Srv: Service<ReqBody = Body> + Send + 'static,
+    Srv::Future: Send,
+    H: Borrow<Http> + Send + 'static,
+{
+    fn apply<Extractor, Name>(
+        mut extractor: Extractor,
+        action: Action,
+        name: Name,
+        builder: Builder<S, O, C>,
+    ) -> Builder<S, O, C>
+    where
+        Extractor: FnMut(&C) -> Self + Send + 'static,
+        Name: Clone + Display + Send + Sync + 'static,
+    {
+        let extractor = move |cfg: &_| iter::once(extractor(cfg));
+        <Self as IteratedCfgHelper<S, O, C, Action>>::apply(extractor, action, name, builder)
     }
 }
