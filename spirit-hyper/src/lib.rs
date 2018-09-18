@@ -35,7 +35,7 @@ use structopt::StructOpt;
 use tokio_io::{AsyncRead, AsyncWrite};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
-struct HyperServer<Transport> {
+pub struct HyperServer<Transport> {
     #[serde(flatten)]
     transport: Transport,
 }
