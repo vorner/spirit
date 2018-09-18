@@ -62,7 +62,8 @@ where
     type Item = <Connection<T, S> as Future>::Item;
     type Error = <Connection<T, S> as Future>::Error;
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        let do_shutdown = self.shutdown
+        let do_shutdown = self
+            .shutdown
             .as_mut()
             .map(Future::poll)
             .unwrap_or(Ok(Async::NotReady));
@@ -77,7 +78,28 @@ where
     }
 }
 
-impl<S, O, C, Transport, Action, ActionFut, Srv, H> IteratedCfgHelper<S, O, C, Action>
+pub trait ConnAction<S, O, C, ExtraCfg>
+where
+    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
+{
+    type IntoFuture;
+    fn action(&self, &Arc<Spirit<S, O, C>>, &ExtraCfg) -> Self::IntoFuture;
+}
+
+impl<F, S, O, C, ExtraCfg, R> ConnAction<S, O, C, ExtraCfg> for F
+where
+    F: Fn(&Arc<Spirit<S, O, C>>, &ExtraCfg) -> R,
+    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
+{
+    type IntoFuture = R;
+    fn action(&self, arc: &Arc<Spirit<S, O, C>>, extra: &ExtraCfg) -> R {
+        self(arc, extra)
+    }
+}
+
+// TODO: Implement some other things/wrappers, like FnOk thing and Fn thing.
+
+impl<S, O, C, Transport, Action, Srv, H> IteratedCfgHelper<S, O, C, Action>
     for HyperServer<Transport>
 where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
@@ -85,9 +107,9 @@ where
     O: Debug + StructOpt + Sync + Send + 'static,
     Transport: ResourceMaker<S, O, C, ()>,
     Transport::Resource: AsyncRead + AsyncWrite + Send + 'static,
-    Action: Fn(&Arc<Spirit<S, O, C>>, &Transport::ExtraCfg) -> ActionFut + Sync + Send + 'static,
-    ActionFut: IntoFuture<Item = (Srv, H), Error = FailError>,
-    ActionFut::Future: Send + 'static,
+    Action: ConnAction<S, O, C, Transport::ExtraCfg> + Sync + Send + 'static,
+    Action::IntoFuture: IntoFuture<Item = (Srv, H), Error = FailError>,
+    <Action::IntoFuture as IntoFuture>::Future: Send + 'static,
     Srv: Service<ReqBody = Body> + Send + 'static,
     Srv::Future: Send,
     H: Borrow<Http> + Send + 'static,
@@ -107,7 +129,8 @@ where
         let shutdown_recv = shutdown_recv.shared();
         let inner_action = move |spirit: &_, resource, extra_cfg: &_, _: &()| {
             let shutdown_recv = shutdown_recv.clone();
-            action(spirit, extra_cfg)
+            action
+                .action(spirit, extra_cfg)
                 .into_future()
                 .and_then(|(srv, http)| {
                     let conn = http.borrow().serve_connection(resource, srv);
