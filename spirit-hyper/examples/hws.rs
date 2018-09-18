@@ -6,7 +6,6 @@ extern crate hyper;
 extern crate serde_derive;
 extern crate spirit;
 extern crate spirit_hyper;
-extern crate spirit_tokio;
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -16,8 +15,7 @@ use hyper::server::conn::Http;
 use hyper::service::{self, Service};
 use hyper::{Body, Request, Response};
 use spirit::{Empty, Spirit, SpiritInner};
-use spirit_hyper::HyperServer;
-use spirit_tokio::TcpListen;
+use spirit_hyper::HttpServer;
 
 #[derive(Default, Deserialize)]
 struct Ui {
@@ -27,14 +25,14 @@ struct Ui {
 #[derive(Default, Deserialize)]
 struct Config {
     /// On which ports (and interfaces) to listen.
-    listen: HashSet<HyperServer<TcpListen>>,
+    listen: HashSet<HttpServer>,
     /// The UI (there's only the message to send).
     ui: Ui,
 }
 
 impl Config {
     /// A function to extract the tcp ports configuration.
-    fn listen(&self) -> HashSet<HyperServer<TcpListen>> {
+    fn listen(&self) -> HashSet<HttpServer> {
         self.listen.clone()
     }
 }
@@ -52,7 +50,7 @@ msg = "Hello world"
 "#;
 
 fn hello(spirit: &SpiritInner<Empty, Config>, _req: Request<Body>) -> Response<Body> {
-    Response::new(Body::from(spirit.config().ui.msg.clone()))
+    Response::new(Body::from(format!("{}\n", spirit.config().ui.msg)))
 }
 
 fn handle_connection(

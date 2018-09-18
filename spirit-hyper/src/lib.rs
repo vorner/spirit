@@ -26,13 +26,15 @@ use failure::Error;
 use futures::{Future, IntoFuture};
 use hyper::server::conn::Http;
 use hyper::service::Service;
-use hyper::Body;
+use hyper::{Body, Request, Response};
 use serde::Deserialize;
 use spirit::helpers::IteratedCfgHelper;
-use spirit::{Builder, Spirit};
-use spirit_tokio::ResourceMaker;
+use spirit::{Builder, Empty, Spirit};
+use spirit_tokio::{ResourceMaker, TcpListen};
 use structopt::StructOpt;
 use tokio_io::{AsyncRead, AsyncWrite};
+
+// TODO: Graceful shutdown of the connections
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct HyperServer<Transport> {
@@ -40,7 +42,7 @@ pub struct HyperServer<Transport> {
     transport: Transport,
 }
 
-// TODO: default_http something helper
+pub type HttpServer<ExtraCfg = Empty> = HyperServer<TcpListen<ExtraCfg>>;
 
 impl<S, O, C, Transport, Action, ActionFut, Srv, H> IteratedCfgHelper<S, O, C, Action>
     for HyperServer<Transport>
