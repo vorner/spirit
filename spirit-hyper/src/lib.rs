@@ -30,8 +30,8 @@ use futures::sync::oneshot::{self, Receiver};
 use futures::{Async, Future, IntoFuture, Poll};
 use hyper::body::Payload;
 use hyper::server::conn::{Connection, Http};
-use hyper::service::Service;
-use hyper::Body;
+use hyper::service::{self, Service};
+use hyper::{Body, Request, Response};
 use serde::Deserialize;
 use spirit::helpers::{CfgHelper, IteratedCfgHelper};
 use spirit::{Builder, Empty, Spirit};
@@ -98,7 +98,43 @@ where
     }
 }
 
-// TODO: Implement some other things/wrappers, like FnOk thing and Fn thing.
+pub fn service_fn_ok<F, S, O, C, ExtraCfg>(
+    f: F,
+) -> impl ConnAction<
+    S,
+    O,
+    C,
+    ExtraCfg,
+    IntoFuture = Result<
+        (
+            impl Service<ReqBody = Body, Future = impl Send> + Send,
+            Http,
+        ),
+        FailError,
+    >,
+>
+where
+    // TODO: Make more generic ‒ return future, payload, ...
+    F: Fn(&Arc<Spirit<S, O, C>>, &ExtraCfg, Request<Body>) -> Response<Body>
+        + Send
+        + Sync
+        + 'static,
+    ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
+    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
+    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
+{
+    let f = Arc::new(f);
+    move |spirit: &_, extra_cfg: &ExtraCfg| -> Result<_, FailError> {
+        let spirit = Arc::clone(spirit);
+        let extra_cfg = extra_cfg.clone();
+        let f = Arc::clone(&f);
+        let svc = move |req: Request<Body>| -> Response<Body> { f(&spirit, &extra_cfg, req) };
+        Ok((service::service_fn_ok(svc), Http::new()))
+    }
+}
+
+// TODO: implement service_fn
 
 impl<S, O, C, Transport, Action, Srv, H> IteratedCfgHelper<S, O, C, Action>
     for HyperServer<Transport>

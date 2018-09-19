@@ -1,4 +1,4 @@
-#![type_length_limit = "2097152"] // TODO What the hell is this?
+#![type_length_limit = "4194304"] // TODO What the hell is this?
 
 extern crate failure;
 extern crate hyper;
@@ -8,11 +8,7 @@ extern crate spirit;
 extern crate spirit_hyper;
 
 use std::collections::HashSet;
-use std::sync::Arc;
 
-use failure::Error;
-use hyper::server::conn::Http;
-use hyper::service::{self, Service};
 use hyper::{Body, Request, Response};
 use spirit::{Empty, Spirit, SpiritInner};
 use spirit_hyper::HttpServer;
@@ -49,29 +45,14 @@ host = "localhost"
 msg = "Hello world"
 "#;
 
-fn hello(spirit: &SpiritInner<Empty, Config>, _req: Request<Body>) -> Response<Body> {
+fn hello(spirit: &SpiritInner<Empty, Config>, _: &Empty, _req: Request<Body>) -> Response<Body> {
     Response::new(Body::from(format!("{}\n", spirit.config().ui.msg)))
-}
-
-fn handle_connection(
-    spirit: &SpiritInner<Empty, Config>,
-    _: &Empty,
-) -> Result<
-    (
-        impl Service<ReqBody = Body, Future = impl Send> + Send,
-        Http,
-    ),
-    Error,
-> {
-    let s = Arc::clone(spirit);
-    let hello = move |req| hello(&s, req);
-    Ok((service::service_fn_ok(hello), Http::new()))
 }
 
 fn main() {
     Spirit::<_, Empty, _>::new(Config::default())
         .config_defaults(DEFAULT_CONFIG)
         .config_exts(&["toml", "ini", "json"])
-        .config_helper(Config::listen, handle_connection, "listen")
+        .config_helper(Config::listen, spirit_hyper::service_fn_ok(hello), "listen")
         .run(|_| Ok(()));
 }

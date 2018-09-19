@@ -44,7 +44,9 @@
 //!     }
 //! }
 //!
-//! fn connection(_: &SpiritInner<Empty, Config>, conn: TcpStream, _: &Empty) -> impl Future<Item = (), Error = Error> {
+//! fn connection(_: &SpiritInner<Empty, Config>, conn: TcpStream, _: &Empty)
+//!     -> impl Future<Item = (), Error = Error>
+//! {
 //!     tokio::io::write_all(conn, "Hello\n")
 //!         .map(|_| ())
 //!         .map_err(Error::from)
