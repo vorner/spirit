@@ -1,11 +1,11 @@
-# Spirit-tokio
+# Spirit-hyper
 
 [![Travis Build Status](https://api.travis-ci.org/vorner/spirit.png?branch=master)](https://travis-ci.org/vorner/spirit)
 
-Several helpers to easily integrate tokio with configuration managed by the
+Several helpers to easily integrate hyper with configuration managed by the
 [spirit](https://crates.io/crates/spirit) system.
 
-See the [docs](https://docs.rs/spirit-tokio) and the
+See the [docs](https://docs.rs/spirit-hyper) and the
 [examples](tree/master/spirit-tokio/examples).
 
 ## License
