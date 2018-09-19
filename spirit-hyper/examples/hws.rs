@@ -45,7 +45,7 @@ host = "localhost"
 msg = "Hello world"
 "#;
 
-fn hello(spirit: &SpiritInner<Empty, Config>, _: &Empty, _req: Request<Body>) -> Response<Body> {
+fn hello(spirit: &SpiritInner<Empty, Config>, _req: Request<Body>, _: &Empty) -> Response<Body> {
     Response::new(Body::from(format!("{}\n", spirit.config().ui.msg)))
 }
 

@@ -5,6 +5,71 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+//! [Spirit] helper for Hyper
+//!
+//! This allows having Hyper servers auto-spawned from configuration. It is possible to put them on
+//! top of arbitrary stream-style IO objects (TcpStream, UdsStream, these wrapped in SSL...).
+//!
+//! # Examples
+//!
+//! ```rust
+//! #![type_length_limit="8388608"]
+//! extern crate failure;
+//! extern crate hyper;
+//! extern crate serde;
+//! #[macro_use]
+//! extern crate serde_derive;
+//! extern crate spirit;
+//! extern crate spirit_hyper;
+//!
+//! use std::default::Default;
+//!
+//! use hyper::{Body, Request, Response};
+//! use spirit::{Empty, Spirit, SpiritInner};
+//! use spirit_hyper::HttpServer;
+//!
+//! const DEFAULT_CONFIG: &str = r#"
+//! [server]
+//! port = 1234
+//! "#;
+//! #[derive(Default, Deserialize)]
+//! struct Config {
+//!     server: HttpServer,
+//! }
+//!
+//! impl Config {
+//!     fn server(&self) -> HttpServer {
+//!         self.server.clone()
+//!     }
+//! }
+//!
+//! fn request(_: &SpiritInner<Empty, Config>, _req: Request<Body>, _: &Empty) -> Response<Body> {
+//!     Response::new(Body::from("Hello world\n"))
+//! }
+//!
+//! fn main() {
+//!     Spirit::<_, Empty, _>::new(Config::default())
+//!         .config_defaults(DEFAULT_CONFIG)
+//!         .config_helper(Config::server, spirit_hyper::service_fn_ok(request), "Server")
+//!         .run(|spirit| {
+//! #           spirit.terminate();
+//!             Ok(())
+//!         });
+//! }
+//! ```
+//! Further examples are in the
+//! [git repository](https://github.com/vorner/spirit/tree/master/spirit-hyper/examples).
+//!
+//! # Known problems
+//!
+//! * Not many helper generators are present ‒ only [`service_fn_ok`](fn.service_fn_ok.html) for
+//!   now  And that one doesn't (yet) support futures.
+//! * It creates some huge types under the hood. For now, if the compiler complains about
+//!   `type_length_limit`, try increasing it (maybe even multiple times). This might be overcome in
+//!   the future, but for now, the main downside to it is probably compile times.
+//!
+//! [Spirit]: https://crates.io/crates/spirit.
+
 extern crate arc_swap;
 extern crate failure;
 extern crate futures;
@@ -39,12 +104,22 @@ use spirit_tokio::{ResourceMaker, TcpListen};
 use structopt::StructOpt;
 use tokio_io::{AsyncRead, AsyncWrite};
 
+/// A configuration fragment that can spawn Hyper server.
+///
+/// This is `CfgHelper` and `IteratedCfgHelper` ‒ you can use either singular or a container as the
+/// configuration fragment and pair it with a request handler.
+///
+/// The `Transport` type parameter is subfragment that describes the listening socket or something
+/// similar ‒ for example `spirit_tokio::TcpListen`.
+///
+/// The request handler must implement the [`ConnAction`](trait.ConnAction.html) trait.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct HyperServer<Transport> {
     #[serde(flatten)]
     transport: Transport,
 }
 
+/// A type alias for http (plain TCP) hyper server.
 pub type HttpServer<ExtraCfg = Empty> = HyperServer<TcpListen<ExtraCfg>>;
 
 struct ShutdownConn<T, S: Service> {
@@ -79,11 +154,23 @@ where
     }
 }
 
+/// A trait describing the connection action.
+///
+/// This is usually a function
+/// `Fn(&Arc<Spirit>, &ExtraCfg) -> impl IntoFuture<Item = (impl Service, Http), Error>`
+///
+/// It is similar to `hyper::NewService`, but with extra access to the spirit and extra config from
+/// the transport fragment.
 pub trait ConnAction<S, O, C, ExtraCfg>
 where
     S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
 {
+    /// The type the function-like thing returns.
     type IntoFuture;
+
+    /// Performs the action.
+    ///
+    /// This should create the `hyper::Service` used to handle a connection.
     fn action(&self, &Arc<Spirit<S, O, C>>, &ExtraCfg) -> Self::IntoFuture;
 }
 
@@ -98,6 +185,10 @@ where
     }
 }
 
+/// A helper to create a [`ConnAction`](trait.ConnAction.html) from a function (or closure).
+///
+/// This turns a `Fn(&Arc<Spirit>, &Request<Body>, &ExtraCfg) -> Response<Body>` into a
+/// `ConnAction`, so it can be fed into `cfg_helper`.
 pub fn service_fn_ok<F, S, O, C, ExtraCfg>(
     f: F,
 ) -> impl ConnAction<
@@ -115,7 +206,7 @@ pub fn service_fn_ok<F, S, O, C, ExtraCfg>(
 >
 where
     // TODO: Make more generic ‒ return future, payload, ...
-    F: Fn(&Arc<Spirit<S, O, C>>, &ExtraCfg, Request<Body>) -> Response<Body>
+    F: Fn(&Arc<Spirit<S, O, C>>, Request<Body>, &ExtraCfg) -> Response<Body>
         + Send
         + Sync
         + 'static,
@@ -129,7 +220,7 @@ where
         let spirit = Arc::clone(spirit);
         let extra_cfg = extra_cfg.clone();
         let f = Arc::clone(&f);
-        let svc = move |req: Request<Body>| -> Response<Body> { f(&spirit, &extra_cfg, req) };
+        let svc = move |req: Request<Body>| -> Response<Body> { f(&spirit, req, &extra_cfg) };
         Ok((service::service_fn_ok(svc), Http::new()))
     }
 }
