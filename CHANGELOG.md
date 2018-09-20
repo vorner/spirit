@@ -1,3 +1,12 @@
+# spirit-hyper 0.1.0
+
+* Initial release, minimal hyper support.
+
+# spirit-tokio 0.1.1
+
+* The ResourceMaker trait to reuse lower-level things in higher-level
+  abstractions. To be used by other helper crates.
+
 # 0.1.1
 
 * Link/documentation fixes.
