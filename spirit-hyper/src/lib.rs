@@ -22,10 +22,10 @@
 //! extern crate spirit;
 //! extern crate spirit_hyper;
 //!
-//! use std::default::Default;
+//! use std::sync::Arc;
 //!
 //! use hyper::{Body, Request, Response};
-//! use spirit::{Empty, Spirit, SpiritInner};
+//! use spirit::{Empty, Spirit};
 //! use spirit_hyper::HttpServer;
 //!
 //! const DEFAULT_CONFIG: &str = r#"
@@ -43,12 +43,12 @@
 //!     }
 //! }
 //!
-//! fn request(_: &SpiritInner<Empty, Config>, _req: Request<Body>, _: &Empty) -> Response<Body> {
+//! fn request(_: &Arc<Spirit<Empty, Config>>, _req: Request<Body>, _: &Empty) -> Response<Body> {
 //!     Response::new(Body::from("Hello world\n"))
 //! }
 //!
 //! fn main() {
-//!     Spirit::<_, Empty, _>::new(Config::default())
+//!     Spirit::<Empty, Config>::new()
 //!         .config_defaults(DEFAULT_CONFIG)
 //!         .config_helper(Config::server, spirit_hyper::service_fn_ok(request), "Server")
 //!         .run(|spirit| {
@@ -63,7 +63,7 @@
 //! # Known problems
 //!
 //! * Not many helper generators are present ‒ only [`service_fn_ok`](fn.service_fn_ok.html) for
-//!   now  And that one doesn't (yet) support futures.
+//!   now. And that one doesn't (yet) support futures.
 //! * It creates some huge types under the hood. For now, if the compiler complains about
 //!   `type_length_limit`, try increasing it (maybe even multiple times). This might be overcome in
 //!   the future, but for now, the main downside to it is probably compile times.
@@ -88,7 +88,6 @@ use std::fmt::{Debug, Display};
 use std::iter;
 use std::sync::Arc;
 
-use arc_swap::ArcSwap;
 use failure::Error as FailError;
 use futures::future::Shared;
 use futures::sync::oneshot::{self, Receiver};
@@ -97,7 +96,7 @@ use hyper::body::Payload;
 use hyper::server::conn::{Connection, Http};
 use hyper::service::{self, Service};
 use hyper::{Body, Request, Response};
-use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use spirit::helpers::{CfgHelper, IteratedCfgHelper};
 use spirit::{Builder, Empty, Spirit};
 use spirit_tokio::{ResourceMaker, TcpListen};
@@ -161,26 +160,22 @@ where
 ///
 /// It is similar to `hyper::NewService`, but with extra access to the spirit and extra config from
 /// the transport fragment.
-pub trait ConnAction<S, O, C, ExtraCfg>
-where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-{
+pub trait ConnAction<O, C, ExtraCfg> {
     /// The type the function-like thing returns.
     type IntoFuture;
 
     /// Performs the action.
     ///
     /// This should create the `hyper::Service` used to handle a connection.
-    fn action(&self, &Arc<Spirit<S, O, C>>, &ExtraCfg) -> Self::IntoFuture;
+    fn action(&self, &Arc<Spirit<O, C>>, &ExtraCfg) -> Self::IntoFuture;
 }
 
-impl<F, S, O, C, ExtraCfg, R> ConnAction<S, O, C, ExtraCfg> for F
+impl<F, O, C, ExtraCfg, R> ConnAction<O, C, ExtraCfg> for F
 where
-    F: Fn(&Arc<Spirit<S, O, C>>, &ExtraCfg) -> R,
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
+    F: Fn(&Arc<Spirit<O, C>>, &ExtraCfg) -> R,
 {
     type IntoFuture = R;
-    fn action(&self, arc: &Arc<Spirit<S, O, C>>, extra: &ExtraCfg) -> R {
+    fn action(&self, arc: &Arc<Spirit<O, C>>, extra: &ExtraCfg) -> R {
         self(arc, extra)
     }
 }
@@ -189,10 +184,9 @@ where
 ///
 /// This turns a `Fn(&Arc<Spirit>, &Request<Body>, &ExtraCfg) -> Response<Body>` into a
 /// `ConnAction`, so it can be fed into `cfg_helper`.
-pub fn service_fn_ok<F, S, O, C, ExtraCfg>(
+pub fn service_fn_ok<F, O, C, ExtraCfg>(
     f: F,
 ) -> impl ConnAction<
-    S,
     O,
     C,
     ExtraCfg,
@@ -206,13 +200,9 @@ pub fn service_fn_ok<F, S, O, C, ExtraCfg>(
 >
 where
     // TODO: Make more generic ‒ return future, payload, ...
-    F: Fn(&Arc<Spirit<S, O, C>>, Request<Body>, &ExtraCfg) -> Response<Body>
-        + Send
-        + Sync
-        + 'static,
+    F: Fn(&Arc<Spirit<O, C>>, Request<Body>, &ExtraCfg) -> Response<Body> + Send + Sync + 'static,
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
 {
     let f = Arc::new(f);
@@ -227,15 +217,13 @@ where
 
 // TODO: implement service_fn
 
-impl<S, O, C, Transport, Action, Srv, H> IteratedCfgHelper<S, O, C, Action>
-    for HyperServer<Transport>
+impl<O, C, Transport, Action, Srv, H> IteratedCfgHelper<O, C, Action> for HyperServer<Transport>
 where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
-    Transport: ResourceMaker<S, O, C, ()>,
+    Transport: ResourceMaker<O, C, ()>,
     Transport::Resource: AsyncRead + AsyncWrite + Send + 'static,
-    Action: ConnAction<S, O, C, Transport::ExtraCfg> + Sync + Send + 'static,
+    Action: ConnAction<O, C, Transport::ExtraCfg> + Sync + Send + 'static,
     Action::IntoFuture: IntoFuture<Item = (Srv, H), Error = FailError>,
     <Action::IntoFuture as IntoFuture>::Future: Send + 'static,
     Srv: Service<ReqBody = Body> + Send + 'static,
@@ -246,8 +234,8 @@ where
         mut extractor: Extractor,
         action: Action,
         name: Name,
-        builder: Builder<S, O, C>,
-    ) -> Builder<S, O, C>
+        builder: Builder<O, C>,
+    ) -> Builder<O, C>
     where
         Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
         ExtractedIter: IntoIterator<Item = Self>,
@@ -283,14 +271,13 @@ where
     }
 }
 
-impl<S, O, C, Transport, Action, Srv, H> CfgHelper<S, O, C, Action> for HyperServer<Transport>
+impl<O, C, Transport, Action, Srv, H> CfgHelper<O, C, Action> for HyperServer<Transport>
 where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
-    Transport: ResourceMaker<S, O, C, ()>,
+    Transport: ResourceMaker<O, C, ()>,
     Transport::Resource: AsyncRead + AsyncWrite + Send + 'static,
-    Action: ConnAction<S, O, C, Transport::ExtraCfg> + Sync + Send + 'static,
+    Action: ConnAction<O, C, Transport::ExtraCfg> + Sync + Send + 'static,
     Action::IntoFuture: IntoFuture<Item = (Srv, H), Error = FailError>,
     <Action::IntoFuture as IntoFuture>::Future: Send + 'static,
     Srv: Service<ReqBody = Body> + Send + 'static,
@@ -301,13 +288,13 @@ where
         mut extractor: Extractor,
         action: Action,
         name: Name,
-        builder: Builder<S, O, C>,
-    ) -> Builder<S, O, C>
+        builder: Builder<O, C>,
+    ) -> Builder<O, C>
     where
         Extractor: FnMut(&C) -> Self + Send + 'static,
         Name: Clone + Display + Send + Sync + 'static,
     {
         let extractor = move |cfg: &_| iter::once(extractor(cfg));
-        <Self as IteratedCfgHelper<S, O, C, Action>>::apply(extractor, action, name, builder)
+        <Self as IteratedCfgHelper<O, C, Action>>::apply(extractor, action, name, builder)
     }
 }

@@ -8,9 +8,10 @@ extern crate spirit;
 extern crate spirit_hyper;
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use hyper::{Body, Request, Response};
-use spirit::{Empty, Spirit, SpiritInner};
+use spirit::{Empty, Spirit};
 use spirit_hyper::HttpServer;
 
 #[derive(Default, Deserialize)]
@@ -45,12 +46,12 @@ host = "localhost"
 msg = "Hello world"
 "#;
 
-fn hello(spirit: &SpiritInner<Empty, Config>, _req: Request<Body>, _: &Empty) -> Response<Body> {
+fn hello(spirit: &Arc<Spirit<Empty, Config>>, _req: Request<Body>, _: &Empty) -> Response<Body> {
     Response::new(Body::from(format!("{}\n", spirit.config().ui.msg)))
 }
 
 fn main() {
-    Spirit::<_, Empty, _>::new(Config::default())
+    Spirit::<Empty, _>::new()
         .config_defaults(DEFAULT_CONFIG)
         .config_exts(&["toml", "ini", "json"])
         .config_helper(Config::listen, spirit_hyper::service_fn_ok(hello), "listen")

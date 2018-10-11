@@ -21,10 +21,10 @@
 //! extern crate spirit_tokio;
 //! extern crate tokio;
 //!
-//! use std::default::Default;
+//! use std::sync::Arc;
 //!
 //! use failure::Error;
-//! use spirit::{Empty, Spirit, SpiritInner};
+//! use spirit::{Empty, Spirit};
 //! use spirit_tokio::TcpListen;
 //! use tokio::net::TcpStream;
 //! use tokio::prelude::*;
@@ -44,7 +44,7 @@
 //!     }
 //! }
 //!
-//! fn connection(_: &SpiritInner<Empty, Config>, conn: TcpStream, _: &Empty)
+//! fn connection(_: &Arc<Spirit<Empty, Config>>, conn: TcpStream, _: &Empty)
 //!     -> impl Future<Item = (), Error = Error>
 //! {
 //!     tokio::io::write_all(conn, "Hello\n")
@@ -53,7 +53,7 @@
 //! }
 //!
 //! fn main() {
-//!     Spirit::<_, Empty, _>::new(Config::default())
+//!     Spirit::<Empty, Config>::new()
 //!         .config_defaults(DEFAULT_CONFIG)
 //!         .config_helper(Config::listening_socket, connection, "Listener")
 //!         .run(|spirit| {
@@ -81,7 +81,6 @@ extern crate structopt;
 extern crate tk_listen;
 extern crate tokio;
 
-use std::borrow::Borrow;
 use std::fmt::{Debug, Display};
 use std::iter;
 use std::net::{TcpListener as StdTcpListener, UdpSocket as StdUdpSocket};
@@ -92,10 +91,10 @@ use failure::Error;
 use futures::sync::{mpsc, oneshot};
 use futures::{Future, IntoFuture};
 use parking_lot::Mutex;
-use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use spirit::helpers::{CfgHelper, Helper, IteratedCfgHelper};
 use spirit::validation::{Result as ValidationResult, Results as ValidationResults};
-use spirit::{ArcSwap, Builder, Empty, Spirit};
+use spirit::{Builder, Empty, Spirit};
 use structopt::StructOpt;
 use tk_listen::ListenExt;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
@@ -144,11 +143,10 @@ pub struct Task<Extract, Build, ToTask, Name> {
     pub name: Name,
 }
 
-impl<S, O, C, SubCfg, Resource, Extract, ExtractIt, ExtraCfg, Build, ToTask, InnerTask, Name>
-    Helper<S, O, C> for Task<Extract, Build, ToTask, Name>
+impl<O, C, SubCfg, Resource, Extract, ExtractIt, ExtraCfg, Build, ToTask, InnerTask, Name>
+    Helper<O, C> for Task<Extract, Build, ToTask, Name>
 where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
     Extract: FnMut(&C) -> ExtractIt + Send + 'static,
     ExtractIt: IntoIterator<Item = (SubCfg, ExtraCfg, usize, ValidationResults)>,
@@ -156,12 +154,12 @@ where
     SubCfg: Clone + Debug + PartialEq + Send + 'static,
     Build: FnMut(&SubCfg) -> Result<Resource, Error> + Send + 'static,
     Resource: Clone + Send + 'static,
-    ToTask: FnMut(&Arc<Spirit<S, O, C>>, Resource, ExtraCfg) -> InnerTask + Send + 'static,
+    ToTask: FnMut(&Arc<Spirit<O, C>>, Resource, ExtraCfg) -> InnerTask + Send + 'static,
     InnerTask: IntoFuture<Item = (), Error = Error> + Send + 'static,
     <InnerTask as IntoFuture>::Future: Send,
     Name: Clone + Display + Send + Sync + 'static,
 {
-    fn apply(self, builder: Builder<S, O, C>) -> Builder<S, O, C> {
+    fn apply(self, builder: Builder<O, C>) -> Builder<O, C> {
         let Task {
             mut extract,
             mut build,
@@ -187,7 +185,7 @@ where
         let (install_sender, install_receiver) = mpsc::unbounded::<Install<Resource, ExtraCfg>>();
 
         let installer_name = name.clone();
-        let installer = move |spirit: &Arc<Spirit<S, O, C>>| {
+        let installer = move |spirit: &Arc<Spirit<O, C>>| {
             let spirit = Arc::clone(spirit);
             install_receiver.for_each(move |install| {
                 let Install {
@@ -211,7 +209,8 @@ where
                         debug!("Terminated resource {} on cfg {}", name, cfg);
                         drop(orig); // Make sure the original future is dropped first.
                         confirm_drop.send(())
-                    }).map_err(|_| ()); // If nobody waits for confirm_drop, that's OK.
+                    })
+                    .map_err(|_| ()); // If nobody waits for confirm_drop, that's OK.
                 tokio::spawn(wrapped)
             })
         };
@@ -458,10 +457,9 @@ impl Scaled for Singleton {
 /// case is being able to wrap the creator of TcpStream (or other streams, like possible SSL
 /// stream, Unix domain streams, etc) to be able to put something on top of them (a HTTP server,
 /// for example), regardless of what stream is used underneath.
-pub trait ResourceMaker<S, O, C, PipeThrough>
+pub trait ResourceMaker<O, C, PipeThrough>
 where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
     Self: Sized,
 {
@@ -493,13 +491,12 @@ where
         extractor: Extractor,
         action: Action,
         name: Name,
-        builder: Builder<S, O, C>,
-    ) -> Builder<S, O, C>
+        builder: Builder<O, C>,
+    ) -> Builder<O, C>
     where
         Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
         ExtractedIter: IntoIterator<Item = (Self, PipeThrough)>,
-        Action: Fn(&Arc<Spirit<S, O, C>>, Self::Resource, &Self::ExtraCfg, &PipeThrough)
-                -> ActionFut
+        Action: Fn(&Arc<Spirit<O, C>>, Self::Resource, &Self::ExtraCfg, &PipeThrough) -> ActionFut
             + Send
             + Sync
             + 'static,
@@ -565,18 +562,17 @@ where
     ///   configuration.
     /// * `conn`: An action to be taken on each accepted connection.
     /// * `name`: How to call the instances in logs.
-    pub fn helper<Extract, ExtractIt, Conn, ConnFut, Name, S, O, C>(
+    pub fn helper<Extract, ExtractIt, Conn, ConnFut, Name, O, C>(
         mut extract: Extract,
         conn: Conn,
         name: Name,
-    ) -> impl Helper<S, O, C>
+    ) -> impl Helper<O, C>
     where
-        S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-        for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+        C: DeserializeOwned + Send + Sync + 'static,
         O: Debug + StructOpt + Sync + Send + 'static,
         Extract: FnMut(&C) -> ExtractIt + Send + 'static,
         ExtractIt: IntoIterator<Item = Self>,
-        Conn: Fn(&Arc<Spirit<S, O, C>>, TcpStream, &ExtraCfg) -> ConnFut + Sync + Send + 'static,
+        Conn: Fn(&Arc<Spirit<O, C>>, TcpStream, &ExtraCfg) -> ConnFut + Sync + Send + 'static,
         ConnFut: IntoFuture<Item = (), Error = Error>,
         ConnFut::Future: Send + 'static,
         Name: Clone + Display + Send + Sync + 'static,
@@ -585,7 +581,7 @@ where
 
         let to_task_name = name.clone();
         let to_task =
-            move |spirit: &Arc<Spirit<S, O, C>>,
+            move |spirit: &Arc<Spirit<O, C>>,
                   listener: Arc<StdTcpListener>,
                   (cfg, error_sleep, max_conn): (ExtraCfg, Duration, usize)| {
                 let spirit = Arc::clone(spirit);
@@ -626,9 +622,11 @@ where
                                     });
                                 tokio::spawn(handle_conn);
                                 done_recv.then(|_| future::ok(()))
-                            }).listen(max_conn)
+                            })
+                            .listen(max_conn)
                             .map_err(|()| unreachable!("tk-listen never errors"))
-                    }).map_err(Error::from)
+                    })
+                    .map_err(Error::from)
             };
 
         let extract_name = name.clone();
@@ -661,14 +659,13 @@ impl<ExtraCfg: Default, ScaleMode: Default + Scaled> Default for TcpListen<Extra
     }
 }
 
-impl<S, O, C, Conn, ConnFut, ExtraCfg, ScaleMode> IteratedCfgHelper<S, O, C, Conn>
+impl<O, C, Conn, ConnFut, ExtraCfg, ScaleMode> IteratedCfgHelper<O, C, Conn>
     for TcpListen<ExtraCfg, ScaleMode>
 where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
-    Conn: Fn(&Arc<Spirit<S, O, C>>, TcpStream, &ExtraCfg) -> ConnFut + Sync + Send + 'static,
+    Conn: Fn(&Arc<Spirit<O, C>>, TcpStream, &ExtraCfg) -> ConnFut + Sync + Send + 'static,
     ConnFut: IntoFuture<Item = (), Error = Error>,
     ConnFut::Future: Send + 'static,
     ScaleMode: Scaled,
@@ -677,8 +674,8 @@ where
         extractor: Extractor,
         action: Conn,
         name: Name,
-        builder: Builder<S, O, C>,
-    ) -> Builder<S, O, C>
+        builder: Builder<O, C>,
+    ) -> Builder<O, C>
     where
         Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
         ExtractedIter: IntoIterator<Item = Self>,
@@ -688,11 +685,10 @@ where
     }
 }
 
-impl<S, O, C, ExtraCfg, PipeThrough, ScaleMode> ResourceMaker<S, O, C, PipeThrough>
+impl<O, C, ExtraCfg, PipeThrough, ScaleMode> ResourceMaker<O, C, PipeThrough>
     for TcpListen<ExtraCfg, ScaleMode>
 where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
     PipeThrough: Clone + Debug + PartialEq + Send + 'static,
@@ -704,12 +700,12 @@ where
         mut extractor: Extractor,
         action: Action,
         name: Name,
-        builder: Builder<S, O, C>,
-    ) -> Builder<S, O, C>
+        builder: Builder<O, C>,
+    ) -> Builder<O, C>
     where
         Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
         ExtractedIter: IntoIterator<Item = (Self, PipeThrough)>,
-        Action: Fn(&Arc<Spirit<S, O, C>>, TcpStream, &Self::ExtraCfg, &PipeThrough) -> ActionFut
+        Action: Fn(&Arc<Spirit<O, C>>, TcpStream, &Self::ExtraCfg, &PipeThrough) -> ActionFut
             + Send
             + Sync
             + 'static,
@@ -736,14 +732,13 @@ where
     }
 }
 
-impl<S, O, C, Conn, ConnFut, ExtraCfg, ScaleMode> CfgHelper<S, O, C, Conn>
+impl<O, C, Conn, ConnFut, ExtraCfg, ScaleMode> CfgHelper<O, C, Conn>
     for TcpListen<ExtraCfg, ScaleMode>
 where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
-    Conn: Fn(&Arc<Spirit<S, O, C>>, TcpStream, &ExtraCfg) -> ConnFut + Sync + Send + 'static,
+    Conn: Fn(&Arc<Spirit<O, C>>, TcpStream, &ExtraCfg) -> ConnFut + Sync + Send + 'static,
     ConnFut: IntoFuture<Item = (), Error = Error> + Send + 'static,
     ConnFut::Future: Send + 'static,
     ScaleMode: Scaled,
@@ -752,8 +747,8 @@ where
         mut extractor: Extractor,
         action: Conn,
         name: Name,
-        builder: Builder<S, O, C>,
-    ) -> Builder<S, O, C>
+        builder: Builder<O, C>,
+    ) -> Builder<O, C>
     where
         Extractor: FnMut(&C) -> Self + Send + 'static,
         Name: Clone + Display + Send + Sync + 'static,
@@ -807,18 +802,17 @@ where
     ///
     /// While it can be used manually, it is usually used through the
     /// `spirit::Builder::config_helper` with extractor returning an iterator of `UdpListen`.
-    pub fn helper<Extract, ExtractIt, Action, Fut, Name, S, O, C>(
+    pub fn helper<Extract, ExtractIt, Action, Fut, Name, O, C>(
         mut extract: Extract,
         action: Action,
         name: Name,
-    ) -> impl Helper<S, O, C>
+    ) -> impl Helper<O, C>
     where
-        S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-        for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+        C: DeserializeOwned + Send + Sync + 'static,
         O: Debug + StructOpt + Sync + Send + 'static,
         Extract: FnMut(&C) -> ExtractIt + Send + 'static,
         ExtractIt: IntoIterator<Item = Self>,
-        Action: Fn(&Arc<Spirit<S, O, C>>, UdpSocket, &ExtraCfg) -> Fut + Sync + Send + 'static,
+        Action: Fn(&Arc<Spirit<O, C>>, UdpSocket, &ExtraCfg) -> Fut + Sync + Send + 'static,
         Fut: Future<Item = (), Error = Error> + Send + 'static,
         Name: Clone + Display + Send + Sync + 'static,
     {
@@ -827,7 +821,7 @@ where
 
         let to_task_name = name.clone();
         let to_task =
-            move |spirit: &Arc<Spirit<S, O, C>>, socket: Arc<StdUdpSocket>, cfg: ExtraCfg| {
+            move |spirit: &Arc<Spirit<O, C>>, socket: Arc<StdUdpSocket>, cfg: ExtraCfg| {
                 trace!("Running UDP listener {} for {:?}", to_task_name, cfg);
                 let spirit = Arc::clone(spirit);
                 let action = Arc::clone(&action);
@@ -858,14 +852,13 @@ where
     }
 }
 
-impl<S, O, C, Action, Fut, ExtraCfg, ScaleMode> IteratedCfgHelper<S, O, C, Action>
+impl<O, C, Action, Fut, ExtraCfg, ScaleMode> IteratedCfgHelper<O, C, Action>
     for UdpListen<ExtraCfg, ScaleMode>
 where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
-    Action: Fn(&Arc<Spirit<S, O, C>>, UdpSocket, &ExtraCfg) -> Fut + Sync + Send + 'static,
+    Action: Fn(&Arc<Spirit<O, C>>, UdpSocket, &ExtraCfg) -> Fut + Sync + Send + 'static,
     Fut: Future<Item = (), Error = Error> + Send + 'static,
     ScaleMode: Scaled,
 {
@@ -873,8 +866,8 @@ where
         extractor: Extractor,
         action: Action,
         name: Name,
-        builder: Builder<S, O, C>,
-    ) -> Builder<S, O, C>
+        builder: Builder<O, C>,
+    ) -> Builder<O, C>
     where
         Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
         ExtractedIter: IntoIterator<Item = Self>,
@@ -884,14 +877,13 @@ where
     }
 }
 
-impl<S, O, C, Action, Fut, ExtraCfg, ScaleMode> CfgHelper<S, O, C, Action>
+impl<O, C, Action, Fut, ExtraCfg, ScaleMode> CfgHelper<O, C, Action>
     for UdpListen<ExtraCfg, ScaleMode>
 where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
-    Action: Fn(&Arc<Spirit<S, O, C>>, UdpSocket, &ExtraCfg) -> Fut + Sync + Send + 'static,
+    Action: Fn(&Arc<Spirit<O, C>>, UdpSocket, &ExtraCfg) -> Fut + Sync + Send + 'static,
     Fut: Future<Item = (), Error = Error> + Send + 'static,
     ScaleMode: Scaled,
 {
@@ -899,8 +891,8 @@ where
         mut extractor: Extractor,
         action: Action,
         name: Name,
-        builder: Builder<S, O, C>,
-    ) -> Builder<S, O, C>
+        builder: Builder<O, C>,
+    ) -> Builder<O, C>
     where
         Extractor: FnMut(&C) -> Self + Send + 'static,
         Name: Clone + Display + Send + Sync + 'static,
@@ -970,13 +962,12 @@ impl Default for Runtime {
     }
 }
 
-impl<S, O, C> Helper<S, O, C> for Runtime
+impl<O, C> Helper<O, C> for Runtime
 where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
 {
-    fn apply(self, builder: Builder<S, O, C>) -> Builder<S, O, C> {
+    fn apply(self, builder: Builder<O, C>) -> Builder<O, C> {
         trace!("Wrapping in tokio runtime");
         builder.body_wrapper(|_spirit, inner| {
             let fut = future::lazy(move || inner.run());

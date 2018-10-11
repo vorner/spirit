@@ -27,6 +27,7 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 
 use failure::Error;
+use spirit::helpers;
 use spirit::validation::Result as ValidationResult;
 use spirit::{ArcSwap, Spirit};
 
@@ -121,7 +122,9 @@ fn start_threads() -> Result<(), Error> {
 fn main() -> Result<(), Error> {
     let (term_send, term_recv) = mpsc::channel();
     let mut initial = true;
-    let _spirit = Spirit::<_, spirit::Empty, _>::with_config_storage(&*CONFIG)
+    let _spirit = Spirit::<spirit::Empty, Config>::new()
+        // Keep the current config accessible through a global variable
+        .with(helpers::cfg_store(&*CONFIG))
         // Set the default config values. This is very similar to passing the first file on command
         // line, except that nobody can lose this one as it is baked into the application. Any
         // files passed by the user can override the values.
@@ -145,10 +148,12 @@ fn main() -> Result<(), Error> {
             }
             initial = false;
             results
-        }).on_terminate(move || {
+        })
+        .on_terminate(move || {
             // This unfortunately cuts all the listening threads right away.
             term_send.send(()).unwrap();
-        }).build()?;
+        })
+        .build()?;
     start_threads()?;
     info!("Starting up");
     // And this waits for the ctrl+C or something similar.

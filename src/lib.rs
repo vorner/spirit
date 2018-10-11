@@ -67,8 +67,11 @@
 //!
 //! * `spirit-tokio`: Integrates basic tokio primitives ‒ auto-reconfiguration for TCP and UDP
 //!   sockets and starting the runtime.
+//! * `spirit-hyper`: Integrates the hyper web server.
 //!
 //! (Others will come over time)
+//!
+//! There are some general helpers in the [`helpers`](helpers/) module.
 //!
 //! # Examples
 //!
@@ -96,7 +99,7 @@
 //! "#;
 //!
 //! fn main() {
-//!     Spirit::<_, Empty, _>::new(Cfg::default())
+//!     Spirit::<Empty, Cfg>::new()
 //!         // Provide default values for the configuration
 //!         .config_defaults(DEFAULT_CFG)
 //!         // If the program is passed a directory, load files with these extensions from there
@@ -215,7 +218,6 @@ mod logging;
 pub mod validation;
 
 use std::any::TypeId;
-use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::ffi::OsString;
@@ -244,7 +246,7 @@ use log::LevelFilter;
 use nix::sys::stat::{self, Mode};
 use nix::unistd::{self, ForkResult, Gid, Uid};
 use parking_lot::Mutex;
-use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use signal_hook::iterator::Signals;
 use structopt::clap::App;
 use structopt::StructOpt;
@@ -321,7 +323,7 @@ struct CommonOpts {
         short = "C",
         long = "config-override",
         parse(try_from_str = "key_val"),
-        raw(number_of_values = "1"),
+        raw(number_of_values = "1")
     )]
     config_overrides: Vec<(String, String)>,
 
@@ -342,7 +344,7 @@ struct CommonOpts {
         short = "L",
         long = "log-module",
         parse(try_from_str = "key_val"),
-        raw(number_of_values = "1"),
+        raw(number_of_values = "1")
     )]
     log_modules: Vec<(String, LevelFilter)>,
 }
@@ -455,7 +457,7 @@ impl<O, C> Default for Hooks<O, C> {
 /// ```rust
 /// use spirit::{Empty, Spirit};
 ///
-/// Spirit::<_, Empty, _>::new(Empty {})
+/// Spirit::<Empty, Empty>::new()
 ///     .on_config(|_new_cfg| {
 ///         // Adapt to new config here
 ///     })
@@ -464,11 +466,8 @@ impl<O, C> Default for Hooks<O, C> {
 ///         Ok(())
 ///     });
 /// ```
-pub struct Spirit<S, O = Empty, C = Empty>
-where
-    S: Borrow<ArcSwap<C>> + 'static,
-{
-    config: S,
+pub struct Spirit<O = Empty, C = Empty> {
+    config: ArcSwap<C>,
     hooks: Mutex<Hooks<O, C>>,
     // TODO: Mode selection for directories
     config_files: Vec<PathBuf>,
@@ -482,49 +481,28 @@ where
     terminate: AtomicBool,
 }
 
-/// A type alias for a `Spirit` with configuration held inside.
-///
-/// Just to ease up naming the type when passing around the program.
-pub type SpiritInner<O, C> = Arc<Spirit<Arc<ArcSwap<C>>, O, C>>;
-
-impl<O, C> Spirit<Arc<ArcSwap<C>>, O, C>
+impl<O, C> Spirit<O, C>
 where
-    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    C: Default + DeserializeOwned + Send + Sync,
     O: StructOpt,
 {
-    /// A constructor for spirit with only inner-accessible configuration.
+    /// A constructor with default initial config.
     ///
-    /// With this constructor, you can look into the current configuration by calling the
-    /// [`config'](#method.config), but it doesn't store it into a globally accessible storage.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use spirit::{Empty, Spirit};
-    ///
-    /// Spirit::<_, Empty, _>::new(Empty {})
-    ///     .run(|spirit| {
-    ///         println!("The config is: {:?}", spirit.config());
-    ///         Ok(())
-    ///     });
-    /// ```
-    #[cfg_attr(feature = "cargo-clippy", allow(new_ret_no_self))]
-    pub fn new(cfg: C) -> Builder<Arc<ArcSwap<C>>, O, C> {
-        Self::with_config_storage(Arc::new(ArcSwap::new(Arc::new(cfg))))
+    /// Before the application successfully loads the first config, there still needs to be
+    /// something (passed, for example, to validation callbacks) This puts the default value in
+    /// there.
+    pub fn new() -> Builder<O, C> {
+        Spirit::with_initial_config(C::default())
     }
 }
 
-impl<S, O, C> Spirit<S, O, C>
+impl<O, C> Spirit<O, C>
 where
-    S: Borrow<ArcSwap<C>> + Send + Sync + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync,
+    C: DeserializeOwned + Send + Sync,
     O: StructOpt,
 {
-    /// A constructor with specifying external config storage.
-    ///
-    /// This way the spirit keeps the current config in the provided storage, so it is accessible
-    /// from outside as well as through the [`config`](#method.config) method.
-    pub fn with_config_storage(config: S) -> Builder<S, O, C> {
+    /// Similar to [`new`](#method.new), but with specific initial config value
+    pub fn with_initial_config(config: C) -> Builder<O, C> {
         Builder {
             before_bodies: Vec::new(),
             body_wrappers: Vec::new(),
@@ -541,7 +519,6 @@ where
             terminate_hooks: Vec::new(),
         }
     }
-
     /// Access the parsed command line.
     ///
     /// This gives the access to the type declared when creating `Spirit`. The content doesn't
@@ -569,7 +546,7 @@ where
     /// use arc_swap::Lease;
     /// use spirit::{Empty, Spirit};
     ///
-    /// let (spirit, _, _) = Spirit::<_, Empty, _>::new(Empty {})
+    /// let (spirit, _, _) = Spirit::<Empty, Empty>::new()
     ///     .build()
     ///     .unwrap();
     ///
@@ -583,11 +560,10 @@ where
     /// configuration is also available through that storage. This allows, for example, having the
     /// configuration in a global variable, for example.
     pub fn config(&self) -> Lease<Arc<C>> {
-        self.config.borrow().lease()
+        self.config.lease()
     }
 
     fn daemonize(&self, daemon: &Daemon) -> Result<(), Error> {
-        // TODO: Discovering by name
         // TODO: Tests for this
         debug!("Preparing to daemonize with {:?}", daemon);
         stat::umask(Mode::empty()); // No restrictions on write modes
@@ -671,7 +647,7 @@ where
         // The lock here is across the whole processing, to avoid potential races in logic
         // processing. This makes writing the hooks correctly easier.
         let mut hooks = self.hooks.lock();
-        let old = self.config.borrow().load();
+        let old = self.config.load();
         let mut new = config.config;
         debug!("Creating new logging");
         // Prepare the logger first, but don't switch until we know we use the new config.
@@ -719,7 +695,7 @@ where
         // Once everything is validated, switch to the new logging
         logging::install(loggers);
         // And to the new config.
-        self.config.borrow().store(Arc::clone(&new));
+        self.config.store(Arc::clone(&new));
         debug!("Running post-configuration hooks");
         for hook in &mut hooks.config {
             hook(&new);
@@ -753,7 +729,7 @@ where
     ///
     /// use spirit::{Empty, Spirit};
     ///
-    /// let (spirit, _, _) = Spirit::<_, Empty, _>::new(Empty {})
+    /// let (spirit, _, _) = Spirit::<Empty, Empty>::new()
     ///     .build()
     ///     .unwrap();
     ///
@@ -853,7 +829,8 @@ where
                             trace!("Skipping {:?}", path);
                             Ok(None)
                         }
-                    }).filter_map(|path| path)
+                    })
+                    .filter_map(|path| path)
                     .collect::<Vec<_>>()?;
                 // Traverse them sorted.
                 files.sort();
@@ -920,19 +897,16 @@ impl WrapBody {
     }
 }
 
-type Wrapper<S, O, C> = Box<for<'a> Body<(&'a Arc<Spirit<S, O, C>>, InnerBody)>>;
-type SpiritBody<S, O, C> = Box<for<'a> Body<&'a Arc<Spirit<S, O, C>>>>;
+type Wrapper<O, C> = Box<for<'a> Body<(&'a Arc<Spirit<O, C>>, InnerBody)>>;
+type SpiritBody<O, C> = Box<for<'a> Body<&'a Arc<Spirit<O, C>>>>;
 
 /// The builder of [`Spirit`](struct.Spirit.html).
 ///
 /// This is returned by the [`Spirit::new`](struct.Spirit.html#new).
-pub struct Builder<S, O = Empty, C = Empty>
-where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-{
-    before_bodies: Vec<SpiritBody<S, O, C>>,
-    body_wrappers: Vec<Wrapper<S, O, C>>,
-    config: S,
+pub struct Builder<O = Empty, C = Empty> {
+    before_bodies: Vec<SpiritBody<O, C>>,
+    body_wrappers: Vec<Wrapper<O, C>>,
+    config: C,
     config_default_paths: Vec<PathBuf>,
     config_defaults: Option<String>,
     config_env: Option<String>,
@@ -945,10 +919,9 @@ where
     terminate_hooks: Vec<Box<FnMut() + Send>>,
 }
 
-impl<S, O, C> Builder<S, O, C>
+impl<O, C> Builder<O, C>
 where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
 {
     /// Add a closure run before the main body.
@@ -971,7 +944,7 @@ where
     ///
     /// ```
     /// # use spirit::{Empty, Spirit};
-    /// Spirit::<_, Empty, _>::new(Empty {})
+    /// Spirit::<Empty, Empty>::new()
     ///     .before_body(|_spirit| {
     ///         println!("Run first");
     ///         Ok(())
@@ -982,7 +955,7 @@ where
     /// ```
     pub fn before_body<B>(mut self, body: B) -> Self
     where
-        B: FnOnce(&Arc<Spirit<S, O, C>>) -> Result<(), Error> + Send + 'static,
+        B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), Error> + Send + 'static,
     {
         self.before_bodies.push(Box::new(Some(body)));
         self
@@ -1006,7 +979,7 @@ where
     ///
     /// ```rust
     /// # use spirit::{Empty, Spirit};
-    /// Spirit::<_, Empty, _>::new(Empty {})
+    /// Spirit::<Empty, Empty>::new()
     ///     .body_wrapper(|_spirit, inner| {
     ///         println!("Run first");
     ///         inner.run()?;
@@ -1019,181 +992,11 @@ where
     /// ```
     pub fn body_wrapper<W>(mut self, wrapper: W) -> Self
     where
-        W: FnOnce(&Arc<Spirit<S, O, C>>, InnerBody) -> Result<(), Error> + Send + 'static,
+        W: FnOnce(&Arc<Spirit<O, C>>, InnerBody) -> Result<(), Error> + Send + 'static,
     {
         let wrapper = move |(spirit, inner): (&_, _)| wrapper(spirit, inner);
         self.body_wrappers.push(Box::new(Some(wrapper)));
         self
-    }
-
-    /// Finish building the Spirit.
-    ///
-    /// This transitions from the configuration phase of Spirit to actually creating it and
-    /// launching it.
-    ///
-    /// This starts listening for signals, loads the configuration for the first time and starts
-    /// the background thread.
-    ///
-    /// This version returns the spirit (or error) and error handling is up to the caller. If you
-    /// want spirit to take care of nice error logging (even for your application's top level
-    /// errors), use [`run`](#method.run).
-    ///
-    /// # Result
-    ///
-    /// On success, this returns three things:
-    ///
-    /// * The `spirit` handle, allowing to manipulate it (shutdown, read configuration, ...)
-    /// * The before-body hooks (see [`before_body`](#method.before_body).
-    /// * The body wrappers ([`body_wrapper`](#method.body_wrapper)).
-    ///
-    /// The two latter ones are often set by helpers, so you should not ignore them.
-    ///
-    /// # Warning
-    ///
-    /// If asked to go to background, this uses `fork`. Therefore, start any threads after you call
-    /// `build` (or from within [`run`](#method.run)), or you'll lose them ‒ only the thread doing
-    /// fork is preserved across it.
-    // TODO: The new return value
-    pub fn build(self) -> Result<(Arc<Spirit<S, O, C>>, InnerBody, WrapBody), Error> {
-        let mut logger = Logging {
-            destination: LogDestination::StdErr,
-            level: LevelFilter::Warn,
-            per_module: HashMap::new(),
-        };
-        log_reroute::init()?;
-        logging::install(logging::create(iter::once(&logger)).unwrap());
-        debug!("Building the spirit");
-        log_panics::init();
-        let opts = OptWrapper::<O>::from_args();
-        if let Some(level) = opts.common.log {
-            logger.level = level;
-            logger.per_module = opts.common.log_modules.iter().cloned().collect();
-            logging::install(logging::create(iter::once(&logger))?);
-        }
-        let config_files = if opts.common.configs.is_empty() {
-            self.config_default_paths
-        } else {
-            opts.common.configs
-        };
-        let interesting_signals = self
-            .sig_hooks
-            .keys()
-            .chain(&[libc::SIGHUP, libc::SIGTERM, libc::SIGQUIT, libc::SIGINT])
-            .cloned()
-            .collect::<HashSet<_>>(); // Eliminate duplicates
-        let log_modules = opts.common.log_modules;
-        let extra_logger = opts.common.log.map(|level| Logging {
-            destination: LogDestination::StdErr,
-            level,
-            per_module: log_modules.into_iter().collect(),
-        });
-        let spirit = Spirit {
-            config: self.config,
-            config_files,
-            config_defaults: self.config_defaults,
-            config_env: self.config_env,
-            config_overrides: opts.common.config_overrides.into_iter().collect(),
-            daemonize: opts.common.daemonize,
-            extra_logger,
-            hooks: Mutex::new(Hooks {
-                config: self.config_hooks,
-                config_filter: self.config_filter,
-                config_validators: self.config_validators,
-                sigs: self.sig_hooks,
-                terminate: self.terminate_hooks,
-            }),
-            opts: opts.other,
-            previous_daemon: Mutex::new(None),
-            terminate: AtomicBool::new(false),
-        };
-        spirit.config_reload()?;
-        let signals = Signals::new(interesting_signals)?;
-        let spirit = Arc::new(spirit);
-        let spirit_bg = Arc::clone(&spirit);
-        thread::Builder::new()
-            .name("spirit".to_owned())
-            .spawn(move || {
-                loop {
-                    // Note: we run a bunch of callbacks inside the service thread. We restart the
-                    // thread if it fails.
-                    let run = AssertUnwindSafe(|| spirit_bg.background(&signals));
-                    if panic::catch_unwind(run).is_err() {
-                        // FIXME: Something better than this to prevent looping?
-                        thread::sleep(Duration::from_secs(1));
-                        info!("Restarting the spirit service thread after a panic");
-                    } else {
-                        // Willingly terminated
-                        break;
-                    }
-                }
-            }).unwrap(); // Could fail only if the name contained \0
-        debug!(
-            "Building bodies from {} before-bodies and {} wrappers",
-            self.before_bodies.len(),
-            self.body_wrappers.len()
-        );
-        let spirit_body = Arc::clone(&spirit);
-        let bodies = self.before_bodies;
-        let inner = move |()| {
-            for mut body in bodies {
-                body.run(&spirit_body)?;
-            }
-            Ok(())
-        };
-        let body_wrappers = self.body_wrappers;
-        let inner = InnerBody(Box::new(Some(inner)));
-        let spirit_body = Arc::clone(&spirit);
-        let mut wrapped = WrapBody(Box::new(Some(|inner: InnerBody| inner.run())));
-        for mut wrapper in body_wrappers.into_iter().rev() {
-            // TODO: Can we get rid of this clone?
-            let spirit = Arc::clone(&spirit_body);
-            let applied = move |inner: InnerBody| wrapper.run((&spirit, inner));
-            wrapped = WrapBody(Box::new(Some(applied)));
-        }
-        Ok((spirit, inner, wrapped))
-    }
-
-    /// Build the spirit and run the application, handling all relevant errors.
-    ///
-    /// In case an error happens (either when creating the Spirit, or returned by the callback),
-    /// the errors are logged (either to the place where logs are sent to in configuration, or to
-    /// stderr if the error happens before logging is initialized ‒ for example if configuration
-    /// can't be read). The application then terminates with failure exit code.
-    ///
-    /// It first wraps all the calls in the provided wrappers
-    /// ([`body_wrapper`](#method.body_wrapper)) and runs the before body hooks
-    /// ([`before_body`](#method.before_body)) before starting the real body provided as parameter.
-    /// These are usually provided by helpers.
-    ///
-    /// ```rust
-    /// use std::thread;
-    /// use std::time::Duration;
-    ///
-    /// use spirit::{Empty, Spirit};
-    ///
-    /// Spirit::<_, Empty, _>::new(Empty {})
-    ///     .run(|spirit| {
-    ///         while !spirit.is_terminated() {
-    ///             // Some reasonable work here
-    ///             thread::sleep(Duration::from_millis(100));
-    /// #           spirit.terminate();
-    ///         }
-    ///
-    ///         Ok(())
-    ///     });
-    /// ```
-    pub fn run<B: FnOnce(&Arc<Spirit<S, O, C>>) -> Result<(), Error> + Send + 'static>(
-        self,
-        body: B,
-    ) {
-        let result = log_errors(|| {
-            let (_spirit, inner, wrapped) = self.before_body(body).build()?;
-            debug!("Running bodies");
-            wrapped.run(inner)
-        });
-        if result.is_err() {
-            process::exit(1);
-        }
     }
 
     /// Sets the configuration paths in case the user doesn't provide any.
@@ -1250,7 +1053,7 @@ where
     /// "#;
     ///
     /// fn main() {
-    ///     Spirit::<_, Empty, _>::new(Cfg::default())
+    ///     Spirit::<Empty, Cfg>::new()
     ///         .config_defaults(DEFAULT_CFG)
     ///         .config_env("HELLO")
     ///         .run(|spirit| -> Result<(), Error> {
@@ -1431,6 +1234,175 @@ where
         Self {
             terminate_hooks: hooks,
             ..self
+        }
+    }
+
+    /// Finish building the Spirit.
+    ///
+    /// This transitions from the configuration phase of Spirit to actually creating it and
+    /// launching it.
+    ///
+    /// This starts listening for signals, loads the configuration for the first time and starts
+    /// the background thread.
+    ///
+    /// This version returns the spirit (or error) and error handling is up to the caller. If you
+    /// want spirit to take care of nice error logging (even for your application's top level
+    /// errors), use [`run`](#method.run).
+    ///
+    /// # Result
+    ///
+    /// On success, this returns three things:
+    ///
+    /// * The `spirit` handle, allowing to manipulate it (shutdown, read configuration, ...)
+    /// * The before-body hooks (see [`before_body`](#method.before_body).
+    /// * The body wrappers ([`body_wrapper`](#method.body_wrapper)).
+    ///
+    /// The two latter ones are often set by helpers, so you should not ignore them.
+    ///
+    /// # Warning
+    ///
+    /// If asked to go to background, this uses `fork`. Therefore, start any threads after you call
+    /// `build` (or from within [`run`](#method.run)), or you'll lose them ‒ only the thread doing
+    /// fork is preserved across it.
+    // TODO: The new return value
+    pub fn build(self) -> Result<(Arc<Spirit<O, C>>, InnerBody, WrapBody), Error> {
+        let mut logger = Logging {
+            destination: LogDestination::StdErr,
+            level: LevelFilter::Warn,
+            per_module: HashMap::new(),
+        };
+        log_reroute::init()?;
+        logging::install(logging::create(iter::once(&logger)).unwrap());
+        debug!("Building the spirit");
+        log_panics::init();
+        let opts = OptWrapper::<O>::from_args();
+        if let Some(level) = opts.common.log {
+            logger.level = level;
+            logger.per_module = opts.common.log_modules.iter().cloned().collect();
+            logging::install(logging::create(iter::once(&logger))?);
+        }
+        let config_files = if opts.common.configs.is_empty() {
+            self.config_default_paths
+        } else {
+            opts.common.configs
+        };
+        let interesting_signals = self
+            .sig_hooks
+            .keys()
+            .chain(&[libc::SIGHUP, libc::SIGTERM, libc::SIGQUIT, libc::SIGINT])
+            .cloned()
+            .collect::<HashSet<_>>(); // Eliminate duplicates
+        let log_modules = opts.common.log_modules;
+        let extra_logger = opts.common.log.map(|level| Logging {
+            destination: LogDestination::StdErr,
+            level,
+            per_module: log_modules.into_iter().collect(),
+        });
+        let config = ArcSwap::from(Arc::from(self.config));
+        let spirit = Spirit {
+            config,
+            config_files,
+            config_defaults: self.config_defaults,
+            config_env: self.config_env,
+            config_overrides: opts.common.config_overrides.into_iter().collect(),
+            daemonize: opts.common.daemonize,
+            extra_logger,
+            hooks: Mutex::new(Hooks {
+                config: self.config_hooks,
+                config_filter: self.config_filter,
+                config_validators: self.config_validators,
+                sigs: self.sig_hooks,
+                terminate: self.terminate_hooks,
+            }),
+            opts: opts.other,
+            previous_daemon: Mutex::new(None),
+            terminate: AtomicBool::new(false),
+        };
+        spirit.config_reload()?;
+        let signals = Signals::new(interesting_signals)?;
+        let spirit = Arc::new(spirit);
+        let spirit_bg = Arc::clone(&spirit);
+        thread::Builder::new()
+            .name("spirit".to_owned())
+            .spawn(move || {
+                loop {
+                    // Note: we run a bunch of callbacks inside the service thread. We restart the
+                    // thread if it fails.
+                    let run = AssertUnwindSafe(|| spirit_bg.background(&signals));
+                    if panic::catch_unwind(run).is_err() {
+                        // FIXME: Something better than this to prevent looping?
+                        thread::sleep(Duration::from_secs(1));
+                        info!("Restarting the spirit service thread after a panic");
+                    } else {
+                        // Willingly terminated
+                        break;
+                    }
+                }
+            })
+            .unwrap(); // Could fail only if the name contained \0
+        debug!(
+            "Building bodies from {} before-bodies and {} wrappers",
+            self.before_bodies.len(),
+            self.body_wrappers.len()
+        );
+        let spirit_body = Arc::clone(&spirit);
+        let bodies = self.before_bodies;
+        let inner = move |()| {
+            for mut body in bodies {
+                body.run(&spirit_body)?;
+            }
+            Ok(())
+        };
+        let body_wrappers = self.body_wrappers;
+        let inner = InnerBody(Box::new(Some(inner)));
+        let spirit_body = Arc::clone(&spirit);
+        let mut wrapped = WrapBody(Box::new(Some(|inner: InnerBody| inner.run())));
+        for mut wrapper in body_wrappers.into_iter().rev() {
+            // TODO: Can we get rid of this clone?
+            let spirit = Arc::clone(&spirit_body);
+            let applied = move |inner: InnerBody| wrapper.run((&spirit, inner));
+            wrapped = WrapBody(Box::new(Some(applied)));
+        }
+        Ok((spirit, inner, wrapped))
+    }
+
+    /// Build the spirit and run the application, handling all relevant errors.
+    ///
+    /// In case an error happens (either when creating the Spirit, or returned by the callback),
+    /// the errors are logged (either to the place where logs are sent to in configuration, or to
+    /// stderr if the error happens before logging is initialized ‒ for example if configuration
+    /// can't be read). The application then terminates with failure exit code.
+    ///
+    /// It first wraps all the calls in the provided wrappers
+    /// ([`body_wrapper`](#method.body_wrapper)) and runs the before body hooks
+    /// ([`before_body`](#method.before_body)) before starting the real body provided as parameter.
+    /// These are usually provided by helpers.
+    ///
+    /// ```rust
+    /// use std::thread;
+    /// use std::time::Duration;
+    ///
+    /// use spirit::{Empty, Spirit};
+    ///
+    /// Spirit::<Empty, Empty>::new()
+    ///     .run(|spirit| {
+    ///         while !spirit.is_terminated() {
+    ///             // Some reasonable work here
+    ///             thread::sleep(Duration::from_millis(100));
+    /// #           spirit.terminate();
+    ///         }
+    ///
+    ///         Ok(())
+    ///     });
+    /// ```
+    pub fn run<B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), Error> + Send + 'static>(self, body: B) {
+        let result = log_errors(|| {
+            let (_spirit, inner, wrapped) = self.before_body(body).build()?;
+            debug!("Running bodies");
+            wrapped.run(inner)
+        });
+        if result.is_err() {
+            process::exit(1);
         }
     }
 }

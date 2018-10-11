@@ -138,14 +138,16 @@ impl Debug for Result {
                 } else {
                     &"None"
                 },
-            ).field(
+            )
+            .field(
                 "on_success",
                 if self.on_success.is_some() {
                     &"Fn()"
                 } else {
                     &"None"
                 },
-            ).finish()
+            )
+            .finish()
     }
 }
 

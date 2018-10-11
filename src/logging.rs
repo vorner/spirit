@@ -51,7 +51,8 @@ where
                 D::Error::unknown_variant(&v, &["OFF", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"])
             })?;
             Ok((k, parsed))
-        }).collect()
+        })
+        .collect()
 }
 
 /// This error can be returned when initialization of logging to syslog fails.

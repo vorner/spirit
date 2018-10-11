@@ -22,9 +22,10 @@ extern crate spirit_tokio;
 extern crate tokio;
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use failure::Error;
-use spirit::{Empty, Spirit, SpiritInner};
+use spirit::{Empty, Spirit};
 use spirit_tokio::TcpListen;
 use tokio::net::TcpStream;
 use tokio::prelude::*;
@@ -65,7 +66,7 @@ msg = "Hello world"
 
 /// Handle one connection, the tokio way.
 fn handle_connection(
-    spirit: &SpiritInner<Empty, Config>,
+    spirit: &Arc<Spirit<Empty, Config>>,
     conn: TcpStream,
     _: &Empty,
 ) -> impl Future<Item = (), Error = Error> {
@@ -85,7 +86,7 @@ fn handle_connection(
 }
 
 pub fn main() {
-    Spirit::<_, Empty, _>::new(Config::default())
+    Spirit::<Empty, Config>::new()
         .config_defaults(DEFAULT_CONFIG)
         .config_exts(&["toml", "ini", "json"])
         .config_helper(Config::listen, handle_connection, "listen")

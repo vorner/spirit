@@ -9,9 +9,10 @@
 use std::any::TypeId;
 use std::borrow::Borrow;
 use std::fmt::{Debug, Display};
+use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use structopt::StructOpt;
 
 use super::Builder;
@@ -28,23 +29,18 @@ use super::Builder;
 /// type and the implementation).
 ///
 /// ```rust
-/// use std::borrow::Borrow;
-///
-/// use spirit::{ArcSwap, Builder, Empty, Spirit};
+/// use spirit::{Builder, Empty, Spirit};
 /// use spirit::helpers::Helper;
 ///
 /// struct CfgPrint;
 ///
-/// impl<S> Helper<S, Empty, Empty> for CfgPrint
-/// where
-///     S: Borrow<ArcSwap<Empty>> + Sync + Send + 'static,
-/// {
-///     fn apply(self, builder: Builder<S, Empty, Empty>) -> Builder<S, Empty, Empty> {
+/// impl Helper<Empty, Empty> for CfgPrint {
+///     fn apply(self, builder: Builder<Empty, Empty>) -> Builder<Empty, Empty> {
 ///         builder.on_config(|_config| println!("Config changed"))
 ///     }
 /// }
 ///
-/// Spirit::<_, Empty, _>::new(Empty {})
+/// Spirit::<Empty, Empty>::new()
 ///     .with(CfgPrint)
 ///     .run(|_spirit| {
 ///         println!("Running...");
@@ -53,42 +49,33 @@ use super::Builder;
 /// ```
 ///
 /// ```rust
-/// use std::borrow::Borrow;
+/// use spirit::{Builder, Empty, Spirit};
 ///
-/// use spirit::{ArcSwap, Builder, Empty, Spirit};
-///
-/// fn cfg_print<S>(builder: Builder<S, Empty, Empty>) -> Builder<S, Empty, Empty>
-/// where
-///     S: Borrow<ArcSwap<Empty>> + Sync + Send + 'static,
-/// {
+/// fn cfg_print(builder: Builder<Empty, Empty>) -> Builder<Empty, Empty> {
 ///     builder.on_config(|_config| println!("Config changed"))
 /// }
 ///
-/// Spirit::<_, Empty, _>::new(Empty {})
+/// Spirit::<Empty, Empty>::new()
 ///     .with(cfg_print)
 ///     .run(|_spirit| {
 ///         println!("Running...");
 ///         Ok(())
 ///     })
 /// ```
-pub trait Helper<S, O, C>
-where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-{
+pub trait Helper<O, C> {
     /// Perform the transformation on the given builder.
     ///
     /// And yes, it is possible to do multiple primitive transformations inside one helper (this is
     /// what makes helpers useful for 3rd party crates, they can integrate with just one call of
     /// [`with`](../struct.Builder.html#method.with)).
-    fn apply(self, builder: Builder<S, O, C>) -> Builder<S, O, C>;
+    fn apply(self, builder: Builder<O, C>) -> Builder<O, C>;
 }
 
-impl<S, O, C, F> Helper<S, O, C> for F
+impl<O, C, F> Helper<O, C> for F
 where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    F: FnOnce(Builder<S, O, C>) -> Builder<S, O, C>,
+    F: FnOnce(Builder<O, C>) -> Builder<O, C>,
 {
-    fn apply(self, builder: Builder<S, O, C>) -> Builder<S, O, C> {
+    fn apply(self, builder: Builder<O, C>) -> Builder<O, C> {
         self(builder)
     }
 }
@@ -118,10 +105,7 @@ where
 ///
 /// It is planned to eventually have a custom derive for these kinds of helpers to compose a helper
 /// of a bigger piece of configuration. The extractor would then be auto-generated.
-pub trait CfgHelper<S, O, C, Action>
-where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-{
+pub trait CfgHelper<O, C, Action> {
     /// Perform the creation and application of the helper.
     ///
     /// # Params
@@ -138,8 +122,8 @@ where
         extractor: Extractor,
         action: Action,
         name: Name,
-        builder: Builder<S, O, C>,
-    ) -> Builder<S, O, C>
+        builder: Builder<O, C>,
+    ) -> Builder<O, C>
     where
         Extractor: FnMut(&C) -> Self + Send + 'static,
         Name: Clone + Display + Send + Sync + 'static;
@@ -161,10 +145,7 @@ where
 /// will pretend the configuration contains a container of exactly one thing.
 ///
 /// Some helper crates may already provide both implementations on the same type in this manner.
-pub trait IteratedCfgHelper<S, O, C, Action>
-where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-{
+pub trait IteratedCfgHelper<O, C, Action> {
     /// Perform the transformation of the builder.
     ///
     /// It works the same way as [`CfgHelper::apply`](trait.CfgHelper.html#method.apply), only with
@@ -173,8 +154,8 @@ where
         extractor: Extractor,
         action: Action,
         name: Name,
-        builder: Builder<S, O, C>,
-    ) -> Builder<S, O, C>
+        builder: Builder<O, C>,
+    ) -> Builder<O, C>
     where
         Self: Sized, // TODO: Why does rustc insist on this one?
         Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
@@ -182,30 +163,74 @@ where
         Name: Clone + Display + Send + Sync + 'static;
 }
 
-impl<S, O, C, Action, Iter, Target> CfgHelper<S, O, C, Action> for Iter
+impl<O, C, Action, Iter, Target> CfgHelper<O, C, Action> for Iter
 where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
     Iter: IntoIterator<Item = Target>,
-    Target: IteratedCfgHelper<S, O, C, Action>,
+    Target: IteratedCfgHelper<O, C, Action>,
 {
     fn apply<Extractor, Name>(
         extractor: Extractor,
         action: Action,
         name: Name,
-        builder: Builder<S, O, C>,
-    ) -> Builder<S, O, C>
+        builder: Builder<O, C>,
+    ) -> Builder<O, C>
     where
         Extractor: FnMut(&C) -> Self + Send + 'static,
         Name: Clone + Display + Send + Sync + 'static,
     {
-        <Target as IteratedCfgHelper<S, O, C, Action>>::apply(extractor, action, name, builder)
+        <Target as IteratedCfgHelper<O, C, Action>>::apply(extractor, action, name, builder)
     }
 }
 
-impl<S, O, C> Builder<S, O, C>
+/// A helper to store configuration to some global-ish storage.
+///
+/// This makes sure every time a new config is loaded, it is made available inside the passed
+/// parameter. Therefore, places without direct access to the `Spirit` itself can look into the
+/// configuration.
+///
+/// The parameter can be a lot of things, but usually:
+///
+/// * `Arc<ArcSwap<C>>`.
+/// * A reference to global `ArcSwap<C>` (for example inside `lazy_static` or `once_cell`).
+///
+/// # Examples
+///
+/// ```rust
+/// #[macro_use]
+/// extern crate lazy_static;
+/// extern crate spirit;
+///
+/// use std::sync::Arc;
+///
+/// use spirit::{ArcSwap, Empty, Spirit};
+/// use spirit::helpers;
+///
+/// lazy_static! {
+///     static ref CFG: ArcSwap<Empty> = ArcSwap::from(Arc::new(Empty {}));
+/// }
+///
+/// # fn main() {
+/// # let _ =
+/// Spirit::<Empty, Empty>::new()
+///     // Will make sure CFG contains the newest config
+///     .with(helpers::cfg_store(&*CFG))
+///     .build();
+/// # }
+/// ```
+pub fn cfg_store<S, O, C>(storage: S) -> impl Helper<O, C>
 where
-    S: Borrow<ArcSwap<C>> + Sync + Send + 'static,
-    for<'de> C: Deserialize<'de> + Send + Sync + 'static,
+    S: Borrow<ArcSwap<C>> + Send + Sync + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
+{
+    |builder: Builder<O, C>| {
+        builder.on_config(move |c: &Arc<C>| storage.borrow().store(Arc::clone(c)))
+    }
+}
+
+impl<O, C> Builder<O, C>
+where
+    C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
 {
     /// Apply a config helper to the builder.
@@ -219,7 +244,7 @@ where
     ) -> Self
     where
         Extractor: FnMut(&C) -> Cfg + Send + 'static,
-        Cfg: CfgHelper<S, O, C, Action>,
+        Cfg: CfgHelper<O, C, Action>,
         Name: Clone + Display + Send + Sync + 'static,
     {
         trace!("Adding config helper for {}", name);
@@ -242,7 +267,7 @@ where
     /// ```rust
     /// use spirit::{Empty, Spirit};
     ///
-    /// let mut builder = Spirit::<_, Empty, _>::new(Empty {});
+    /// let mut builder = Spirit::<Empty, Empty>::new();
     ///
     /// struct X;
     /// struct Y;
@@ -256,7 +281,7 @@ where
     }
 
     /// Apply a ['Helper`](helpers/trait.Helper.html) to the builder.
-    pub fn with<H: Helper<S, O, C>>(self, helper: H) -> Self {
+    pub fn with<H: Helper<O, C>>(self, helper: H) -> Self {
         trace!("Adding a helper");
         helper.apply(self)
     }
@@ -271,7 +296,7 @@ where
     /// feature ‒ many other helpers need some environment to run in (like `tokio`). The helpers
     /// try to apply a default configuration, but the user can apply a specific configuration
     /// first.
-    pub fn with_singleton<T: Helper<S, O, C> + 'static>(mut self, singleton: T) -> Self {
+    pub fn with_singleton<T: Helper<O, C> + 'static>(mut self, singleton: T) -> Self {
         if self.singleton::<T>() {
             self.with(singleton)
         } else {
