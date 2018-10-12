@@ -547,7 +547,7 @@ where
     /// use spirit::{Empty, Spirit};
     ///
     /// let (spirit, _, _) = Spirit::<Empty, Empty>::new()
-    ///     .build()
+    ///     .build(false)
     ///     .unwrap();
     ///
     /// let old_config = Lease::upgrade(&spirit.config());
@@ -730,7 +730,7 @@ where
     /// use spirit::{Empty, Spirit};
     ///
     /// let (spirit, _, _) = Spirit::<Empty, Empty>::new()
-    ///     .build()
+    ///     .build(false)
     ///     .unwrap();
     ///
     /// while !spirit.is_terminated() {
@@ -1239,8 +1239,10 @@ where
 
     /// Finish building the Spirit.
     ///
-    /// This transitions from the configuration phase of Spirit to actually creating it and
-    /// launching it.
+    /// This transitions from the configuration phase of Spirit to actually creating it. This loads
+    /// the configuration and executes it for the first time. It launches the background thread for
+    /// listening to signals and reloading configuration if the `background_thread` parameter is
+    /// set to true.
     ///
     /// This starts listening for signals, loads the configuration for the first time and starts
     /// the background thread.
@@ -1265,7 +1267,10 @@ where
     /// `build` (or from within [`run`](#method.run)), or you'll lose them ‒ only the thread doing
     /// fork is preserved across it.
     // TODO: The new return value
-    pub fn build(self) -> Result<(Arc<Spirit<O, C>>, InnerBody, WrapBody), Error> {
+    pub fn build(
+        self,
+        background_thread: bool,
+    ) -> Result<(Arc<Spirit<O, C>>, InnerBody, WrapBody), Error> {
         let mut logger = Logging {
             destination: LogDestination::StdErr,
             level: LevelFilter::Warn,
@@ -1319,27 +1324,29 @@ where
             terminate: AtomicBool::new(false),
         };
         spirit.config_reload()?;
-        let signals = Signals::new(interesting_signals)?;
         let spirit = Arc::new(spirit);
-        let spirit_bg = Arc::clone(&spirit);
-        thread::Builder::new()
-            .name("spirit".to_owned())
-            .spawn(move || {
-                loop {
-                    // Note: we run a bunch of callbacks inside the service thread. We restart the
-                    // thread if it fails.
-                    let run = AssertUnwindSafe(|| spirit_bg.background(&signals));
-                    if panic::catch_unwind(run).is_err() {
-                        // FIXME: Something better than this to prevent looping?
-                        thread::sleep(Duration::from_secs(1));
-                        info!("Restarting the spirit service thread after a panic");
-                    } else {
-                        // Willingly terminated
-                        break;
+        if background_thread {
+            let signals = Signals::new(interesting_signals)?;
+            let spirit_bg = Arc::clone(&spirit);
+            thread::Builder::new()
+                .name("spirit".to_owned())
+                .spawn(move || {
+                    loop {
+                        // Note: we run a bunch of callbacks inside the service thread. We restart
+                        // the thread if it fails.
+                        let run = AssertUnwindSafe(|| spirit_bg.background(&signals));
+                        if panic::catch_unwind(run).is_err() {
+                            // FIXME: Something better than this to prevent looping?
+                            thread::sleep(Duration::from_secs(1));
+                            info!("Restarting the spirit service thread after a panic");
+                        } else {
+                            // Willingly terminated
+                            break;
+                        }
                     }
-                }
-            })
-            .unwrap(); // Could fail only if the name contained \0
+                })
+                .unwrap(); // Could fail only if the name contained \0
+        }
         debug!(
             "Building bodies from {} before-bodies and {} wrappers",
             self.before_bodies.len(),
@@ -1397,7 +1404,7 @@ where
     /// ```
     pub fn run<B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), Error> + Send + 'static>(self, body: B) {
         let result = log_errors(|| {
-            let (_spirit, inner, wrapped) = self.before_body(body).build()?;
+            let (_spirit, inner, wrapped) = self.before_body(body).build(true)?;
             debug!("Running bodies");
             wrapped.run(inner)
         });

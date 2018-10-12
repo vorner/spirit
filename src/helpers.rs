@@ -214,7 +214,7 @@ where
 /// Spirit::<Empty, Empty>::new()
 ///     // Will make sure CFG contains the newest config
 ///     .with(helpers::cfg_store(&*CFG))
-///     .build();
+///     .build(false);
 /// # }
 /// ```
 pub fn cfg_store<S, O, C>(storage: S) -> impl Helper<O, C>

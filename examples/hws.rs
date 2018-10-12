@@ -153,7 +153,7 @@ fn main() -> Result<(), Error> {
             // This unfortunately cuts all the listening threads right away.
             term_send.send(()).unwrap();
         })
-        .build()?;
+        .build(true)?;
     start_threads()?;
     info!("Starting up");
     // And this waits for the ctrl+C or something similar.

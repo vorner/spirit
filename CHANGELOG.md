@@ -1,3 +1,4 @@
+* Ability not to start the background thread.
 * Dropped the `S` type parameter. It now keeps the config internally, but if
   exporting to a global variable is needed, a `helpers::cfg_store` helper is
   provided.
