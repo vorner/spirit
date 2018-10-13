@@ -2,6 +2,7 @@
     html_root_url = "https://docs.rs/spirit/0.2.0/spirit/",
     test(attr(deny(warnings)))
 )]
+#![allow(renamed_and_removed_lints)] // Until the clippy thing can be reasonably resolved
 #![cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
