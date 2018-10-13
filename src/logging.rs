@@ -40,6 +40,10 @@ fn deserialize_level_filter<'de, D: Deserializer<'de>>(d: D) -> Result<LevelFilt
     })
 }
 
+fn default_level_filter() -> LevelFilter {
+    LevelFilter::Error
+}
+
 fn deserialize_per_module<'de, D>(d: D) -> Result<HashMap<String, LevelFilter>, D::Error>
 where
     D: Deserializer<'de>,
@@ -65,7 +69,10 @@ pub struct SyslogError(String);
 pub(crate) struct Logging {
     #[serde(flatten)]
     pub(crate) destination: LogDestination,
-    #[serde(deserialize_with = "deserialize_level_filter")]
+    #[serde(
+        default = "default_level_filter",
+        deserialize_with = "deserialize_level_filter"
+    )]
     pub(crate) level: LevelFilter,
     #[serde(default, deserialize_with = "deserialize_per_module")]
     pub(crate) per_module: HashMap<String, LevelFilter>,
