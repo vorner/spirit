@@ -134,13 +134,13 @@ impl Daemon {
 }
 
 #[derive(Clone, Debug, StructOpt)]
-pub struct DaemonOpts {
+pub struct Opts {
     /// Daemonize ‒ go to background.
     #[structopt(short = "d", long = "daemonize")]
     daemonize: bool,
 }
 
-impl DaemonOpts {
+impl Opts {
     pub fn daemonize(&self) -> bool {
         self.daemonize
     }
@@ -156,7 +156,7 @@ pub fn with_opts<O, C, F>(mut extractor: F) -> impl FnMut(&O, &C, Daemon) -> Dae
 where
     C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
-    F: FnMut(&O) -> &DaemonOpts + Sync + Send + 'static,
+    F: FnMut(&O) -> &Opts + Sync + Send + 'static,
 {
     move |opts: &O, _: &C, daemon| {
         let opts = extractor(opts);
