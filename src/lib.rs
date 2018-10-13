@@ -38,7 +38,7 @@
 //! something most daemons want to do.
 //!
 //! Composing these things together the crate allows for cutting down on your own boilerplate code
-//! around configuration handling, signal handling, command line arguments and daemonization.
+//! around configuration handling, signal handling, command line arguments.
 //!
 //! Using the builder pattern, you create a singleton [`Spirit`] object. That one starts a
 //! background thread that runs some callbacks configured previously when things happen.
@@ -65,6 +65,7 @@
 //! the main crate, to cut down on some more specific boiler-plate code. These are usually provided
 //! by other crates. To list some:
 //!
+//! * `spirit-daemonize`: Configuration and routines to go into background and be a nice daemon.
 //! * `spirit-tokio`: Integrates basic tokio primitives ‒ auto-reconfiguration for TCP and UDP
 //!   sockets and starting the runtime.
 //! * `spirit-hyper`: Integrates the hyper web server.
@@ -200,9 +201,7 @@ extern crate libc;
 extern crate log;
 extern crate log_panics;
 extern crate log_reroute;
-extern crate nix;
 extern crate parking_lot;
-extern crate privdrop;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -219,15 +218,10 @@ pub mod validation;
 
 use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
-use std::env;
 use std::ffi::OsString;
 use std::fmt::Debug;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::iter;
 use std::marker::PhantomData;
-use std::os::unix::fs::OpenOptionsExt;
-use std::os::unix::io::AsRawFd;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process;
@@ -243,8 +237,6 @@ use config::{Config, Environment, File, FileFormat};
 use failure::{Error, Fail};
 use fallible_iterator::FallibleIterator;
 use log::LevelFilter;
-use nix::sys::stat::{self, Mode};
-use nix::unistd::{self, ForkResult, Gid, Uid};
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use signal_hook::iterator::Signals;
@@ -289,8 +281,6 @@ struct ConfigWrapper<C> {
     #[serde(flatten)]
     config: C,
     #[serde(default)]
-    daemon: Daemon,
-    #[serde(default)]
     logging: Vec<Logging>,
     // TODO: Find a way to detect and report unused fields
 }
@@ -330,10 +320,6 @@ struct CommonOpts {
     /// Configuration files or directories to load.
     #[structopt(parse(from_os_str))]
     configs: Vec<PathBuf>,
-
-    /// Daemonize ‒ go to background.
-    #[structopt(short = "d", long = "daemonize")]
-    daemonize: bool,
 
     /// Log to stderr with this log level.
     #[structopt(short = "l", long = "log", raw(number_of_values = "1"))]
@@ -474,10 +460,8 @@ pub struct Spirit<O = Empty, C = Empty> {
     config_defaults: Option<String>,
     config_env: Option<String>,
     config_overrides: HashMap<String, String>,
-    daemonize: bool,
     extra_logger: Option<Logging>,
     opts: O,
-    previous_daemon: Mutex<Option<Daemon>>,
     terminate: AtomicBool,
 }
 
@@ -563,63 +547,6 @@ where
         self.config.lease()
     }
 
-    fn daemonize(&self, daemon: &Daemon) -> Result<(), Error> {
-        // TODO: Tests for this
-        debug!("Preparing to daemonize with {:?}", daemon);
-        stat::umask(Mode::empty()); // No restrictions on write modes
-        let workdir = daemon
-            .workdir
-            .as_ref()
-            .map(|pb| pb as &Path)
-            .unwrap_or_else(|| Path::new("/"));
-        trace!("Changing working directory to {:?}", workdir);
-        env::set_current_dir(workdir)?;
-        if self.daemonize {
-            trace!("Redirecting stdio");
-            let devnull = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .open("/dev/null")?;
-            for fd in &[0, 1, 2] {
-                unistd::dup2(devnull.as_raw_fd(), *fd)?;
-            }
-            trace!("Doing double fork");
-            if let ForkResult::Parent { .. } = unistd::fork()? {
-                process::exit(0);
-            }
-            unistd::setsid()?;
-            if let ForkResult::Parent { .. } = unistd::fork()? {
-                process::exit(0);
-            }
-        } else {
-            trace!("Not going to background");
-        }
-        if let Some(ref file) = daemon.pid_file {
-            let mut f = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o644)
-                .open(file)?;
-            writeln!(f, "{}", unistd::getpid())?;
-        }
-        // PrivDrop implements the necessary libc lookups to find the group and
-        //  user entries matching the given names. If these queries fail,
-        //  because the user or group names are invalid, the function will fail.
-        match daemon.group {
-            SecId::Id(id) => unistd::setgid(Gid::from_raw(id))?,
-            SecId::Name(ref name) => privdrop::PrivDrop::default().group(&name)?.apply()?,
-            SecId::Nothing => (),
-        }
-        match daemon.user {
-            SecId::Id(id) => unistd::setuid(Uid::from_raw(id))?,
-            SecId::Name(ref name) => privdrop::PrivDrop::default().user(&name)?.apply()?,
-            SecId::Nothing => (),
-        }
-        Ok(())
-    }
-
     /// Force reload of configuration.
     ///
     /// The configuration gets reloaded either when the process receives `SIGHUP` or when this
@@ -701,15 +628,6 @@ where
             hook(&new);
         }
         debug!("Configuration reloaded");
-        let mut daemon = self.previous_daemon.lock();
-        if let Some(ref daemon) = *daemon {
-            if daemon != &config.daemon {
-                warn!("Can't change daemon configuration at runtime");
-            }
-        } else {
-            self.daemonize(&config.daemon)?;
-        }
-        *daemon = Some(config.daemon);
         Ok(())
     }
 
@@ -1310,7 +1228,6 @@ where
             config_defaults: self.config_defaults,
             config_env: self.config_env,
             config_overrides: opts.common.config_overrides.into_iter().collect(),
-            daemonize: opts.common.daemonize,
             extra_logger,
             hooks: Mutex::new(Hooks {
                 config: self.config_hooks,
@@ -1320,7 +1237,6 @@ where
                 terminate: self.terminate_hooks,
             }),
             opts: opts.other,
-            previous_daemon: Mutex::new(None),
             terminate: AtomicBool::new(false),
         };
         spirit.config_reload()?;
