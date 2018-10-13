@@ -1,12 +1,12 @@
-# Spirit-daemonize
+# Spirit-log
 
 [![Travis Build Status](https://api.travis-ci.org/vorner/spirit.png?branch=master)](https://travis-ci.org/vorner/spirit)
 
-Helpers and configuration fragments to integrate daemonization into the spirit
+Helpers and configuration fragments to integrate logging into the spirit
 configuration framework.
 
 See the [docs](https://docs.rs/spirit-daemonize) and the
-[examples](tree/master/spirit-daemonize/examples).
+[examples](tree/master/spirit-log/examples).
 
 ## License
 

@@ -66,6 +66,7 @@
 //! by other crates. To list some:
 //!
 //! * `spirit-daemonize`: Configuration and routines to go into background and be a nice daemon.
+//! * `spirit-log`: Configuration of logging.
 //! * `spirit-tokio`: Integrates basic tokio primitives ‒ auto-reconfiguration for TCP and UDP
 //!   sockets and starting the runtime.
 //! * `spirit-hyper`: Integrates the hyper web server.
@@ -128,12 +129,7 @@
 //!
 //! ## Command line options
 //!
-//! * `daemonize`: When this is set, the program becomes instead of staying in the foreground. It
-//!   closes stdio.
 //! * `config-override`: Override configuration value.
-//! * `log`: In addition to the logging in configuration file, also log with the given severity to
-//!   stderr.
-//! * `log-module`: Override the stderr log level of the given module.
 //!
 //! Furthermore, it takes a list of paths ‒ both files and directories. They are loaded as
 //! configuration files (the directories are examined and files in them ‒ the ones passing a
@@ -143,6 +139,7 @@
 //! ./program --log info --log-module program=trace --config-override ui.message=something
 //! ```
 //!
+/* TODO: Move this config to the respective sub-crates
 //! ## Configuration options
 //!
 //! ### `logging`
@@ -183,24 +180,21 @@
 //!
 //! As daemonization is done by using `fork`, you should start any threads *after* you initialize
 //! the `spirit`. Otherwise you'll lose the threads (and further bad things will happen).
+*/
 //!
 //! # Common patterns
 //!
 //! TODO
 
 extern crate arc_swap;
-extern crate chrono;
 extern crate config;
 #[macro_use]
 extern crate failure;
 extern crate fallible_iterator;
-extern crate fern;
 extern crate itertools;
 extern crate libc;
 #[macro_use]
 extern crate log;
-extern crate log_panics;
-extern crate log_reroute;
 extern crate parking_lot;
 extern crate serde;
 #[macro_use]
@@ -210,17 +204,14 @@ extern crate signal_hook;
 #[allow(unused_imports)]
 #[macro_use]
 extern crate structopt;
-extern crate syslog;
 
 pub mod helpers;
-mod logging;
 pub mod validation;
 
 use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fmt::Debug;
-use std::iter;
 use std::marker::PhantomData;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
@@ -236,54 +227,15 @@ use arc_swap::Lease;
 use config::{Config, Environment, File, FileFormat};
 use failure::{Error, Fail};
 use fallible_iterator::FallibleIterator;
-use log::LevelFilter;
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use signal_hook::iterator::Signals;
 use structopt::clap::App;
 use structopt::StructOpt;
 
-use logging::{LogDestination, Logging};
 use validation::{
     Error as ValidationError, Level as ValidationLevel, Results as ValidationResults,
 };
-
-pub use logging::SyslogError;
-
-#[derive(Debug, Deserialize, Eq, PartialEq)]
-#[serde(untagged)]
-enum SecId {
-    Name(String),
-    Id(u32),
-    #[serde(skip)]
-    Nothing,
-}
-
-impl Default for SecId {
-    fn default() -> Self {
-        SecId::Nothing
-    }
-}
-
-#[derive(Debug, Default, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-struct Daemon {
-    #[serde(default)]
-    user: SecId,
-    #[serde(default)]
-    group: SecId,
-    pid_file: Option<PathBuf>,
-    workdir: Option<PathBuf>,
-}
-
-#[derive(Deserialize)]
-struct ConfigWrapper<C> {
-    #[serde(flatten)]
-    config: C,
-    #[serde(default)]
-    logging: Vec<Logging>,
-    // TODO: Find a way to detect and report unused fields
-}
 
 /// An error returned when the user passes a key-value option without equal sign.
 ///
@@ -293,9 +245,8 @@ struct ConfigWrapper<C> {
 #[fail(display = "Missing = in map option")]
 pub struct MissingEquals;
 
-// TODO: This one probably needs tests ‒ +- errors, parsing of both allowed and disallowed things,
-// missing equals…
-fn key_val<K, V>(opt: &str) -> Result<(K, V), Error>
+/// A helper for deserializing map-like command line arguments.
+pub fn key_val<K, V>(opt: &str) -> Result<(K, V), Error>
 where
     K: FromStr,
     K::Err: Fail + 'static,
@@ -320,19 +271,6 @@ struct CommonOpts {
     /// Configuration files or directories to load.
     #[structopt(parse(from_os_str))]
     configs: Vec<PathBuf>,
-
-    /// Log to stderr with this log level.
-    #[structopt(short = "l", long = "log", raw(number_of_values = "1"))]
-    log: Option<LevelFilter>,
-
-    /// Log to stderr with overriden levels for specific modules.
-    #[structopt(
-        short = "L",
-        long = "log-module",
-        parse(try_from_str = "key_val"),
-        raw(number_of_values = "1")
-    )]
-    log_modules: Vec<(String, LevelFilter)>,
 }
 
 #[derive(Debug)]
@@ -460,7 +398,6 @@ pub struct Spirit<O = Empty, C = Empty> {
     config_defaults: Option<String>,
     config_env: Option<String>,
     config_overrides: HashMap<String, String>,
-    extra_logger: Option<Logging>,
     opts: O,
     terminate: AtomicBool,
 }
@@ -489,6 +426,7 @@ where
     pub fn with_initial_config(config: C) -> Builder<O, C> {
         Builder {
             before_bodies: Vec::new(),
+            before_config: Vec::new(),
             body_wrappers: Vec::new(),
             config,
             config_default_paths: Vec::new(),
@@ -570,15 +508,11 @@ where
     /// don't have to by `Sync`). That, however, means that you can't call `config_reload` or
     /// [`terminate`](#method.terminate) from any callback (that would lead to a deadlock).
     pub fn config_reload(&self) -> Result<(), Error> {
-        let config = self.load_config()?;
+        let mut new = self.load_config()?;
         // The lock here is across the whole processing, to avoid potential races in logic
         // processing. This makes writing the hooks correctly easier.
         let mut hooks = self.hooks.lock();
         let old = self.config.load();
-        let mut new = config.config;
-        debug!("Creating new logging");
-        // Prepare the logger first, but don't switch until we know we use the new config.
-        let loggers = logging::create(config.logging.iter().chain(&self.extra_logger))?;
         debug!("Running config validators");
         let mut results = hooks
             .config_validators
@@ -618,10 +552,7 @@ where
                 success();
             }
         }
-        debug!("Installing loggers");
-        // Once everything is validated, switch to the new logging
-        logging::install(loggers);
-        // And to the new config.
+        // Once everything is validated, switch to the new config
         self.config.store(Arc::clone(&new));
         debug!("Running post-configuration hooks");
         for hook in &mut hooks.config {
@@ -717,7 +648,7 @@ where
         unreachable!("Signals run forever");
     }
 
-    fn load_config(&self) -> Result<ConfigWrapper<C>, Error> {
+    fn load_config(&self) -> Result<C, Error> {
         debug!("Loading configuration");
         let mut config = Config::new();
         // To avoid problems with trying to parse without any configuration present (it would
@@ -823,6 +754,7 @@ type SpiritBody<O, C> = Box<for<'a> Body<&'a Arc<Spirit<O, C>>>>;
 /// This is returned by the [`Spirit::new`](struct.Spirit.html#new).
 pub struct Builder<O = Empty, C = Empty> {
     before_bodies: Vec<SpiritBody<O, C>>,
+    before_config: Vec<Box<FnMut(&O) -> Result<(), Error> + Send>>,
     body_wrappers: Vec<Wrapper<O, C>>,
     config: C,
     config_default_paths: Vec<PathBuf>,
@@ -876,6 +808,20 @@ where
         B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), Error> + Send + 'static,
     {
         self.before_bodies.push(Box::new(Some(body)));
+        self
+    }
+
+    /// A callback that is run after the building started and the command line is parsed, but even
+    /// before the first configuration is loaded.
+    ///
+    /// If the callback returns an error, the building is aborted.
+    pub fn before_config<F>(mut self, cback: F) -> Self
+    where
+        F: FnOnce(&O) -> Result<(), Error> + Send + 'static,
+    {
+        let mut cback = Some(cback);
+        let cback = move |opts: &O| (cback.take().unwrap())(opts);
+        self.before_config.push(Box::new(cback));
         self
     }
 
@@ -1186,23 +1132,13 @@ where
     /// fork is preserved across it.
     // TODO: The new return value
     pub fn build(
-        self,
+        mut self,
         background_thread: bool,
     ) -> Result<(Arc<Spirit<O, C>>, InnerBody, WrapBody), Error> {
-        let mut logger = Logging {
-            destination: LogDestination::StdErr,
-            level: LevelFilter::Warn,
-            per_module: HashMap::new(),
-        };
-        log_reroute::init()?;
-        logging::install(logging::create(iter::once(&logger)).unwrap());
         debug!("Building the spirit");
-        log_panics::init();
         let opts = OptWrapper::<O>::from_args();
-        if let Some(level) = opts.common.log {
-            logger.level = level;
-            logger.per_module = opts.common.log_modules.iter().cloned().collect();
-            logging::install(logging::create(iter::once(&logger))?);
+        for before_config in &mut self.before_config {
+            before_config(&opts.other)?;
         }
         let config_files = if opts.common.configs.is_empty() {
             self.config_default_paths
@@ -1215,12 +1151,6 @@ where
             .chain(&[libc::SIGHUP, libc::SIGTERM, libc::SIGQUIT, libc::SIGINT])
             .cloned()
             .collect::<HashSet<_>>(); // Eliminate duplicates
-        let log_modules = opts.common.log_modules;
-        let extra_logger = opts.common.log.map(|level| Logging {
-            destination: LogDestination::StdErr,
-            level,
-            per_module: log_modules.into_iter().collect(),
-        });
         let config = ArcSwap::from(Arc::from(self.config));
         let spirit = Spirit {
             config,
@@ -1228,7 +1158,6 @@ where
             config_defaults: self.config_defaults,
             config_env: self.config_env,
             config_overrides: opts.common.config_overrides.into_iter().collect(),
-            extra_logger,
             hooks: Mutex::new(Hooks {
                 config: self.config_hooks,
                 config_filter: self.config_filter,

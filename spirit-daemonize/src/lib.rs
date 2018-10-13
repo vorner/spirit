@@ -190,12 +190,13 @@ where
                         "Can't change daemon config {} at runtime for",
                         name,
                     ));
+                } else {
+                    return ValidationResult::nothing();
                 }
             } else if let Err(e) = daemon.daemonize() {
                 return ValidationResult::error(format!("{}", e));
-            } else {
-                previous_daemon = Some(daemon);
             }
+            previous_daemon = Some(daemon);
             ValidationResult::nothing()
         };
         builder.config_validator(validator_hook)

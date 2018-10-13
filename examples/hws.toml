@@ -8,12 +8,3 @@ host = "localhost"
 
 [ui]
 msg = "Hello world"
-
-[[logging]]
-level = "INFO"
-type = "stderr"
-
-[[logging]]
-level = "DEBUG"
-type = "file"
-filename = "/tmp/hws.log"

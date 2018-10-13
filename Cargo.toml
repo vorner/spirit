@@ -15,6 +15,7 @@ members = [
     "./",
     "spirit-daemonize",
     "spirit-hyper",
+    "spirit-log",
     "spirit-tokio",
 ]
 
@@ -26,22 +27,17 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 arc-swap = "~0.3"
-chrono = "~0.4"
 config = { version = "~0.9", features = ["toml"] }
 failure = "~0.1"
 fallible-iterator = "~0.1"
-fern = { version = "~0.5", features = ["syslog-4"] }
 itertools = "~0.7"
 libc = "~0.2"
 log = "~0.4"
-log-panics = "~2"
-log-reroute = "~0.1"
 parking_lot = "~0.6"
 serde = "~1"
 serde_derive = "~1"
 signal-hook = "~0.1"
 structopt = "~0.2"
-syslog = "~4"
 
 [dev-dependencies]
 lazy_static = "~1"
