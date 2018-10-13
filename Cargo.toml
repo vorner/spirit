@@ -2,12 +2,11 @@
 name = "spirit"
 version = "0.1.1"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
-description = "Helper to create well behaved daemons"
+description = "Helper to create well behaved daemons with runtime-reconfiguration support"
 documentation = "https://docs.rs/spirit"
 repository = "https://github.com/vorner/spirit"
-# TODO
 readme = "README.md"
-keywords = ["unix", "daemon", "service"]
+keywords = ["unix", "daemon", "service", "configuration"]
 license = "Apache-2.0/MIT"
 
 [workspace]

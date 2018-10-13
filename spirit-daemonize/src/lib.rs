@@ -28,7 +28,7 @@ use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use failure::Error;
+use failure::{Error, ResultExt};
 use nix::sys::stat::{self, Mode};
 use nix::unistd::{self, ForkResult, Gid, Uid};
 use serde::de::DeserializeOwned;
@@ -193,8 +193,8 @@ where
                 } else {
                     return ValidationResult::nothing();
                 }
-            } else if let Err(e) = daemon.daemonize() {
-                return ValidationResult::error(format!("{}", e));
+            } else if let Err(e) = daemon.daemonize().context("Failed to daemonize") {
+                return ValidationResult::from_error(e.into());
             }
             previous_daemon = Some(daemon);
             ValidationResult::nothing()

@@ -245,9 +245,10 @@ where
                             }
                         }
                         Err(e) => {
-                            let msg = format!("Creationg of {} for {:?} failed: {}", name, sub, e);
-                            debug!("{}", msg); // The error will appear together for the validator
-                            results.merge(ValidationResult::error(msg));
+                            let msg = format!("Creationg of {} for {:?} failed", name, sub);
+                            // The error will appear together for the validator
+                            debug!("{}: {}", msg, e);
+                            results.merge(ValidationResult::from_error(e.context(msg).into()));
                             continue;
                         }
                     }

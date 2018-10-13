@@ -227,6 +227,7 @@ use arc_swap::Lease;
 use config::{Config, Environment, File, FileFormat};
 use failure::{Error, Fail};
 use fallible_iterator::FallibleIterator;
+use log::Level;
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use signal_hook::iterator::Signals;
@@ -299,19 +300,29 @@ where
     }
 }
 
+/// Log one error
+///
+/// It is printed to the log with all the causes and optionally a backtrace (if it is available and
+/// debug logging is enabled).
+pub fn log_error(target: &str, e: &Error) {
+    // Note: one of the causes is the error itself
+    for cause in e.iter_chain() {
+        error!(target: target, "{}", cause);
+    }
+    if log_enabled!(Level::Debug) {
+        let bt = format!("{}", e.backtrace());
+        if !bt.is_empty() {
+            debug!(target: target, "{}", bt);
+        }
+    }
+}
+
 /// A wrapper around a fallible function that logs any returned errors, with all the causes and
 /// optionally the backtrace.
 pub fn log_errors<R, F: FnOnce() -> Result<R, Error>>(f: F) -> Result<R, Error> {
     let result = f();
     if let Err(ref e) = result {
-        // Note: one of the causes is the error itself
-        for cause in e.iter_chain() {
-            error!("{}", cause);
-        }
-        let bt = format!("{}", e.backtrace());
-        if !bt.is_empty() {
-            debug!("{}", bt);
-        }
+        log_error("spirit", e);
     }
     result
 }
@@ -526,7 +537,11 @@ where
         for result in &results {
             match result.level() {
                 ValidationLevel::Error => {
-                    error!(target: "configuration", "{}", result.description());
+                    if let Some(e) = result.detailed_error() {
+                        log_error("configuration", e);
+                    } else {
+                        error!(target: "configuration", "{}", result.description());
+                    }
                 }
                 ValidationLevel::Warning => {
                     warn!(target: "configuration", "{}", result.description());

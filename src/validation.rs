@@ -4,6 +4,8 @@
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::slice::Iter;
 
+use failure::Error as FError;
+
 /// An error caused by failed validation
 // TODO: Better content
 #[derive(Debug, Fail)]
@@ -57,6 +59,7 @@ impl Default for Level {
 pub struct Result {
     level: Level,
     description: String,
+    error: Option<FError>,
     pub(crate) on_abort: Option<Box<FnMut()>>,
     pub(crate) on_success: Option<Box<FnMut()>>,
 }
@@ -86,13 +89,20 @@ impl Result {
         Self::new(Level::Warning, s)
     }
 
-    // TODO: Actual error something here?
-
     /// Creates an error result.
     ///
     /// An error result not only gets to the logs, it also marks the whole config as invalid.
     pub fn error<S: Into<String>>(s: S) -> Self {
         Self::new(Level::Error, s)
+    }
+
+    /// Creates an error result from an actual `Error`.
+    ///
+    /// The error then is logged with additional information.
+    pub fn from_error(e: FError) -> Self {
+        let mut me = Self::error(format!("{}", e));
+        me.error = Some(e);
+        me
     }
 
     /// Returns the result's level.
@@ -103,6 +113,13 @@ impl Result {
     /// Returns the message texts.
     pub fn description(&self) -> &str {
         &self.description
+    }
+
+    /// Returns an associated error if there's one.
+    ///
+    /// Note that the error text is already part of the [`description`](#method.description).
+    pub fn detailed_error(&self) -> &Option<FError> {
+        &self.error
     }
 
     /// Attaches (replaces) the success action.
@@ -131,6 +148,7 @@ impl Debug for Result {
         fmt.debug_struct("ValidationResult")
             .field("level", &self.level)
             .field("description", &self.description)
+            .field("error", &self.error)
             .field(
                 "on_abort",
                 if self.on_abort.is_some() {
@@ -148,6 +166,12 @@ impl Debug for Result {
                 },
             )
             .finish()
+    }
+}
+
+impl From<FError> for Result {
+    fn from(e: FError) -> Self {
+        Self::from_error(e)
     }
 }
 

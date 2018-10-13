@@ -310,9 +310,10 @@ where
                 }
             }
             if !errors.is_empty() {
-                let errors = errors
-                    .into_iter()
-                    .map(|e| ValidationResult::error(format!("{}: {}", name, e)));
+                let errors = errors.into_iter().map(|e| {
+                    let with_context = e.context(format!("Can't configure {}", name));
+                    ValidationResult::from_error(with_context.into())
+                });
                 ValidationResults::from(errors)
             } else {
                 let install = move || {
