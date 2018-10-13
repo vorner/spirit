@@ -1,6 +1,6 @@
 [package]
 name = "spirit-tokio"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Tokio helpers for Spirit"
 documentation = "https://docs.rs/spirit-tokio"
@@ -19,7 +19,7 @@ log = "~0.4"
 parking_lot = "~0.6"
 serde = "~1"
 serde_derive = "~1"
-spirit = { version = "~0.1", path = ".." }
+spirit = { version = "~0.2", path = ".." }
 structopt = "~0.2"
 tk-listen = "~0.2"
 tokio = "~0.1.8"

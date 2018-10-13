@@ -1,6 +1,6 @@
 [package]
 name = "spirit-hyper"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Hyper helpers for Spirit"
 documentation = "https://docs.rs/spirit-hyper"
@@ -19,8 +19,8 @@ futures = "~0.1"
 hyper = "~0.12"
 serde = "~1"
 serde_derive = "~1"
-spirit = { path = "..", version = "~0.1" }
-spirit-tokio = { path = "../spirit-tokio", version = "~0.1.1" }
+spirit = { path = "..", version = "~0.2" }
+spirit-tokio = { path = "../spirit-tokio", version = "~0.2" }
 structopt = "~0.2"
 tokio-io = "~0.1"
 

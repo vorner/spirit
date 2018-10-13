@@ -2,6 +2,12 @@
 name = "spirit-daemonize"
 version = "0.1.0"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
+description = "Spirit helpers and config fragments to daemonize"
+documentation = "https://docs.rs/spirit-daemonize"
+repository = "https://github.com/vorner/spirit"
+readme = "README.md"
+keywords = ["unix", "daemon", "service", "spirit"]
+license = "Apache-2.0/MIT"
 
 [dependencies]
 failure = "~0.1"
@@ -10,7 +16,7 @@ nix = "~0.11"
 privdrop = "~0.2"
 serde = "~1"
 serde_derive = "~1"
-spirit = { version = "~0.1", path = ".." }
+spirit = { version = "~0.2", path = ".." }
 structopt = "~0.2"
 
 [dev-dependencies]

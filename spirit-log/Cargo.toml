@@ -2,6 +2,12 @@
 name = "spirit-log"
 version = "0.1.0"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
+description = "Spirit helpers and config fragments for logging"
+documentation = "https://docs.rs/spirit-log"
+repository = "https://github.com/vorner/spirit"
+readme = "README.md"
+keywords = ["log", "spirit"]
+license = "Apache-2.0/MIT"
 
 [dependencies]
 chrono = "~0.4"
@@ -13,7 +19,7 @@ log-panics = "~2"
 log-reroute = "~0.1"
 serde = "~1"
 serde_derive = "~1"
-spirit = { version = "~0.1", path = ".." }
+spirit = { version = "~0.2", path = ".." }
 structopt = "~0.2"
 syslog = "~4"
 
