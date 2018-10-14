@@ -36,7 +36,7 @@ use super::Builder;
 ///
 /// impl Helper<Empty, Empty> for CfgPrint {
 ///     fn apply(self, builder: Builder<Empty, Empty>) -> Builder<Empty, Empty> {
-///         builder.on_config(|_config| println!("Config changed"))
+///         builder.on_config(|_opts, _config| println!("Config changed"))
 ///     }
 /// }
 ///
@@ -52,7 +52,7 @@ use super::Builder;
 /// use spirit::{Builder, Empty, Spirit};
 ///
 /// fn cfg_print(builder: Builder<Empty, Empty>) -> Builder<Empty, Empty> {
-///     builder.on_config(|_config| println!("Config changed"))
+///     builder.on_config(|_opts, _config| println!("Config changed"))
 /// }
 ///
 /// Spirit::<Empty, Empty>::new()
@@ -224,7 +224,7 @@ where
     O: Debug + StructOpt + Sync + Send + 'static,
 {
     |builder: Builder<O, C>| {
-        builder.on_config(move |c: &Arc<C>| storage.borrow().store(Arc::clone(c)))
+        builder.on_config(move |_o: &O, c: &Arc<C>| storage.borrow().store(Arc::clone(c)))
     }
 }
 

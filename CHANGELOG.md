@@ -1,3 +1,4 @@
+* Config hook gets access to the command line options too.
 * Logging extracted to a separate helper crate (`spirit-log`).
 * Daemonization extracted to a separate helper crate (`spirit-daemonize`).
 * Ability not to start the background thread.

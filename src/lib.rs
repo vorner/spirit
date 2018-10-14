@@ -108,7 +108,7 @@
 //!         // If the program is passed a directory, load files with these extensions from there
 //!         .config_exts(&["toml", "ini", "json"])
 //!         .on_terminate(|| debug!("Asked to terminate"))
-//!         .on_config(|cfg| debug!("New config loaded: {:?}", cfg))
+//!         .on_config(|_opts, cfg| debug!("New config loaded: {:?}", cfg))
 //!         // Run the closure, logging the error nicely if it happens (note: no error happens
 //!         // here)
 //!         .run(|spirit: &_| {
@@ -346,7 +346,7 @@ pub struct Empty {}
 
 struct Hooks<O, C> {
     config_filter: Box<FnMut(&Path) -> bool + Send>,
-    config: Vec<Box<FnMut(&Arc<C>) + Send>>,
+    config: Vec<Box<FnMut(&O, &Arc<C>) + Send>>,
     config_validators: Vec<Box<FnMut(&Arc<C>, &mut C, &O) -> ValidationResults + Send>>,
     sigs: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
     terminate: Vec<Box<FnMut() + Send>>,
@@ -394,7 +394,7 @@ impl<O, C> Default for Hooks<O, C> {
 /// use spirit::{Empty, Spirit};
 ///
 /// Spirit::<Empty, Empty>::new()
-///     .on_config(|_new_cfg| {
+///     .on_config(|_opts, _new_cfg| {
 ///         // Adapt to new config here
 ///     })
 ///     .run(|_spirit| {
@@ -572,7 +572,7 @@ where
         self.config.store(Arc::clone(&new));
         debug!("Running post-configuration hooks");
         for hook in &mut hooks.config {
-            hook(&new);
+            hook(&self.opts, &new);
         }
         debug!("Configuration reloaded");
         Ok(())
@@ -776,7 +776,7 @@ pub struct Builder<O = Empty, C = Empty> {
     config_default_paths: Vec<PathBuf>,
     config_defaults: Option<String>,
     config_env: Option<String>,
-    config_hooks: Vec<Box<FnMut(&Arc<C>) + Send>>,
+    config_hooks: Vec<Box<FnMut(&O, &Arc<C>) + Send>>,
     config_filter: Box<FnMut(&Path) -> bool + Send>,
     config_validators: Vec<Box<FnMut(&Arc<C>, &mut C, &O) -> ValidationResults + Send>>,
     opts: PhantomData<O>,
@@ -1068,7 +1068,7 @@ where
     /// The callback is called once a new configuration is loaded and successfully validated.
     ///
     /// TODO: Threads, deadlocks
-    pub fn on_config<F: FnMut(&Arc<C>) + Send + 'static>(self, hook: F) -> Self {
+    pub fn on_config<F: FnMut(&O, &Arc<C>) + Send + 'static>(self, hook: F) -> Self {
         let mut hooks = self.config_hooks;
         hooks.push(Box::new(hook));
         Self {
