@@ -9,6 +9,10 @@ readme = "README.md"
 keywords = ["log", "spirit"]
 license = "Apache-2.0/MIT"
 
+[badges]
+travis-ci = { repository = "vorner/spirit" }
+maintenance = { status = "actively-developed" }
+
 [dependencies]
 chrono = "~0.4"
 failure = "~0.1"
