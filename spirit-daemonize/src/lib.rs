@@ -3,7 +3,84 @@
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
-// #![warn(missing_docs)] TODO
+#![warn(missing_docs)]
+
+//! A spirit helpers and configuration fragments for daemonization.
+//!
+//! The helpers in here extend the [`spirit`](https://crates.io/crates/spirit) configuration
+//! framework to automatically go into background based on user's configuration and command line
+//! options.
+//!
+//! # Examples
+//!
+//! ```rust
+//! extern crate spirit;
+//! extern crate spirit_daemonize;
+//! #[macro_use]
+//! extern crate serde_derive;
+//! #[macro_use]
+//! extern crate structopt;
+//!
+//! use spirit::Spirit;
+//! use spirit_daemonize::{Daemon, Opts as DaemonOpts};
+//!
+//! // From config files
+//! #[derive(Default, Deserialize)]
+//! struct Cfg {
+//!     #[serde(default)]
+//!     daemon: Daemon,
+//! }
+//!
+//! impl Cfg {
+//!    fn daemon(&self) -> Daemon {
+//!        self.daemon.clone()
+//!    }
+//! }
+//!
+//! // From command line
+//! #[derive(Debug, StructOpt)]
+//! struct Opts {
+//!     #[structopt(flatten)]
+//!     daemon: DaemonOpts,
+//! }
+//!
+//! impl Opts {
+//!    fn daemon(&self) -> &DaemonOpts {
+//!        &self.daemon
+//!    }
+//! }
+//!
+//! fn main() {
+//!      Spirit::<Opts, Cfg>::new()
+//!         .config_helper(Cfg::daemon, spirit_daemonize::with_opts(Opts::daemon), "daemonize")
+//!         .run(|_spirit| {
+//!             // Possibly daemonized program goes here
+//!             Ok(())
+//!         });
+//! }
+//! ```
+//!
+//! # Added options
+//!
+//! The program above gets the `-d` command line option, which enables daemonization. Furthermore,
+//! the configuration now understands a new `daemon` section, with these options:
+//!
+//! * `user`: The user to become. Either a numeric ID or name. If not present, it doesn't change the
+//!   user.
+//! * `group`: Similar as user, but with group.
+//! * `pid_file`: A pid file to write on startup. If not present, nothing is stored.
+//! * `workdir`: A working directory it'll switch into. If not set, defaults to `/`.
+//! * `daemonize`: Should this go into background or not? If combined with the
+//!   [`Opts`](struct.Opts.html), it can be overridden on command line.
+//!
+//! # Multithreaded applications
+//!
+//! As daemonization is done by using `fork`, you should start any threads *after* you initialize
+//! the `spirit`. Otherwise you'll lose the threads (and further bad things will happen).
+//!
+//! The daemonization happens inside the `config_validator` callback. If other config validators
+//! need to start any threads, they should be plugged in after the daemonization callback. However,
+//! the safer option is to start them inside the `run` method.
 
 extern crate failure;
 #[macro_use]
@@ -37,11 +114,20 @@ use spirit::validation::Result as ValidationResult;
 use spirit::Builder;
 use structopt::StructOpt;
 
+/// Configuration of either user or a group.
+///
+/// This is used to load the configuration into which user and group to drop privileges.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(untagged)]
 pub enum SecId {
+    /// Look up based on the name (in `/etc/passwd` or `/etc/group`).
     Name(String),
+    /// Don't look up, use this as either uid or gid directly.
     Id(u32),
+    /// Don't drop privileges.
+    ///
+    /// This is not read from configuration, but it is the default value available if nothing is
+    /// listed in configuration.
     #[serde(skip)]
     Nothing,
 }
@@ -52,22 +138,67 @@ impl Default for SecId {
     }
 }
 
+/// A configuration fragment for configuration of daemonization.
+///
+/// This describes how to go into background with some details.
+///
+/// The fields can be manipulated by the user of this crate. However, it is not possible to create
+/// the struct manually. This is on purpose, some future versions might add more fields. If you
+/// want to create one, use `Daemon::default` and modify certain fields as needed (this is
+/// future-version compatible).
+///
+/// # Examples
+///
+/// ```rust
+/// # use spirit_daemonize::Daemon;
+/// let mut daemon = Daemon::default();
+/// daemon.workdir = Some("/".into());
+/// ```
+///
+/// # See also
+///
+/// If you want to daemonize, but not to switch users (or allow switching users), either because
+/// the daemon needs to keep root privileges or because it is expected to be already started as
+/// ordinary user, use the [`UserDaemon`](struct.UserDaemon.html) instead.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Daemon {
+    /// The user to drop privileges to.
     #[serde(default)]
     pub user: SecId,
+
+    /// The group to drop privileges to.
     #[serde(default)]
     pub group: SecId,
+
+    /// Where to store a PID file.
+    ///
+    /// If not set, no PID file is created.
     pub pid_file: Option<PathBuf>,
+
+    /// Switch to this working directory at startup.
+    ///
+    /// If not set, working directory is not switched.
     pub workdir: Option<PathBuf>,
-    #[serde(default, skip)]
+
+    /// Enable the daemonization.
+    ///
+    /// Even if this is false, some activity (changing users, setting PID file, etc) is still done.
+    ///
+    /// This is overwritten by [`Opts::transform`](struct.Opts.html#method.transform).
+    #[serde(default)]
     pub daemonize: bool,
+
+    // Prevent the user from creating this directly.
     #[serde(default, skip)]
     sentinel: (),
 }
 
 impl Daemon {
+    /// Goes into background according to the configuration.
+    ///
+    /// This does the actual work of daemonization. Usually, this is handled behind the scenes
+    /// using the config helper, but if you want you can run it manually.
     pub fn daemonize(&self) -> Result<(), Error> {
         // TODO: Tests for this
         debug!("Preparing to daemonize with {:?}", self);
@@ -124,26 +255,49 @@ impl Daemon {
         }
         Ok(())
     }
+}
 
-    pub fn enabled(self) -> Daemon {
+impl From<UserDaemon> for Daemon {
+    fn from(ud: UserDaemon) -> Daemon {
         Daemon {
-            daemonize: true,
-            ..self
+            pid_file: ud.pid_file,
+            workdir: ud.workdir,
+            daemonize: ud.daemonize,
+            ..Daemon::default()
         }
     }
 }
 
+/// Command line options fragment.
+///
+/// This adds the `-d` (`--daemonize`) and `-f` (`--foreground`) flag to command line. These
+/// override whatever is written in configuration (if merged together with the configuration).
+///
+/// It can be used either manually, through the [`transform`](struct.transform.html) method or
+/// using the [`with_opts`](fn.with_opts.html) function as the second parameter of the
+/// `spirit::Builder::config_helper`.
+///
+/// Flatten this into the top-level `StructOpt` structure.
 #[derive(Clone, Debug, StructOpt)]
 pub struct Opts {
-    /// Daemonize ‒ go to background.
+    /// Daemonize ‒ go to background (override the config).
     #[structopt(short = "d", long = "daemonize")]
     daemonize: bool,
+
+    /// Stay in foreground (don't go to background even if config says so).
+    #[structopt(short = "f", long = "foreground")]
+    foreground: bool,
 }
 
 impl Opts {
+    /// Returns if daemonization is enabled.
     pub fn daemonize(&self) -> bool {
-        self.daemonize
+        self.daemonize && !self.foreground
     }
+
+    /// Modifies the [`daemon`](struct.Daemon.html) according to daemonization set.
+    ///
+    /// This is usually used internally from the [`with_opts`](fn.with_opts.html) function.
     pub fn transform(&self, daemon: Daemon) -> Daemon {
         Daemon {
             daemonize: self.daemonize(),
@@ -152,6 +306,10 @@ impl Opts {
     }
 }
 
+/// Wraps an extractor of an [`Opts`](struct.Opts.html) struct to form a transformation closure for
+/// `Daemon` config helper.
+///
+/// See the [top-level example](index.html#examples).
 pub fn with_opts<O, C, F>(mut extractor: F) -> impl FnMut(&O, &C, Daemon) -> Daemon
 where
     C: DeserializeOwned + Send + Sync + 'static,
@@ -200,5 +358,56 @@ where
             ValidationResult::nothing()
         };
         builder.config_validator(validator_hook)
+    }
+}
+
+/// A stripped-down version of [`Daemon`](struct.Daemon.html) without the user-switching options.
+///
+/// Sometimes, the daemon either needs to keep the root privileges or is started with the
+/// appropriate user right away, therefore the user should not be able to configure the `user` and
+/// `group` options.
+///
+/// This configuration fragment serves the role. It can be used as a drop-in replacement with
+/// config helpers, but to do anything manually, turn it into `Daemon` first.
+///
+/// # Examples
+///
+/// ```rust
+/// use spirit_daemonize::{Daemon, UserDaemon};
+///
+/// // No way to access the `pid_file` and others inside this thing and can't call `.daemonize()`.
+/// let user_daemon = UserDaemon::default();
+///
+/// let daemon: Daemon = user_daemon.into();
+/// assert!(daemon.pid_file.is_none());
+/// assert_eq!(daemon, Daemon::default());
+/// ```
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub struct UserDaemon {
+    pid_file: Option<PathBuf>,
+    workdir: Option<PathBuf>,
+    #[serde(default)]
+    daemonize: bool,
+}
+
+impl<O, C, Transformer> CfgHelper<O, C, Transformer> for UserDaemon
+where
+    C: DeserializeOwned + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
+    Daemon: CfgHelper<O, C, Transformer>,
+{
+    fn apply<Extractor, Name>(
+        mut extractor: Extractor,
+        transformer: Transformer,
+        name: Name,
+        builder: Builder<O, C>,
+    ) -> Builder<O, C>
+    where
+        Extractor: FnMut(&C) -> Self + Send + 'static,
+        Name: Clone + Display + Send + Sync + 'static,
+    {
+        let extractor = move |c: &C| -> Daemon { extractor(c).into() };
+        builder.config_helper(extractor, transformer, name)
     }
 }
