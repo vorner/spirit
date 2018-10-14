@@ -3,7 +3,103 @@
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
-// #![warn(missing_docs)] TODO
+#![warn(missing_docs)]
+
+//! A spirit configuration helper for logging.
+//!
+//! Set of configuration fragments and config helpers for the
+//! [`spirit`](https://crates.io/crates/spirit) configuration framework that configures logging for
+//! the [`log`](https://crates.io/crates/log) crate and updates it as the configuration changes
+//! (even at runtime).
+//!
+//! Currently, it also allows asking for log output on the command line and multiple logging
+//! destinations with different log levels set.
+//!
+//! It assumes the application doesn't set the global logger (this crate sets it on its own).
+//!
+//! For details about added options, see the [`Opts`](struct.Opts.html) and
+//! [`Cfg`](struct.Cfg.html) configuration fragments.
+//!
+//! # Startup
+//!
+//! The logging is set in multiple steps:
+//!
+//! * As soon as the config helper is registered, a logging on the `WARN` level is sent to
+//!   `stderr`.
+//! * After command line arguments are parsed the `stderr` logging is updated to reflect that (or
+//!   left on the `WARN` level if nothing is set by the user).
+//! * After configuration is loaded from the files, full logging is configured.
+//!
+//! # Integration with other loggers
+//!
+//! If you need something specific (for example [`sentry`](https://crates.io/crates/sentry)), you
+//! can provide functions to add additional loggers in parallel with the ones created in this
+//! crate. The crate will integrate them all together.
+//!
+//! # Performance warning
+//!
+//! This allows the user to create arbitrary number of loggers. Furthermore, the logging is
+//! synchronous and not buffered. When writing a lot of logs or sending them over the network, this
+//! could become a bottleneck.
+//!
+//! # Planned features
+//!
+//! These pieces are planned some time in future, but haven't happened yet.
+//!
+//! * Reconnecting to the remote server if a TCP connection is lost.
+//! * Log file rotation.
+//! * Setting of logging format (choosing either local or UTC, the format argument or JSON).
+//! * Colors on `stdout`/`stderr`.
+//! * Async and buffered logging and ability to drop log messages when logging doesn't keep up.
+//!
+//! # Examples
+//!
+//! ```rust
+//! #[macro_use]
+//! extern crate log;
+//! extern crate spirit;
+//! extern crate spirit_log;
+//! #[macro_use]
+//! extern crate serde_derive;
+//! #[macro_use]
+//! extern crate structopt;
+//!
+//! use spirit::Spirit;
+//! use spirit_log::{Cfg as LogCfg, Opts as LogOpts};
+//!
+//! #[derive(Clone, Debug, StructOpt)]
+//! struct Opts {
+//!     #[structopt(flatten)]
+//!     log: LogOpts,
+//! }
+//!
+//! impl Opts {
+//!     fn log(&self) -> LogOpts {
+//!         self.log.clone()
+//!     }
+//! }
+//!
+//! #[derive(Clone, Debug, Default, Deserialize)]
+//! struct Cfg {
+//!     #[serde(flatten)]
+//!     log: LogCfg,
+//! }
+//!
+//! impl Cfg {
+//!     fn log(&self) -> LogCfg {
+//!         self.log.clone()
+//!     }
+//! }
+//!
+//! fn main() {
+//!     Spirit::<Opts, Cfg>::new()
+//!         .config_helper(Cfg::log, Opts::log, "logging")
+//!         .run(|_spirit| {
+//!             info!("Hello world");
+//!             Ok(())
+//!         });
+//! }
+//! ```
 
 extern crate chrono;
 #[allow(unused_imports)]
@@ -61,6 +157,11 @@ impl Log for MultiLog {
     }
 }
 
+/// A fragment for command line options.
+///
+/// By flattening this into the top-level `StructOpt` structure, you get the `-l` and `-L` command
+/// line options. The `-l` (`--log`) sets the global logging level for `stderr`. The `-L` accepts
+/// pairs (eg. `-L spirit=TRACE`) specifying levels for specific logging targets.
 #[derive(Clone, Debug, StructOpt)]
 pub struct Opts {
     /// Log to stderr with this log level.
@@ -87,9 +188,17 @@ impl Opts {
     }
 }
 
+// TODO: OptsExt & OptsVerbose and turn the other things into Into<Opts>
+
 type ExtraLogger<O, C> =
     Box<Fn(&O, &C) -> Result<(LevelFilter, Vec<Box<Log>>), Error> + Send + Sync>;
 
+/// Description of extra configuration for logging.
+///
+/// This allows customizing the logging as managed by this crate, mostly by pairing it with command
+/// line options (see [`Opts`](struct.Opts.html)) and adding arbitrary additional loggers.
+///
+/// The default does nothing (eg. no command line options and no extra loggers).
 pub struct Extras<O, C> {
     opts: Option<Box<Fn(&O) -> Opts + Send + Sync>>,
     loggers: Vec<ExtraLogger<O, C>>,
@@ -105,12 +214,22 @@ impl<O, C> Default for Extras<O, C> {
 }
 
 impl<O, C> Extras<O, C> {
+    /// Constructs the `Extras` structure with an extractor for options.
+    ///
+    /// The passed closure should take the applications global options structure and return the
+    /// `Opts` by which the logging from command line can be tweaked.
     pub fn with_opts<F: Fn(&O) -> Opts + Send + Sync + 'static>(extractor: F) -> Self {
         Extras {
             opts: Some(Box::new(extractor)),
             loggers: Vec::new(),
         }
     }
+
+    /// Modifies the `Extras` to contain another source of additional loggers.
+    ///
+    /// Each such closure is run every time logging is being configured. It can return either bunch
+    /// of loggers (with the needed log level), or an error. If an error is returned, the loading
+    /// of new configuration is aborted.
     pub fn extra_loggers<F>(self, extra: F) -> Self
     where
         F: Fn(&O, &C) -> Result<(LevelFilter, Vec<Box<Log>>), Error> + Send + Sync + 'static,
@@ -126,7 +245,7 @@ impl<O, C> Extras<O, C> {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")] // TODO: Make deny-unknown-fields work
-pub enum LogDestination {
+enum LogDestination {
     File {
         filename: PathBuf,
         // TODO: Truncate
@@ -242,6 +361,86 @@ impl Logger {
     }
 }
 
+/// A configuration fragment to set up logging.
+///
+/// By flattening this into the configuration structure, the program can load options for
+/// configuring logging. It adds a new top-level array `logging`. Each item describes one logger,
+/// with separate log levels and destination.
+///
+/// # Logger options
+///
+/// These are valid for all loggers:
+///
+/// * `level`: The log level to use. Valid options are `OFF`, `ERROR`, `WARN`, `INFO`, `DEBUG` and
+///   `TRACE`.
+/// * `per-module`: A map, setting log level overrides for specific modules (logging targets). This
+///   one is optional.
+/// * `type`: Specifies the type of logger destination. Some of them allow specifying other
+///   options.
+///
+/// The allowed types are:
+/// * `stdout`: The logs are sent to standard output. There are no additional options.
+/// * `stderr`: The logs are sent to standard error output. There are no additional options.
+/// * `file`: Logs are written to a file. The file is reopened every time a configuration is
+///   re-read (therefore every time the application gets `SIGHUP`), which makes it work with
+///   logrotate.
+///   - `filename`: The path to the file where to put the logs.
+/// * `network`: The application connects to a given host and port over TCP and sends logs there.
+///   - `host`: The hostname (or IP address) to connect to.
+///   - `port`: The port to use.
+/// * `syslog`: Sends the logs to syslog.
+///
+/// # Configuration helpers
+///
+/// This structure works as a configuration helper in three different forms:
+///
+/// ## No command line options.
+///
+/// There's no interaction with the command line options. The second parameter of the
+/// `config_helper` is set to `()`.
+///
+/// ```rust
+/// #[macro_use]
+/// extern crate log;
+/// extern crate spirit;
+/// extern crate spirit_log;
+/// #[macro_use]
+/// extern crate serde_derive;
+///
+/// use spirit::{Empty, Spirit};
+/// use spirit_log::Cfg as LogCfg;
+///
+/// #[derive(Clone, Debug, Default, Deserialize)]
+/// struct Cfg {
+///     #[serde(flatten)]
+///     log: LogCfg,
+/// }
+///
+/// impl Cfg {
+///     fn log(&self) -> LogCfg {
+///         self.log.clone()
+///     }
+/// }
+///
+/// fn main() {
+///     Spirit::<Empty, Cfg>::new()
+///         .config_helper(Cfg::log, (), "logging")
+///         .run(|_spirit| {
+///             info!("Hello world");
+///             Ok(())
+///         });
+/// }
+/// ```
+///
+/// ## Basic integration of command line options.
+///
+/// The second parameter is a closure to extract the [`Opts`](struct.Opts.html) structure from the
+/// options (`Fn(&O) -> Opts + Send + Sync + 'static`).
+///
+/// ## Full customizations
+///
+/// The second parameter can be the [`Extras`](struct.Extras.html) structure, fully customizing the
+/// creation of loggers.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Cfg {
     #[serde(default)]

@@ -1,6 +1,6 @@
-* Documentation
 * A bigger example with multiple helpers
 * Helper for configs that don't change
   - With FnOnce
   - Without FnOnce
   - Both with a warning
+* Another Opt structure with -v and such.
