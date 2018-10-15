@@ -4,3 +4,4 @@
   - Without FnOnce
   - Both with a warning
 * Another Opt structure with -v and such.
+* Run the backgroud thread as a task in tokio?

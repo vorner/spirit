@@ -1,7 +1,13 @@
+# 0.2.0
+# spirit-daemonize-0.1.0
+# spirit-hyper-0.2.0
+# spirit-log-0.1.0
+# spirit-tokio-0.2.0
+
 * Config hook gets access to the command line options too.
 * Logging extracted to a separate helper crate (`spirit-log`).
 * Daemonization extracted to a separate helper crate (`spirit-daemonize`).
-* Ability not to start the background thread.
+* Ability to not start the background thread.
 * Dropped the `S` type parameter. It now keeps the config internally, but if
   exporting to a global variable is needed, a `helpers::cfg_store` helper is
   provided.
