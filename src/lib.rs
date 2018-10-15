@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit/0.2.0/spirit/",
+    html_root_url = "https://docs.rs/spirit/0.2.1/spirit/",
     test(attr(deny(warnings)))
 )]
 #![allow(renamed_and_removed_lints)] // Until the clippy thing can be reasonably resolved
@@ -135,53 +135,6 @@
 //! Furthermore, it takes a list of paths ‒ both files and directories. They are loaded as
 //! configuration files (the directories are examined and files in them ‒ the ones passing a
 //! [`filter`](struct.Builder.html#method.config_files) ‒ are also loaded).
-//!
-//! ```sh
-//! ./program --log info --log-module program=trace --config-override ui.message=something
-//! ```
-//!
-/* TODO: Move this config to the respective sub-crates
-//! ## Configuration options
-//!
-//! ### `logging`
-//!
-//! It is an array of logging destinations. No matter where the logging is sent to, these options
-//! are valid for all:
-//!
-//! * `level`: The log level to use. Valid options are `OFF`, `ERROR`, `WARN`, `INFO`, `DEBUG` and
-//!   `TRACE`.
-//! * `per-module`: A map, setting log level overrides for specific modules (logging targets). This
-//!   one is optional.
-//! * `type`: Specifies the type of logger destination. Some of them allow specifying other
-//!   options.
-//!
-//! The allowed types are:
-//! * `stdout`: The logs are sent to standard output. There are no additional options.
-//! * `stderr`: The logs are sent to standard error output. There are no additional options.
-//! * `file`: Logs are written to a file. The file is reopened every time a configuration is
-//!   re-read (therefore every time the application gets `SIGHUP`), which makes it work with
-//!   logrotate.
-//!   - `filename`: The path to the file where to put the logs.
-//! * `network`: The application connects to a given host and port over TCP and sends logs there.
-//!   - `host`: The hostname (or IP address) to connect to.
-//!   - `port`: The port to use.
-//! * `syslog`: Sends the logs to syslog.
-//!
-//! ### `daemon`
-//!
-//! Influences how daemonization is done.
-//!
-//! * `user`: The user to become. Either a numeric ID or name. If not present, it doesn't change the
-//!   user.
-//! * `group`: Similar as user, but with group.
-//! * `pid_file`: A pid file to write on startup. If not present, nothing is stored.
-//! * `workdir`: A working directory it'll switch into. If not set, defaults to `/`.
-//!
-//! # Multithreaded applications
-//!
-//! As daemonization is done by using `fork`, you should start any threads *after* you initialize
-//! the `spirit`. Otherwise you'll lose the threads (and further bad things will happen).
-*/
 //!
 //! # Common patterns
 //!

@@ -228,6 +228,124 @@ where
     }
 }
 
+/// A helper for one-time initial configuration.
+///
+/// Sometimes, some configuration values can't be reasonably updated at runtime (libraries don't
+/// support reconfiguration, there's no time to do that, ...). This callback tries to improve the
+/// situation around these configurations.
+///
+/// The `extractor` extracts a fragment of configuration every time a configuration is loaded. The
+/// first time this happens, `init` is called with this extracted configuration. Upon any future
+/// configuration reloads, a warning is issued (with the given `name`) if the configuration
+/// contains a different value than the one it was originally initialized.
+///
+/// # Examples
+///
+/// ```
+/// #[macro_use]
+/// extern crate serde_derive;
+/// extern crate spirit;
+///
+/// use spirit::{Empty, Spirit};
+/// use spirit::helpers;
+///
+/// #[derive(Clone, Debug, Default, Deserialize)]
+/// struct Cfg {
+///     #[serde(default)]
+///     msg: String,
+/// }
+///
+/// impl Cfg {
+///     fn msg(&self) -> &String {
+///         &self.msg
+///     }
+/// }
+///
+/// fn print_msg(msg: &String) {
+///     println!("{}", msg);
+/// }
+///
+/// fn main() {
+///     Spirit::<Empty, Cfg>::new()
+///         // The first version of `msg` is printed at the initial configuration load. If however
+///         // the configuration changes into some other message, a warning is printed (because
+///         // there's no way to modify the already printed message
+///         .with(helpers::immutable_cfg_init(Cfg::msg, print_msg, "message"))
+///         .run(|_| Ok(()));
+/// }
+/// ```
+pub fn immutable_cfg_init<O, C, R, E, F, N>(extractor: E, init: F, name: N) -> impl Helper<O, C>
+where
+    E: for<'a> Fn(&'a C) -> &R + Send + 'static,
+    F: FnOnce(&R) + Send + 'static,
+    R: Clone + PartialEq + Send + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
+    N: Display + Send + 'static,
+{
+    let mut first = None;
+    let mut init = Some(init);
+    let on_cfg = move |_o: &O, c: &Arc<C>| {
+        let extracted = extractor(&c);
+        if first.is_none() {
+            first = Some(extracted.clone());
+            (init.take().expect("Init called multiple times"))(extracted);
+        } else if first.as_ref() != Some(extracted) {
+            warn!("Configuration {} can't be changed at runtime", name);
+        }
+    };
+    |builder: Builder<O, C>| builder.on_config(on_cfg)
+}
+
+/// A helper to warn about changes to configuration that can't be updated at runtime.
+///
+/// This is similar to [`immutable_cfg_init`](fn.immutable_cfg_init.html), except that there's no
+/// callback called at the first load.
+///
+/// # Examples
+///
+/// ```
+/// #[macro_use]
+/// extern crate serde_derive;
+/// extern crate spirit;
+///
+/// use spirit::{Empty, Spirit};
+/// use spirit::helpers;
+///
+/// #[derive(Clone, Debug, Default, Deserialize)]
+/// struct Cfg {
+///     #[serde(default)]
+///     msg: String,
+/// }
+///
+/// impl Cfg {
+///     fn msg(&self) -> &String {
+///         &self.msg
+///     }
+/// }
+///
+/// fn main() {
+///     Spirit::<Empty, Cfg>::new()
+///         // This prints a warning if the message is ever changed during runtime ‒ we can't take
+///         // it back and change it after it got printed in the body.
+///         .with(helpers::immutable_cfg(Cfg::msg, "message"))
+///         .run(|spirit| {
+///             println!("{}", spirit.config().msg);
+///             Ok(())
+///         });
+/// }
+/// ```
+pub fn immutable_cfg<O, C, R, E, N>(extractor: E, name: N) -> impl Helper<O, C>
+where
+    E: for<'a> Fn(&'a C) -> &R + Send + 'static,
+    R: Clone + PartialEq + Send + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
+    N: Display + Send + 'static,
+{
+    immutable_cfg_init(extractor, |_| (), name)
+}
+
 impl<O, C> Builder<O, C>
 where
     C: DeserializeOwned + Send + Sync + 'static,

@@ -1,3 +1,7 @@
+# 0.2.1
+
+* Helpers for immutable config fragments.
+
 # 0.2.0
 # spirit-daemonize-0.1.0
 # spirit-hyper-0.2.0
