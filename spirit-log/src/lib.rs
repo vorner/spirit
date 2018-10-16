@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-log/0.1.0/spirit_log/",
+    html_root_url = "https://docs.rs/spirit-log/0.1.1/spirit_log/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -100,6 +100,16 @@
 //!         });
 //! }
 //! ```
+//!
+//! The configuration could look something like this:
+//!
+//! ```toml
+//! [[logging]]
+//! level = "DEBUG"
+//! type = "file"
+//! filename = "/tmp/example.log"
+//! clock = "UTC"
+//! ```
 
 extern crate chrono;
 #[allow(unused_imports)]
@@ -128,7 +138,8 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use chrono::Local;
+use chrono::format::{DelayedFormat, StrftimeItems};
+use chrono::{Local, Utc};
 use failure::{Error, Fail};
 use fern::Dispatch;
 use itertools::Itertools;
@@ -184,6 +195,8 @@ impl Opts {
             level,
             destination: LogDestination::StdErr,
             per_module: self.log_modules.iter().cloned().collect(),
+            clock: Clock::Local,
+            time_format: cmdline_time_format(),
         })
     }
 }
@@ -295,6 +308,36 @@ where
 #[fail(display = "{}", _0)]
 pub struct SyslogError(String);
 
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum Clock {
+    Local,
+    Utc,
+}
+
+impl Clock {
+    fn now(self, format: &str) -> DelayedFormat<StrftimeItems> {
+        match self {
+            Clock::Local => Local::now().format(format),
+            Clock::Utc => Utc::now().format(format),
+        }
+    }
+}
+
+impl Default for Clock {
+    fn default() -> Self {
+        Clock::Local
+    }
+}
+
+fn default_time_format() -> String {
+    "%+".to_owned()
+}
+
+fn cmdline_time_format() -> String {
+    "%F %T%.3f".to_owned()
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")] // TODO: Make deny-unknown-fields work
 struct Logger {
@@ -307,7 +350,11 @@ struct Logger {
     level: LevelFilter,
     #[serde(default, deserialize_with = "deserialize_per_module")]
     per_module: HashMap<String, LevelFilter>,
-    // TODO: Format
+    #[serde(default)]
+    clock: Clock,
+    #[serde(default = "default_time_format")]
+    time_format: String,
+    // TODO: Format of the message (eg. line vs. json)
 }
 
 impl Logger {
@@ -320,15 +367,17 @@ impl Logger {
             .fold(logger, |logger, (module, level)| {
                 logger.level_for(module.clone(), *level)
             });
+        let clock = self.clock;
+        let time_format = self.time_format.clone();
         match self.destination {
             // We don't want to format syslog
             LogDestination::Syslog { .. } => (),
             // We do with the other things
             _ => {
-                logger = logger.format(|out, message, record| {
+                logger = logger.format(move |out, message, record| {
                     out.finish(format_args!(
                         "{} {:5} {:30} {}",
-                        Local::now().format("%Y-%m-%d %H:%M:%S:%.3f"),
+                        clock.now(&time_format),
                         record.level(),
                         record.target(),
                         message,
@@ -377,6 +426,11 @@ impl Logger {
 ///   one is optional.
 /// * `type`: Specifies the type of logger destination. Some of them allow specifying other
 ///   options.
+/// * `clock`: Either `LOCAL` or `UTC`. Defaults to `LOCAL` if not present.
+/// * `time_format`: Time
+///   [format string](https://docs.rs/chrono/*/chrono/format/strftime/index.html). Defaults to
+///   `%+` (which is ISO 8601/RFC 3339). Note that the command line logger (one produced by `-l`)
+///   uses a more human-friendly format.
 ///
 /// The allowed types are:
 /// * `stdout`: The logs are sent to standard output. There are no additional options.
@@ -388,7 +442,8 @@ impl Logger {
 /// * `network`: The application connects to a given host and port over TCP and sends logs there.
 ///   - `host`: The hostname (or IP address) to connect to.
 ///   - `port`: The port to use.
-/// * `syslog`: Sends the logs to syslog.
+/// * `syslog`: Sends the logs to syslog. This ignores all the formatting and time options, as
+///   syslog handles this itself.
 ///
 /// # Configuration helpers
 ///
@@ -539,6 +594,8 @@ where
                 destination: LogDestination::StdErr,
                 level: LevelFilter::Warn,
                 per_module: HashMap::new(),
+                clock: Clock::Local,
+                time_format: cmdline_time_format(),
             };
             let _ = log_reroute::init();
             install(create(iter::once(&logger)).unwrap());

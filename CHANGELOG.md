@@ -1,3 +1,8 @@
+# spirit-log-0.1.1
+
+* Use standard date format (rfc3339).
+* Allows choosing between local and UTC time and configuring the time format.
+
 # 0.2.1
 
 * Helpers for immutable config fragments.

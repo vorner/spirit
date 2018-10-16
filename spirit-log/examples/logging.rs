@@ -53,6 +53,7 @@ type = "stderr"
 level = "DEBUG"
 type = "file"
 filename = "/tmp/example.log"
+clock = "UTC"
 
 [ui]
 msg = "Hello!"
