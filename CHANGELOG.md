@@ -1,3 +1,7 @@
+# 0.2.2
+
+* Fixed matching environment variables with underscore.
+
 # spirit-log-0.1.1
 
 * Use standard date format (rfc3339).

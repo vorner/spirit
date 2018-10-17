@@ -132,6 +132,8 @@ fn main() -> Result<(), Error> {
         // If the user passes a directory path instead of file path, take files with these
         // extensions and load config from there.
         .config_exts(&["toml", "ini", "json"])
+        // Config can be read from environment too
+        .config_env("HWS")
         // Perform some more validation of the results.
         //
         // We are a bit lazy here. Changing the set of ports we listen on at runtime is hard to do.

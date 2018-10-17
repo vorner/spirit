@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit/0.2.1/spirit/",
+    html_root_url = "https://docs.rs/spirit/0.2.2/spirit/",
     test(attr(deny(warnings)))
 )]
 #![allow(renamed_and_removed_lints)] // Until the clippy thing can be reasonably resolved
@@ -663,7 +663,7 @@ where
         }
         if let Some(env_prefix) = self.config_env.as_ref() {
             trace!("Loading config from environment {}", env_prefix);
-            config.merge(Environment::with_prefix(env_prefix))?;
+            config.merge(Environment::with_prefix(env_prefix).separator("_"))?;
         }
         for (ref key, ref value) in &self.config_overrides {
             trace!("Config override {} => {}", key, value);
