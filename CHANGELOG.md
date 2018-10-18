@@ -1,3 +1,7 @@
+# spirit-daemonize-0.1.1
+
+* Fix documentation (the key is `pid-file`, with a dash).
+
 # 0.2.2
 
 * Fixed matching environment variables with underscore.

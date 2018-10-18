@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-daemonize/0.1.0/spirit_daemonize/",
+    html_root_url = "https://docs.rs/spirit-daemonize/0.1.1/spirit_daemonize/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -68,7 +68,7 @@
 //! * `user`: The user to become. Either a numeric ID or name. If not present, it doesn't change the
 //!   user.
 //! * `group`: Similar as user, but with group.
-//! * `pid_file`: A pid file to write on startup. If not present, nothing is stored.
+//! * `pid-file`: A pid file to write on startup. If not present, nothing is stored.
 //! * `workdir`: A working directory it'll switch into. If not set, defaults to `/`.
 //! * `daemonize`: Should this go into background or not? If combined with the
 //!   [`Opts`](struct.Opts.html), it can be overridden on command line.

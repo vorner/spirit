@@ -45,7 +45,7 @@ impl Cfg {
 
 const DEFAULT_CONFIG: &str = r#"
 [daemon]
-pid_file = "/tmp/go_background.pid"
+pid-file = "/tmp/go_background.pid"
 workdir = "/"
 
 [ui]
