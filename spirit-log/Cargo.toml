@@ -1,6 +1,6 @@
 [package]
 name = "spirit-log"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Spirit helpers and config fragments for logging"
 documentation = "https://docs.rs/spirit-log"
@@ -23,6 +23,7 @@ log-panics = "~2"
 log-reroute = "~0.1"
 serde = "~1"
 serde_derive = "~1"
+serde_json = "~1"
 spirit = { version = "~0.2", path = ".." }
 structopt = "~0.2"
 syslog = "~4"

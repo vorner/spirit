@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-log/0.1.1/spirit_log/",
+    html_root_url = "https://docs.rs/spirit-log/0.1.2/spirit_log/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -123,6 +123,7 @@ extern crate log_reroute;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate serde_json;
 extern crate spirit;
 #[allow(unused_imports)]
 #[macro_use]
@@ -131,12 +132,13 @@ extern crate syslog;
 
 use std::cmp;
 use std::collections::HashMap;
-use std::fmt::{Debug, Display};
+use std::fmt::{Arguments, Debug, Display};
 use std::io::{self, Write};
 use std::iter;
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::thread;
 
 use chrono::format::{DelayedFormat, StrftimeItems};
 use chrono::{Local, Utc};
@@ -197,6 +199,7 @@ impl Opts {
             per_module: self.log_modules.iter().cloned().collect(),
             clock: Clock::Local,
             time_format: cmdline_time_format(),
+            format: Format::Short,
         })
     }
 }
@@ -338,6 +341,24 @@ fn cmdline_time_format() -> String {
     "%F %T%.3f".to_owned()
 }
 
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum Format {
+    MessageOnly,
+    Short,
+    Full,
+    Machine,
+    // TODO: Configurable field names?
+    Json,
+    // TODO: Custom
+}
+
+impl Default for Format {
+    fn default() -> Self {
+        Format::Short
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")] // TODO: Make deny-unknown-fields work
 struct Logger {
@@ -354,7 +375,8 @@ struct Logger {
     clock: Clock,
     #[serde(default = "default_time_format")]
     time_format: String,
-    // TODO: Format of the message (eg. line vs. json)
+    #[serde(default)]
+    format: Format,
 }
 
 impl Logger {
@@ -369,19 +391,77 @@ impl Logger {
             });
         let clock = self.clock;
         let time_format = self.time_format.clone();
+        let format = self.format;
         match self.destination {
             // We don't want to format syslog
             LogDestination::Syslog { .. } => (),
             // We do with the other things
             _ => {
                 logger = logger.format(move |out, message, record| {
-                    out.finish(format_args!(
-                        "{} {:5} {:30} {}",
-                        clock.now(&time_format),
-                        record.level(),
-                        record.target(),
-                        message,
-                    ))
+                    match format {
+                        Format::MessageOnly => out.finish(format_args!("{}", message)),
+                        Format::Short => out.finish(format_args!(
+                            "{} {:5} {:30} {}",
+                            clock.now(&time_format),
+                            record.level(),
+                            record.target(),
+                            message,
+                        )),
+                        Format::Full => {
+                            let thread = thread::current();
+                            out.finish(format_args!(
+                                "{} {:5} {:10} {:>25}:{:<5} {:30} {}",
+                                clock.now(&time_format),
+                                record.level(),
+                                thread.name().unwrap_or("<unknown>"),
+                                record.file().unwrap_or("<unknown>"),
+                                record.line().unwrap_or(0),
+                                record.target(),
+                                message,
+                            ));
+                        }
+                        Format::Machine => {
+                            let thread = thread::current();
+                            out.finish(format_args!(
+                                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                                clock.now(&time_format),
+                                record.level(),
+                                thread.name().unwrap_or("<unknown>"),
+                                record.file().unwrap_or("<unknown>"),
+                                record.line().unwrap_or(0),
+                                record.target(),
+                                message,
+                            ));
+                        }
+                        Format::Json => {
+                            #[derive(Serialize)]
+                            struct Msg<'a> {
+                                timestamp: Arguments<'a>,
+                                level: Arguments<'a>,
+                                thread_name: Option<&'a str>,
+                                file: Option<&'a str>,
+                                line: Option<u32>,
+                                target: &'a str,
+                                message: &'a Arguments<'a>,
+                            }
+                            let log = |msg: &Msg| {
+                                // TODO: Maybe use some shortstring or so here to avoid allocation?
+                                let msg = serde_json::to_string(msg)
+                                    .expect("Failed to serialize JSON log");
+                                out.finish(format_args!("{}", msg));
+                            };
+                            let thread = thread::current();
+                            log(&Msg {
+                                timestamp: format_args!("{}", clock.now(&time_format)),
+                                level: format_args!("{}", record.level()),
+                                thread_name: thread.name(),
+                                file: record.file(),
+                                line: record.line(),
+                                target: record.target(),
+                                message,
+                            });
+                        }
+                    }
                 });
             }
         }
@@ -431,6 +511,16 @@ impl Logger {
 ///   [format string](https://docs.rs/chrono/*/chrono/format/strftime/index.html). Defaults to
 ///   `%+` (which is ISO 8601/RFC 3339). Note that the command line logger (one produced by `-l`)
 ///   uses a more human-friendly format.
+/// * `format`: The format to use. There are few presets (and a custom may come in future).
+///   - `message-only`: The line contains only the message itself.
+///   - `short`: This is the default. `<timestamp> <level> <target> <message>`. Padded to form
+///     columns.
+///   - `full`: `<timestamp> <level> <thread-name> <file>:<line> <target> <message>`. Padded to
+///     form columns.
+///   - `machine`: Like `full`, but columns are not padded by spaces, they are separated by a
+///     single `\t` character, for more convenient processing by tools like `cut`.
+///   - `json`: The fields of `full` are encoded into a `json` format, for convenient processing of
+///     more modern tools like logstash.
 ///
 /// The allowed types are:
 /// * `stdout`: The logs are sent to standard output. There are no additional options.
@@ -596,6 +686,7 @@ where
                 per_module: HashMap::new(),
                 clock: Clock::Local,
                 time_format: cmdline_time_format(),
+                format: Format::Short,
             };
             let _ = log_reroute::init();
             install(create(iter::once(&logger)).unwrap());

@@ -1,3 +1,7 @@
+# spirit-log-0.1.2
+
+* Possibility to choose the logging format, at least a bit for now.
+
 # spirit-daemonize-0.1.1
 
 * Fix documentation (the key is `pid-file`, with a dash).
