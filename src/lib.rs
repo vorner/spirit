@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit/0.2.2/spirit/",
+    html_root_url = "https://docs.rs/spirit/0.2.3/spirit/",
     test(attr(deny(warnings)))
 )]
 #![allow(renamed_and_removed_lints)] // Until the clippy thing can be reasonably resolved
@@ -271,14 +271,22 @@ pub fn log_error(target: &str, e: &Error) {
     }
 }
 
+/// Same as [`log_errors`](fn.log_errors), but with an explicit `target` to log into.
+pub fn log_errors_named<R, F>(target: &str, f: F) -> Result<R, Error>
+where
+    F: FnOnce() -> Result<R, Error>,
+{
+    let result = f();
+    if let Err(ref e) = result {
+        log_error(target, e);
+    }
+    result
+}
+
 /// A wrapper around a fallible function that logs any returned errors, with all the causes and
 /// optionally the backtrace.
 pub fn log_errors<R, F: FnOnce() -> Result<R, Error>>(f: F) -> Result<R, Error> {
-    let result = f();
-    if let Err(ref e) = result {
-        log_error("spirit", e);
-    }
-    result
+    log_errors_named("spirit", f)
 }
 
 /// An error returned whenever the user passes something not a file nor a directory as
@@ -1097,9 +1105,10 @@ where
     ///
     /// # Warning
     ///
-    /// If asked to go to background, this uses `fork`. Therefore, start any threads after you call
-    /// `build` (or from within [`run`](#method.run)), or you'll lose them ‒ only the thread doing
-    /// fork is preserved across it.
+    /// If asked to go to background (when you're using the
+    /// [`spirit-daemonize`](https://crates.io/crates/spirit-daemonize) crate, this uses `fork`.
+    /// Therefore, start any threads after you call `build` (or from within [`run`](#method.run)),
+    /// or you'll lose them ‒ only the thread doing fork is preserved across it.
     // TODO: The new return value
     pub fn build(
         mut self,
@@ -1218,7 +1227,7 @@ where
     ///     });
     /// ```
     pub fn run<B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), Error> + Send + 'static>(self, body: B) {
-        let result = log_errors(|| {
+        let result = log_errors_named("top-level", || {
             let (_spirit, inner, wrapped) = self.before_body(body).build(true)?;
             debug!("Running bodies");
             wrapped.run(inner)

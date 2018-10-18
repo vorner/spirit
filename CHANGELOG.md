@@ -1,3 +1,8 @@
+# 0.2.3
+
+* `log_errors_named`.
+* Fix/improvement of the target for errors inside `run`.
+
 # spirit-log-0.1.2
 
 * Possibility to choose the logging format, at least a bit for now.

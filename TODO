@@ -4,3 +4,4 @@
 * Why C needs to be Debug?
 * The builder could be must_use
 * config_exts_all?
+* Maybe log-errors as a macro?
