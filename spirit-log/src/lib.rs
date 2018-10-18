@@ -434,6 +434,10 @@ impl Logger {
                             ));
                         }
                         Format::Json => {
+                            // We serialize it by putting things into a structure and using serde
+                            // for that.
+                            //
+                            // This is a zero-copy structure.
                             #[derive(Serialize)]
                             struct Msg<'a> {
                                 timestamp: Arguments<'a>,
@@ -444,6 +448,13 @@ impl Logger {
                                 target: &'a str,
                                 message: &'a Arguments<'a>,
                             }
+                            // Unfortunately, the Arguments thing produced by format_args! doesn't
+                            // like to live in a variable ‒ all attempts to put it into a let
+                            // binding failed with various borrow-checker errors.
+                            //
+                            // However, constructing it as a temporary when calling a function
+                            // seems to work fine. So we use this closure to work around the
+                            // problem.
                             let log = |msg: &Msg| {
                                 // TODO: Maybe use some shortstring or so here to avoid allocation?
                                 let msg = serde_json::to_string(msg)
