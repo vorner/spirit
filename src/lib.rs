@@ -741,6 +741,7 @@ type SpiritBody<O, C> = Box<for<'a> Body<&'a Arc<Spirit<O, C>>>>;
 /// The builder of [`Spirit`](struct.Spirit.html).
 ///
 /// This is returned by the [`Spirit::new`](struct.Spirit.html#new).
+#[must_use("The builder is inactive without calling `run` or `build`")]
 pub struct Builder<O = Empty, C = Empty> {
     before_bodies: Vec<SpiritBody<O, C>>,
     before_config: Vec<Box<FnMut(&O) -> Result<(), Error> + Send>>,
