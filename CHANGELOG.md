@@ -1,3 +1,11 @@
+# 0.2.4
+
+* Turn the passed configuration paths to absolute so they survive daemonization
+  or other changes of current directory.
+* Utility function to parse PathBuf into absolute one in StructOpt (to allow
+  custom fragments to do the same).
+* Fix of the error message when missing configuration files.
+
 # 0.2.3
 
 * `log_errors_named`.

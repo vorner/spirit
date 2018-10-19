@@ -160,6 +160,7 @@ extern crate signal_hook;
 extern crate structopt;
 
 pub mod helpers;
+pub mod utils;
 pub mod validation;
 
 use std::any::TypeId;
@@ -224,7 +225,7 @@ struct CommonOpts {
     config_overrides: Vec<(String, String)>,
 
     /// Configuration files or directories to load.
-    #[structopt(parse(from_os_str))]
+    #[structopt(parse(from_os_str = "utils::absolute_from_os_str"))]
     configs: Vec<PathBuf>,
 }
 
@@ -292,7 +293,10 @@ pub fn log_errors<R, F: FnOnce() -> Result<R, Error>>(f: F) -> Result<R, Error> 
 /// An error returned whenever the user passes something not a file nor a directory as
 /// configuration.
 #[derive(Debug, Fail)]
-#[fail(display = "Configuration path {:?} is not a file nor a directory", _0)]
+#[fail(
+    display = "Configuration path {:?} is not a file nor a directory",
+    _0
+)]
 pub struct InvalidFileType(PathBuf);
 
 /// Returned if configuration path is missing.
