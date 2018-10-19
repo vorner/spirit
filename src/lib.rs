@@ -292,8 +292,13 @@ pub fn log_errors<R, F: FnOnce() -> Result<R, Error>>(f: F) -> Result<R, Error> 
 /// An error returned whenever the user passes something not a file nor a directory as
 /// configuration.
 #[derive(Debug, Fail)]
-#[fail(display = "_1 is not file nor directory")]
+#[fail(display = "Configuration path {:?} is not a file nor a directory", _0)]
 pub struct InvalidFileType(PathBuf);
+
+/// Returned if configuration path is missing.
+#[derive(Debug, Fail)]
+#[fail(display = "Configuration path {:?} does not exist", _0)]
+pub struct MissingFile(PathBuf);
 
 /// A struct that may be used when either configuration or command line options are not needed.
 ///
@@ -665,8 +670,10 @@ where
                     trace!("Loading config file {:?}", file);
                     config.merge(File::from(file))?;
                 }
-            } else {
+            } else if path.exists() {
                 bail!(InvalidFileType(path.to_owned()));
+            } else {
+                bail!(MissingFile(path.to_owned()));
             }
         }
         if let Some(env_prefix) = self.config_env.as_ref() {
