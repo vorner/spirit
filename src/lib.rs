@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit/0.2.4/spirit/",
+    html_root_url = "https://docs.rs/spirit/0.2.5/spirit/",
     test(attr(deny(warnings)))
 )]
 #![allow(renamed_and_removed_lints)] // Until the clippy thing can be reasonably resolved
@@ -171,7 +171,6 @@ use std::marker::PhantomData;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process;
-use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -180,9 +179,8 @@ use std::time::Duration;
 pub use arc_swap::ArcSwap;
 use arc_swap::Lease;
 use config::{Config, Environment, File, FileFormat};
-use failure::{Error, Fail};
+use failure::{Error, Fail, ResultExt};
 use fallible_iterator::FallibleIterator;
-use log::Level;
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use signal_hook::iterator::Signals;
@@ -193,25 +191,8 @@ use validation::{
     Error as ValidationError, Level as ValidationLevel, Results as ValidationResults,
 };
 
-/// An error returned when the user passes a key-value option without equal sign.
-///
-/// Some internal options take a key-value pairs on the command line. If such option is expected,
-/// but it doesn't contain the equal sign, this is the used error.
-#[derive(Debug, Fail)]
-#[fail(display = "Missing = in map option")]
-pub struct MissingEquals;
-
-/// A helper for deserializing map-like command line arguments.
-pub fn key_val<K, V>(opt: &str) -> Result<(K, V), Error>
-where
-    K: FromStr,
-    K::Err: Fail + 'static,
-    V: FromStr,
-    V::Err: Fail + 'static,
-{
-    let pos = opt.find('=').ok_or(MissingEquals)?;
-    Ok((opt[..pos].parse()?, opt[pos + 1..].parse()?))
-}
+#[deprecated = "Moved to spirit::utils"]
+pub use utils::{key_val, log_error, log_errors, log_errors_named, MissingEquals};
 
 #[derive(Debug, StructOpt)]
 struct CommonOpts {
@@ -219,7 +200,7 @@ struct CommonOpts {
     #[structopt(
         short = "C",
         long = "config-override",
-        parse(try_from_str = "key_val"),
+        parse(try_from_str = "utils::key_val"),
         raw(number_of_values = "1")
     )]
     config_overrides: Vec<(String, String)>,
@@ -253,41 +234,6 @@ where
             other: StructOpt::from_clap(matches),
         }
     }
-}
-
-/// Log one error
-///
-/// It is printed to the log with all the causes and optionally a backtrace (if it is available and
-/// debug logging is enabled).
-pub fn log_error(target: &str, e: &Error) {
-    // Note: one of the causes is the error itself
-    for cause in e.iter_chain() {
-        error!(target: target, "{}", cause);
-    }
-    if log_enabled!(Level::Debug) {
-        let bt = format!("{}", e.backtrace());
-        if !bt.is_empty() {
-            debug!(target: target, "{}", bt);
-        }
-    }
-}
-
-/// Same as [`log_errors`](fn.log_errors), but with an explicit `target` to log into.
-pub fn log_errors_named<R, F>(target: &str, f: F) -> Result<R, Error>
-where
-    F: FnOnce() -> Result<R, Error>,
-{
-    let result = f();
-    if let Err(ref e) = result {
-        log_error(target, e);
-    }
-    result
-}
-
-/// A wrapper around a fallible function that logs any returned errors, with all the causes and
-/// optionally the backtrace.
-pub fn log_errors<R, F: FnOnce() -> Result<R, Error>>(f: F) -> Result<R, Error> {
-    log_errors_named("spirit", f)
 }
 
 /// An error returned whenever the user passes something not a file nor a directory as
@@ -491,7 +437,7 @@ where
     /// don't have to by `Sync`). That, however, means that you can't call `config_reload` or
     /// [`terminate`](#method.terminate) from any callback (that would lead to a deadlock).
     pub fn config_reload(&self) -> Result<(), Error> {
-        let mut new = self.load_config()?;
+        let mut new = self.load_config().context("Failed to load configuration")?;
         // The lock here is across the whole processing, to avoid potential races in logic
         // processing. This makes writing the hooks correctly easier.
         let mut hooks = self.hooks.lock();
@@ -510,7 +456,7 @@ where
             match result.level() {
                 ValidationLevel::Error => {
                     if let Some(e) = result.detailed_error() {
-                        log_error("configuration", e);
+                        utils::log_error("configuration", e);
                     } else {
                         error!(target: "configuration", "{}", result.description());
                     }
@@ -531,7 +477,7 @@ where
                     abort();
                 }
             }
-            return Err(ValidationError.into());
+            return Err(ValidationError::from(results).into());
         }
         debug!("Validation successful, installing new config");
         for r in &mut results.0 {
@@ -610,7 +556,7 @@ where
             debug!("Received signal {}", signal);
             let term = match signal {
                 libc::SIGHUP => {
-                    let _ = log_errors(|| self.config_reload());
+                    let _ = utils::log_errors(|| self.config_reload());
                     false
                 }
                 libc::SIGTERM | libc::SIGINT | libc::SIGQUIT => {
@@ -643,12 +589,16 @@ where
         config.merge(File::from_str("", FileFormat::Toml))?;
         if let Some(ref defaults) = self.config_defaults {
             trace!("Loading config defaults");
-            config.merge(File::from_str(defaults, FileFormat::Toml))?;
+            config
+                .merge(File::from_str(defaults, FileFormat::Toml))
+                .context("Failed to read defaults")?;
         }
         for path in &self.config_files {
             if path.is_file() {
                 trace!("Loading config file {:?}", path);
-                config.merge(File::from(path as &Path))?;
+                config
+                    .merge(File::from(path as &Path))
+                    .with_context(|_| format!("Failed to load config file {:?}", path))?;
             } else if path.is_dir() {
                 trace!("Scanning directory {:?}", path);
                 let mut lock = self.hooks.lock();
@@ -672,7 +622,9 @@ where
                 files.sort();
                 for file in files {
                     trace!("Loading config file {:?}", file);
-                    config.merge(File::from(file))?;
+                    config
+                        .merge(File::from(&file as &Path))
+                        .with_context(|_| format!("Failed to load config file {:?}", file))?;
                 }
             } else if path.exists() {
                 bail!(InvalidFileType(path.to_owned()));
@@ -682,13 +634,20 @@ where
         }
         if let Some(env_prefix) = self.config_env.as_ref() {
             trace!("Loading config from environment {}", env_prefix);
-            config.merge(Environment::with_prefix(env_prefix).separator("_"))?;
+            config
+                .merge(Environment::with_prefix(env_prefix).separator("_"))
+                .context("Failed to include environment in config")?;
         }
         for (ref key, ref value) in &self.config_overrides {
             trace!("Config override {} => {}", key, value);
-            config.set(*key, *value as &str)?;
+            config.set(*key, *value as &str).with_context(|_| {
+                format!("Failed to push override {}={} into config", key, value)
+            })?;
         }
-        Ok(config.try_into()?)
+        let result = config
+            .try_into()
+            .context("Failed to decode configuration")?;
+        Ok(result)
     }
 }
 
@@ -1129,7 +1088,7 @@ where
         debug!("Building the spirit");
         let opts = OptWrapper::<O>::from_args();
         for before_config in &mut self.before_config {
-            before_config(&opts.other)?;
+            before_config(&opts.other).context("The before-config phase failed")?;
         }
         let config_files = if opts.common.configs.is_empty() {
             self.config_default_paths
@@ -1159,7 +1118,9 @@ where
             opts: opts.other,
             terminate: AtomicBool::new(false),
         };
-        spirit.config_reload()?;
+        spirit
+            .config_reload()
+            .context("Problem loading the initial configuration")?;
         let spirit = Arc::new(spirit);
         if background_thread {
             let signals = Signals::new(interesting_signals)?;
@@ -1192,7 +1153,8 @@ where
         let bodies = self.before_bodies;
         let inner = move |()| {
             for mut body in bodies {
-                body.run(&spirit_body)?;
+                body.run(&spirit_body)
+                    .context("Error executing the application proper")?;
             }
             Ok(())
         };
@@ -1239,7 +1201,7 @@ where
     ///     });
     /// ```
     pub fn run<B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), Error> + Send + 'static>(self, body: B) {
-        let result = log_errors_named("top-level", || {
+        let result = utils::log_errors_named("top-level", || {
             let (_spirit, inner, wrapped) = self.before_body(body).build(true)?;
             debug!("Running bodies");
             wrapped.run(inner)

@@ -1,16 +1,61 @@
 //! Helpers for configuration validation.
 //!
 //! See [`config_validator`](../struct.Builder.html#method.config_validator).
-use std::fmt::{Debug, Formatter, Result as FmtResult};
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::slice::Iter;
 
-use failure::Error as FError;
+use failure::{Backtrace, Error as FError, Fail};
 
-/// An error caused by failed validation
-// TODO: Better content
+/// An unknown-type validation error.
+///
+/// If the validation callback returns error with only a description, not a proper typed exception,
+/// the description is turned into this if bundled into [`Error`](struct.Error.html).
 #[derive(Debug, Fail)]
-#[fail(display = "Config validation failed")]
-pub struct Error;
+#[fail(display = "{}", _0)]
+pub struct UntypedError(String);
+
+/// An error caused by failed validation.
+///
+/// Carries all the errors that caused it to fail (publicly accessible).
+#[derive(Debug)]
+pub struct Error(pub Vec<FError>);
+
+impl Display for Error {
+    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+        write!(
+            formatter,
+            "Config validation failed with {} errors",
+            self.0.len()
+        )
+    }
+}
+
+impl Fail for Error {
+    // There may actually be multiple causes. But we just stick with the first one for lack of
+    // better way to pick.
+    fn cause(&self) -> Option<&dyn Fail> {
+        self.0.get(0).map(FError::as_fail)
+    }
+
+    fn backtrace(&self) -> Option<&Backtrace> {
+        self.0.get(0).map(FError::backtrace)
+    }
+}
+
+impl From<Results> for Error {
+    fn from(results: Results) -> Self {
+        let errors = results
+            .0
+            .into_iter()
+            .filter_map(|res| match (res.level, res.error) {
+                (Level::Error, Some(err)) => Some(err),
+                (Level::Error, None) => Some(UntypedError(res.description).into()),
+                _ => None,
+            })
+            .collect();
+        Error(errors)
+    }
+}
 
 /// A level of [`validation result`](struct.Result.html).
 ///

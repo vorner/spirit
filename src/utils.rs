@@ -6,6 +6,10 @@
 use std::env;
 use std::ffi::OsStr;
 use std::path::PathBuf;
+use std::str::FromStr;
+
+use failure::{Error, Fail};
+use log::Level;
 
 /// Tries to read an absolute path from the given OS string.
 ///
@@ -53,9 +57,68 @@ pub fn absolute_from_os_str(path: &OsStr) -> PathBuf {
     }
 }
 
+/// An error returned when the user passes a key-value option without equal sign.
+///
+/// Some internal options take a key-value pairs on the command line. If such option is expected,
+/// but it doesn't contain the equal sign, this is the used error.
+#[derive(Debug, Fail)]
+#[fail(display = "Missing = in map option")]
+pub struct MissingEquals;
+
+/// A helper for deserializing map-like command line arguments.
+// TODO: In some future version, move to utils
+pub fn key_val<K, V>(opt: &str) -> Result<(K, V), Error>
+where
+    K: FromStr,
+    K::Err: Fail + 'static,
+    V: FromStr,
+    V::Err: Fail + 'static,
+{
+    let pos = opt.find('=').ok_or(MissingEquals)?;
+    Ok((opt[..pos].parse()?, opt[pos + 1..].parse()?))
+}
+
+/// Log one error
+///
+/// It is printed to the log with all the causes and optionally a backtrace (if it is available and
+/// debug logging is enabled).
+// TODO: Provide a macro, so user doesn't have to provide the target matually
+pub fn log_error(target: &str, e: &Error) {
+    // Note: one of the causes is the error itself
+    for cause in e.iter_chain() {
+        error!(target: target, "{}", cause);
+    }
+    if log_enabled!(Level::Debug) {
+        let bt = format!("{}", e.backtrace());
+        if !bt.is_empty() {
+            debug!(target: target, "{}", bt);
+        }
+    }
+}
+
+/// Same as [`log_errors`](fn.log_errors), but with an explicit `target` to log into.
+pub fn log_errors_named<R, F>(target: &str, f: F) -> Result<R, Error>
+where
+    F: FnOnce() -> Result<R, Error>,
+{
+    let result = f();
+    if let Err(ref e) = result {
+        log_error(target, e);
+    }
+    result
+}
+
+/// A wrapper around a fallible function that logs any returned errors, with all the causes and
+/// optionally the backtrace.
+pub fn log_errors<R, F: FnOnce() -> Result<R, Error>>(f: F) -> Result<R, Error> {
+    log_errors_named("spirit", f)
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
+    use std::net::{AddrParseError, IpAddr};
+    use std::num::ParseIntError;
 
     use super::*;
 
@@ -69,5 +132,47 @@ mod tests {
         let child = absolute_from_os_str(&OsString::from("this-likely-doesn't-exist"));
         assert!(child.is_absolute());
         assert!(child.starts_with(current));
+    }
+
+    /// Valid inputs for the key-value parser
+    #[test]
+    fn key_val_success() {
+        assert_eq!(
+            ("hello".to_owned(), "world".to_owned()),
+            key_val("hello=world").unwrap()
+        );
+        let ip: IpAddr = "192.0.2.1".parse().unwrap();
+        assert_eq!(("ip".to_owned(), ip), key_val("ip=192.0.2.1").unwrap());
+        assert_eq!(("count".to_owned(), 4), key_val("count=4").unwrap());
+    }
+
+    /// The extra equals sign go into the value part.
+    #[test]
+    fn key_val_extra_equals() {
+        assert_eq!(
+            ("greeting".to_owned(), "hello=world".to_owned()),
+            key_val("greeting=hello=world").unwrap(),
+        );
+    }
+
+    /// Test when the key or value doesn't get parsed.
+    #[test]
+    fn key_val_parse_fail() {
+        key_val::<String, IpAddr>("hello=192.0.2.1.0")
+            .unwrap_err()
+            .downcast_ref::<AddrParseError>()
+            .expect("Different error returned");
+        key_val::<usize, String>("hello=world")
+            .unwrap_err()
+            .downcast_ref::<ParseIntError>()
+            .expect("Different error returned");
+    }
+
+    #[test]
+    fn key_val_missing_eq() {
+        key_val::<String, String>("no equal sign")
+            .unwrap_err()
+            .downcast_ref::<MissingEquals>()
+            .expect("Different error returned");
     }
 }

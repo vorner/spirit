@@ -1,3 +1,10 @@
+# 0.2.5
+
+* More detailed errors from configuration loading & friends (they have causes
+  and contexts).
+* Moved few utility functions into `utils` (and re-exporting them for
+  compatibility).
+
 # 0.2.4
 
 * Turn the passed configuration paths to absolute so they survive daemonization
