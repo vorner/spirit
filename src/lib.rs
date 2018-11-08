@@ -1154,7 +1154,7 @@ where
         let inner = move |()| {
             for mut body in bodies {
                 body.run(&spirit_body)
-                    .context("Error executing the application proper")?;
+                    .context("APPLICATION STARTUP FAILED")?;
             }
             Ok(())
         };
