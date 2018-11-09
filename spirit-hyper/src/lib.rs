@@ -52,7 +52,8 @@
 //!         .config_defaults(DEFAULT_CONFIG)
 //!         .config_helper(Config::server, spirit_hyper::service_fn_ok(request), "Server")
 //!         .run(|spirit| {
-//! #           spirit.terminate();
+//! #           let spirit = Arc::clone(spirit);
+//! #           std::thread::spawn(move || spirit.terminate());
 //!             Ok(())
 //!         });
 //! }

@@ -57,7 +57,8 @@
 //!         .config_defaults(DEFAULT_CONFIG)
 //!         .config_helper(Config::listening_socket, connection, "Listener")
 //!         .run(|spirit| {
-//! #           spirit.terminate();
+//! #           let spirit = Arc::clone(spirit);
+//! #           std::thread::spawn(move || spirit.terminate());
 //!             Ok(())
 //!         });
 //! }
