@@ -239,10 +239,7 @@ where
 /// An error returned whenever the user passes something not a file nor a directory as
 /// configuration.
 #[derive(Debug, Fail)]
-#[fail(
-    display = "Configuration path {:?} is not a file nor a directory",
-    _0
-)]
+#[fail(display = "Configuration path {:?} is not a file nor a directory", _0)]
 pub struct InvalidFileType(PathBuf);
 
 /// Returned if configuration path is missing.
