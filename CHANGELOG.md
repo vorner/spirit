@@ -1,3 +1,11 @@
+# spirit-log-0.1.3
+
+* Some more logging formats.
+
+# 0.2.6
+
+* Don't add needless context to top-level errors.
+
 # 0.2.5
 
 * More detailed errors from configuration loading & friends (they have causes
