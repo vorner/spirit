@@ -1150,8 +1150,7 @@ where
         let bodies = self.before_bodies;
         let inner = move |()| {
             for mut body in bodies {
-                body.run(&spirit_body)
-                    .context("Error executing the application proper")?;
+                body.run(&spirit_body)?;
             }
             Ok(())
         };
