@@ -346,10 +346,12 @@ fn cmdline_time_format() -> String {
 enum Format {
     MessageOnly,
     Short,
+    Extended,
     Full,
     Machine,
     // TODO: Configurable field names?
     Json,
+    Logstash,
     // TODO: Custom
 }
 
@@ -407,6 +409,17 @@ impl Logger {
                             record.target(),
                             message,
                         )),
+                        Format::Extended => {
+                            let thread = thread::current();
+                            out.finish(format_args!(
+                                "{} {:5} {:30} {:30} {}",
+                                clock.now(&time_format),
+                                record.level(),
+                                thread.name().unwrap_or("<unknown>"),
+                                record.target(),
+                                message,
+                            ));
+                        }
                         Format::Full => {
                             let thread = thread::current();
                             out.finish(format_args!(
@@ -472,6 +485,45 @@ impl Logger {
                                 message,
                             });
                         }
+                        Format::Logstash => {
+                            // We serialize it by putting things into a structure and using serde
+                            // for that.
+                            //
+                            // This is a zero-copy structure.
+                            #[derive(Serialize)]
+                            struct Msg<'a> {
+                                #[serde(rename = "@timestamp")]
+                                timestamp: Arguments<'a>,
+                                #[serde(rename = "@version")]
+                                version: u8,
+                                level: Arguments<'a>,
+                                thread_name: Option<&'a str>,
+                                logger_name: &'a str,
+                                message: &'a Arguments<'a>,
+                            }
+                            // Unfortunately, the Arguments thing produced by format_args! doesn't
+                            // like to live in a variable ‒ all attempts to put it into a let
+                            // binding failed with various borrow-checker errors.
+                            //
+                            // However, constructing it as a temporary when calling a function
+                            // seems to work fine. So we use this closure to work around the
+                            // problem.
+                            let log = |msg: &Msg| {
+                                // TODO: Maybe use some shortstring or so here to avoid allocation?
+                                let msg = serde_json::to_string(msg)
+                                    .expect("Failed to serialize JSON log");
+                                out.finish(format_args!("{}", msg));
+                            };
+                            let thread = thread::current();
+                            log(&Msg {
+                                timestamp: format_args!("{}", clock.now(&time_format)),
+                                version: 1,
+                                level: format_args!("{}", record.level()),
+                                thread_name: thread.name(),
+                                logger_name: record.target(),
+                                message,
+                            });
+                        }
                     }
                 });
             }
@@ -526,12 +578,15 @@ impl Logger {
 ///   - `message-only`: The line contains only the message itself.
 ///   - `short`: This is the default. `<timestamp> <level> <target> <message>`. Padded to form
 ///     columns.
+///   - `extended`: <timestamp> <level> <thread-name> <target> <message>`. Padded to form columns.
 ///   - `full`: `<timestamp> <level> <thread-name> <file>:<line> <target> <message>`. Padded to
 ///     form columns.
 ///   - `machine`: Like `full`, but columns are not padded by spaces, they are separated by a
 ///     single `\t` character, for more convenient processing by tools like `cut`.
 ///   - `json`: The fields of `full` are encoded into a `json` format, for convenient processing of
 ///     more modern tools like logstash.
+///   - `logstash`: `json` format with fields named and formatted according to
+///     [Logback JSON encoder](https://github.com/logstash/logstash-logback-encoder#standard-fields)
 ///
 /// The allowed types are:
 /// * `stdout`: The logs are sent to standard output. There are no additional options.

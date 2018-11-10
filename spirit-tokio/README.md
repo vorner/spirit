@@ -6,7 +6,7 @@ Several helpers to easily integrate tokio with configuration managed by the
 [spirit](https://crates.io/crates/spirit) system.
 
 See the [docs](https://docs.rs/spirit-tokio) and the
-[examples](tree/master/spirit-tokio/examples).
+[examples](spirit-tokio/examples).
 
 ## License
 

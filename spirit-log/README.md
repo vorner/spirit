@@ -5,8 +5,8 @@
 Helpers and configuration fragments to integrate logging into the spirit
 configuration framework.
 
-See the [docs](https://docs.rs/spirit-daemonize) and the
-[examples](tree/master/spirit-log/examples).
+See the [docs](https://docs.rs/spirit-log) and the
+[examples](spirit-log/examples).
 
 ## License
 

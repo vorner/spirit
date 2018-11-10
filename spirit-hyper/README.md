@@ -6,7 +6,7 @@ Several helpers to easily integrate hyper with configuration managed by the
 [spirit](https://crates.io/crates/spirit) system.
 
 See the [docs](https://docs.rs/spirit-hyper) and the
-[examples](tree/master/spirit-tokio/examples).
+[examples](spirit-hyper/examples).
 
 ## License
 

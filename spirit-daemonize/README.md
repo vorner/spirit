@@ -6,7 +6,7 @@ Helpers and configuration fragments to integrate daemonization into the spirit
 configuration framework.
 
 See the [docs](https://docs.rs/spirit-daemonize) and the
-[examples](tree/master/spirit-daemonize/examples).
+[examples](spirit-daemonize/examples).
 
 ## License
 
