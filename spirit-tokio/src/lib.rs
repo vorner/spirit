@@ -83,6 +83,7 @@ extern crate tk_listen;
 extern crate tokio;
 
 use std::fmt::{Debug, Display};
+use std::io::Error as IoError;
 use std::iter;
 use std::net::{TcpListener as StdTcpListener, UdpSocket as StdUdpSocket};
 use std::sync::Arc;
@@ -118,6 +119,305 @@ impl Drop for RemoteDrop {
         let _ = self.drop_confirmed.take().unwrap().wait();
         trace!("Remote drop done");
     }
+}
+
+// TODO: Are all these trait bounds necessary?
+pub trait ResourceConfig: Debug + Sync + Send + PartialEq + 'static {
+    type Seed: Send + Sync + 'static;
+    type Resource: Send + 'static;
+    fn create(&self) -> Result<Self::Seed, Error>;
+    fn fork(&self, seed: &Self::Seed) -> Result<Self::Resource, Error>;
+    fn scaled(&self) -> (usize, ValidationResults) {
+        (1, ValidationResults::new())
+    }
+    fn is_similar(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
+pub trait ResourceConsumer<Config: ResourceConfig, O, C>: Sync + Send + 'static {
+    type Error: Display;
+    type Future: Future<Item = (), Error = Self::Error> + Send + 'static;
+    fn build_future(
+        &self,
+        spirit: &Arc<Spirit<O, C>>,
+        config: &Arc<Config>,
+        resource: Config::Resource,
+    ) -> Self::Future;
+}
+
+impl<F, Config, O, C, R> ResourceConsumer<Config, O, C> for F
+where
+    F: Fn(&Arc<Spirit<O, C>>, &Arc<Config>, Config::Resource) -> R + Sync + Send + 'static,
+    Config: ResourceConfig,
+    R: IntoFuture<Item = ()>,
+    R::Error: Display,
+    R::Future: Sync + Send + 'static,
+{
+    type Error = R::Error;
+    type Future = R::Future;
+    fn build_future(
+        &self,
+        spirit: &Arc<Spirit<O, C>>,
+        config: &Arc<Config>,
+        resource: Config::Resource,
+    ) -> R::Future {
+        self(spirit, config, resource).into_future()
+    }
+}
+
+pub trait IntoIncoming: Send + Sync + 'static {
+    type Connection: Send + Sync + 'static;
+    type Incoming: Stream<Item = Self::Connection, Error = IoError> + Send + Sync + 'static;
+    fn into_incoming(self) -> Self::Incoming;
+}
+
+impl IntoIncoming for TcpListener {
+    type Connection = TcpStream;
+    type Incoming = tokio::net::tcp::Incoming;
+    fn into_incoming(self) -> Self::Incoming {
+        self.incoming()
+    }
+}
+
+pub trait ListenInfo: ResourceConfig {
+    fn error_sleep(&self) -> Duration;
+    fn max_conn(&self) -> usize;
+}
+
+pub fn per_connection<Config, F, R, O, C>(action: F) -> impl ResourceConsumer<Config, O, C>
+where
+    Config: ListenInfo,
+    Config::Resource: IntoIncoming,
+    F: Fn(&Arc<Spirit<O, C>>, &Arc<Config>, <Config::Resource as IntoIncoming>::Connection) -> R
+        + Sync
+        + Send
+        + 'static,
+    R: IntoFuture<Item = ()>,
+    R::Error: Display,
+    R::Future: Sync + Send + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
+{
+    let action = Arc::new(action);
+    move |spirit: &Arc<Spirit<O, C>>, config: &Arc<Config>, listener: Config::Resource| {
+        let spirit = Arc::clone(spirit);
+        let config = Arc::clone(config);
+        let max_conn = config.max_conn();
+        let action = Arc::clone(&action);
+        listener
+            .into_incoming()
+            .sleep_on_error(config.error_sleep())
+            .map(move |new_conn| {
+                // TODO: Name
+                // The listen below keeps track of how many parallel connections
+                // there are. But it does so inside the same future, which prevents
+                // the separate connections to be handled in parallel on a thread
+                // pool. So we spawn the future to handle the connection itself.
+                // But we want to keep the future alive so the listen doesn't think
+                // it already terminated, therefore the done-channel.
+                let (done_send, done_recv) = oneshot::channel();
+                let handle_conn = action(&spirit, &config, new_conn)
+                    .into_future()
+                    .then(move |r| {
+                        if let Err(e) = r {
+                            error!("Failed to handle connection on {:?}: {}", "TODO", e);
+                        }
+                        // Ignore the other side going away. This may happen if the
+                        // listener terminated, but the connection lingers for
+                        // longer.
+                        let _ = done_send.send(());
+                        future::ok(())
+                    });
+                tokio::spawn(handle_conn);
+                done_recv.then(|_| future::ok(()))
+            })
+            .listen(max_conn)
+            .map_err(|()| -> Error {
+                unreachable!("tk-listen never errors");
+            })
+    }
+}
+
+// TODO: Cut it into smaller pieces
+fn resources<Config, Consumer, E, R, O, C, N>(
+    mut extract: E,
+    consumer: Consumer,
+    name: N,
+) -> impl Helper<O, C>
+where
+    Config: ResourceConfig,
+    Consumer: ResourceConsumer<Config, O, C>,
+    C: DeserializeOwned + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
+    E: FnMut(&C) -> R + Sync + Send + 'static,
+    R: IntoIterator<Item = Config>,
+    N: Clone + Display + Send + Sync + 'static,
+{
+    struct Install<Config: ResourceConfig> {
+        resource: Config::Resource,
+        drop_req: oneshot::Receiver<()>,
+        confirm_drop: oneshot::Sender<()>,
+        config: Arc<Config>,
+    }
+
+    let (install_sender, install_receiver) = mpsc::unbounded::<Install<Config>>();
+    let name_validator = name.clone();
+    let installer = move |spirit: &Arc<Spirit<O, C>>| {
+        let spirit = Arc::clone(spirit);
+        install_receiver.for_each(move |install| {
+            let Install {
+                resource,
+                drop_req,
+                confirm_drop,
+                config,
+            } = install;
+            let cfg_str: Arc<str> = Arc::from(format!("{:?}", config));
+            let cfg_str_err = Arc::clone(&cfg_str);
+            let name = name.clone();
+            let name_err = name.clone();
+            debug!("Installing resource {} with config {}", name, cfg_str);
+
+            let task = consumer
+                .build_future(&spirit, &config, resource)
+                .map_err(move |e| {
+                    error!("Task {} on config {} failed: {}", name_err, cfg_str_err, e);
+                })
+                .select(drop_req.map_err(|_| ())) // Cancelation is OK too
+                .then(move |orig| {
+                    debug!("Terminated resource {} on cfg {}", name, cfg_str);
+                    drop(orig); // Make sure the original future is dropped first.
+                    confirm_drop.send(())
+                })
+                .map_err(|_| ()); // If nobody waits for confirm_drop, that's OK.
+
+            tokio::spawn(task)
+        })
+    };
+
+    struct CacheEntry<Config: ResourceConfig> {
+        config: Arc<Config>,
+        seed: Arc<Config::Seed>,
+        remote: Vec<Arc<RemoteDrop>>,
+    }
+
+    // It doesn't want to auto-implement the trait because of the type parameter, but we want clone
+    // on Arcs only!
+    impl<Config: ResourceConfig> Clone for CacheEntry<Config> {
+        fn clone(&self) -> Self {
+            CacheEntry {
+                config: Arc::clone(&self.config),
+                seed: Arc::clone(&self.seed),
+                remote: self.remote.clone(),
+            }
+        }
+    }
+
+    let cache = Arc::new(Mutex::new(Vec::<CacheEntry<Config>>::new()));
+    let validator = move |_: &Arc<C>, cfg: &mut C, _: &O| -> ValidationResults {
+        let mut results = ValidationResults::new();
+        let orig_cache = cache.lock();
+        let mut new_cache = Vec::new();
+        let mut to_send = Vec::new();
+
+        for cfg in extract(cfg) {
+            let cfg = Arc::new(cfg);
+            let previous = orig_cache
+                .iter()
+                .find(|orig| cfg.is_similar(&orig.config))
+                .map(CacheEntry::clone); // Just a bunch of Arcs to clone
+
+            let mut cache = if let Some(prev) = previous {
+                prev
+            } else {
+                let seed = match cfg.create() {
+                    Ok(seed) => Arc::new(seed),
+                    Err(e) => {
+                        results.merge(ValidationResult::from(e));
+                        continue;
+                    }
+                };
+                CacheEntry {
+                    config: Arc::clone(&cfg),
+                    seed,
+                    remote: Vec::new(),
+                }
+            };
+
+            if cache.config != cfg {
+                cache.remote.clear();
+            }
+
+            let (scale, scale_validation) = cfg.scaled();
+            results.merge(scale_validation);
+            assert!(scale <= cache.remote.len());
+            for _ in 0..scale - cache.remote.len() {
+                let resource = match cfg.fork(&cache.seed) {
+                    Ok(resource) => resource,
+                    Err(e) => {
+                        results.merge(ValidationResult::from(e));
+                        continue;
+                    }
+                };
+
+                let (drop_send, drop_recv) = oneshot::channel();
+                let (confirm_send, confirm_recv) = oneshot::channel();
+                cache.remote.push(Arc::new(RemoteDrop {
+                    request_drop: Some(drop_send),
+                    drop_confirmed: Some(confirm_recv),
+                }));
+                to_send.push(Install {
+                    config: Arc::clone(&cfg),
+                    confirm_drop: confirm_send,
+                    drop_req: drop_recv,
+                    resource,
+                });
+            }
+            cache.config = cfg;
+            new_cache.push(cache);
+        }
+        let cache = Arc::clone(&cache);
+        let name = name_validator.clone();
+        let sender = install_sender.clone();
+        results.merge(ValidationResult::nothing().on_success(move || {
+            for install in to_send {
+                trace!("Sending {}/{:?} to the reactor", name, install.config);
+                sender
+                    .unbounded_send(install)
+                    .expect("The tokio end got dropped");
+            }
+            *cache.lock() = new_cache;
+            debug!("New version of {} sent", name);
+        }));
+        results
+    };
+
+    |builder: Builder<O, C>| {
+        builder
+            .config_validator(validator)
+            .with_singleton(Runtime::default())
+            .before_body(move |spirit| {
+                tokio::spawn(installer(spirit));
+                Ok(())
+            })
+    }
+}
+
+// TODO: Cut it into smaller pieces
+fn resource<Config, Consumer, E, O, C, N>(
+    mut extract: E,
+    consumer: Consumer,
+    name: N,
+) -> impl Helper<O, C>
+where
+    Config: ResourceConfig,
+    Consumer: ResourceConsumer<Config, O, C>,
+    C: DeserializeOwned + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
+    E: FnMut(&C) -> Config + Sync + Send + 'static,
+    N: Clone + Display + Send + Sync + 'static,
+{
+    resources(move |c: &C| iter::once(extract(c)), consumer, name)
 }
 
 /// An inner tokio task helper.
@@ -365,18 +665,12 @@ impl Default for Listen {
 
 impl Listen {
     /// Creates a TCP socket described by the loaded configuration.
-    pub fn create_tcp(&self) -> Result<Arc<StdTcpListener>, Error> {
-        Ok(Arc::new(StdTcpListener::bind((
-            &self.host as &str,
-            self.port,
-        ))?))
+    pub fn create_tcp(&self) -> Result<StdTcpListener, Error> {
+        Ok(StdTcpListener::bind((&self.host as &str, self.port))?)
     }
     /// Creates a UDP socket described by the loaded configuration.
-    pub fn create_udp(&self) -> Result<Arc<StdUdpSocket>, Error> {
-        Ok(Arc::new(StdUdpSocket::bind((
-            &self.host as &str,
-            self.port,
-        ))?))
+    pub fn create_udp(&self) -> Result<StdUdpSocket, Error> {
+        Ok(StdUdpSocket::bind((&self.host as &str, self.port))?)
     }
 }
 
@@ -405,7 +699,7 @@ pub trait Scaled {
     ///
     /// And accompanies it with optional validation results, to either refuse or warn about the
     /// configuration.
-    fn scaled<Name: Display>(&self, name: &Name) -> (usize, ValidationResults);
+    fn scaled<Name: Display>(&self, name: Name) -> (usize, ValidationResults);
 }
 
 /// A scaling configuration provided by user.
@@ -426,7 +720,7 @@ impl Default for Scale {
 }
 
 impl Scaled for Scale {
-    fn scaled<Name: Display>(&self, name: &Name) -> (usize, ValidationResults) {
+    fn scaled<Name: Display>(&self, name: Name) -> (usize, ValidationResults) {
         if self.scale > 0 {
             (self.scale, ValidationResults::new())
         } else {
@@ -444,7 +738,7 @@ impl Scaled for Scale {
 pub struct Singleton {}
 
 impl Scaled for Singleton {
-    fn scaled<Name: Display>(&self, _: &Name) -> (usize, ValidationResults) {
+    fn scaled<Name: Display>(&self, _: Name) -> (usize, ValidationResults) {
         (1, ValidationResults::new())
     }
 }
@@ -548,6 +842,30 @@ pub struct TcpListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
     extra_cfg: ExtraCfg,
 }
 
+impl<ExtraCfg, ScaleMode> ResourceConfig for TcpListen<ExtraCfg, ScaleMode>
+where
+    ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
+    ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static,
+{
+    type Seed = StdTcpListener;
+    type Resource = TcpListener;
+    fn create(&self) -> Result<StdTcpListener, Error> {
+        self.listen.create_tcp()
+    }
+    fn fork(&self, seed: &StdTcpListener) -> Result<TcpListener, Error> {
+        seed.try_clone() // Another copy of the listener
+            // std → tokio socket conversion
+            .and_then(|listener| TcpListener::from_std(listener, &Handle::default()))
+            .map_err(Error::from)
+    }
+    fn scaled(&self) -> (usize, ValidationResults) {
+        self.scale.scaled("TODO")
+    }
+    fn is_similar(&self, other: &Self) -> bool {
+        self.listen == other.listen
+    }
+}
+
 impl<ExtraCfg, ScaleMode> TcpListen<ExtraCfg, ScaleMode>
 where
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
@@ -642,7 +960,7 @@ where
 
         Task {
             extract,
-            build: Listen::create_tcp,
+            build: |cfg: &Listen| cfg.create_tcp().map(Arc::new),
             to_task,
             name,
         }
@@ -795,6 +1113,30 @@ pub struct UdpListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
     extra_cfg: ExtraCfg,
 }
 
+impl<ExtraCfg, ScaleMode> ResourceConfig for UdpListen<ExtraCfg, ScaleMode>
+where
+    ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
+    ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static,
+{
+    type Seed = StdUdpSocket;
+    type Resource = UdpSocket;
+    fn create(&self) -> Result<StdUdpSocket, Error> {
+        self.listen.create_udp()
+    }
+    fn fork(&self, seed: &StdUdpSocket) -> Result<UdpSocket, Error> {
+        seed.try_clone() // Another copy of the listener
+            // std → tokio socket conversion
+            .and_then(|listener| UdpSocket::from_std(listener, &Handle::default()))
+            .map_err(Error::from)
+    }
+    fn scaled(&self) -> (usize, ValidationResults) {
+        self.scale.scaled("TODO")
+    }
+    fn is_similar(&self, other: &Self) -> bool {
+        self.listen == other.listen
+    }
+}
+
 impl<ExtraCfg, ScaleMode> UdpListen<ExtraCfg, ScaleMode>
 where
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
@@ -847,7 +1189,7 @@ where
 
         Task {
             extract,
-            build: Listen::create_udp,
+            build: |listen: &Listen| listen.create_udp().map(Arc::new),
             to_task,
             name,
         }
