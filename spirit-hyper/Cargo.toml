@@ -22,7 +22,7 @@ serde_derive = "~1"
 spirit = { path = "..", version = "~0.2" }
 spirit-tokio = { path = "../spirit-tokio", version = "~0.2" }
 structopt = "~0.2"
-tokio-io = "~0.1"
+tokio = "~0.1"
 
 [dev-dependencies]
 version-sync = "~0.5"

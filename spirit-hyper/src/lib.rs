@@ -81,7 +81,7 @@ extern crate serde_derive;
 extern crate spirit;
 extern crate spirit_tokio;
 extern crate structopt;
-extern crate tokio_io;
+extern crate tokio;
 
 use std::borrow::Borrow;
 use std::error::Error;
@@ -91,18 +91,75 @@ use std::sync::Arc;
 
 use failure::Error as FailError;
 use futures::future::Shared;
-use futures::sync::oneshot::{self, Receiver};
+use futures::Stream;
+use futures::sync::oneshot::{self, Receiver, Sender};
 use futures::{Async, Future, IntoFuture, Poll};
 use hyper::body::Payload;
+use hyper::server::Server;
 use hyper::server::conn::{Connection, Http};
-use hyper::service::{self, Service};
+use hyper::service::{self, NewService, Service};
 use hyper::{Body, Request, Response};
 use serde::de::DeserializeOwned;
 use spirit::helpers::{CfgHelper, IteratedCfgHelper};
 use spirit::{Builder, Empty, Spirit};
 use spirit_tokio::{ResourceMaker, TcpListen};
+use spirit_tokio::{ResourceConfig, ResourceConsumer};
 use structopt::StructOpt;
-use tokio_io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite};
+
+struct SendOnDrop(Option<Sender<()>>);
+
+impl Drop for SendOnDrop {
+    fn drop(&mut self) {
+        let _ = self.0.take().unwrap().send(());
+    }
+}
+
+impl Future for SendOnDrop {
+    type Item = ();
+    type Error = FailError;
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        Ok(Async::NotReady)
+    }
+}
+
+struct ArcNewService<S>(Arc<S>);
+
+impl<S: NewService> NewService for ArcNewService<S> {
+    type ReqBody = S::ReqBody;
+    type ResBody = S::ResBody;
+    type Error = S::Error;
+    type Service = S::Service;
+    type Future = S::Future;
+    type InitError = S::InitError;
+    fn new_service(&self) -> Self::Future {
+        self.0.new_service()
+    }
+}
+
+pub fn server<R, O, C, S, B>(new_service: S) -> impl ResourceConsumer<R, O, C>
+where
+    R: ResourceConfig,
+    R::Resource: Stream,
+    <R::Resource as Stream>::Error: Into<Box<dyn Error + Send + Sync>>,
+    <R::Resource as Stream>::Item: AsyncRead + AsyncWrite + Send + 'static,
+    S: NewService<ReqBody = Body, ResBody = B> + Send + Sync + 'static,
+    S::Future: Send,
+    S::Service: Send,
+    <S::Service as Service>::Future: Send,
+    B: Payload,
+{
+    let new_service = Arc::new(new_service);
+    move |_spirit: &Arc<Spirit<O, C>>, _config: &Arc<R>, resource: R::Resource| {
+        let (sender, receiver) = oneshot::channel();
+        let new_service = Arc::clone(&new_service);
+        let server = Server::builder(resource)
+            .serve(ArcNewService(new_service))
+            .with_graceful_shutdown(receiver);
+        tokio::spawn(server.map_err(|e| unimplemented!("TODO")));
+        SendOnDrop(Some(sender))
+    }
+}
 
 /// A configuration fragment that can spawn Hyper server.
 ///
