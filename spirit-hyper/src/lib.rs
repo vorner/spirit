@@ -97,7 +97,7 @@ use futures::{Async, Future, IntoFuture, Poll};
 use hyper::body::Payload;
 use hyper::server::Server;
 use hyper::server::conn::{Connection, Http};
-use hyper::service::{self, NewService, Service};
+use hyper::service::{self, MakeService, Service};
 use hyper::{Body, Request, Response};
 use serde::de::DeserializeOwned;
 use spirit::helpers::{CfgHelper, IteratedCfgHelper};
@@ -123,38 +123,26 @@ impl Future for SendOnDrop {
     }
 }
 
-struct ArcNewService<S>(Arc<S>);
-
-impl<S: NewService> NewService for ArcNewService<S> {
-    type ReqBody = S::ReqBody;
-    type ResBody = S::ResBody;
-    type Error = S::Error;
-    type Service = S::Service;
-    type Future = S::Future;
-    type InitError = S::InitError;
-    fn new_service(&self) -> Self::Future {
-        self.0.new_service()
-    }
-}
-
-pub fn server<R, O, C, S, B>(new_service: S) -> impl ResourceConsumer<R, O, C>
+pub fn server<R, O, C, NS, B, E, ME, S, F>(new_service: NS) -> impl ResourceConsumer<R, O, C>
 where
     R: ResourceConfig,
     R::Resource: Stream,
     <R::Resource as Stream>::Error: Into<Box<dyn Error + Send + Sync>>,
     <R::Resource as Stream>::Item: AsyncRead + AsyncWrite + Send + 'static,
-    S: NewService<ReqBody = Body, ResBody = B> + Send + Sync + 'static,
+    // TODO: Ask hyper to make their MakeServiceRef public, this monster is ugly :-(.
+    NS: for<'a> MakeService<&'a <R::Resource as Stream>::Item, ReqBody = Body, Error = E, MakeError = ME, Service = S, Future = F, ResBody = B> + Clone + Send + Sync + 'static,
+    B: Payload,
+    E: Into<Box<Error + Send + Sync>>,
+    ME: Into<Box<Error + Send + Sync>>,
+    S: Service<ReqBody=Body, ResBody=B, Error=E> + Send + 'static,
     S::Future: Send,
-    S::Service: Send,
-    <S::Service as Service>::Future: Send,
+    F: Future<Item=S, Error=ME> + Send + 'static,
     B: Payload,
 {
-    let new_service = Arc::new(new_service);
     move |_spirit: &Arc<Spirit<O, C>>, _config: &Arc<R>, resource: R::Resource| {
         let (sender, receiver) = oneshot::channel();
-        let new_service = Arc::clone(&new_service);
         let server = Server::builder(resource)
-            .serve(ArcNewService(new_service))
+            .serve(new_service.clone())
             .with_graceful_shutdown(receiver);
         tokio::spawn(server.map_err(|e| unimplemented!("TODO")));
         SendOnDrop(Some(sender))
