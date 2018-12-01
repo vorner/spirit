@@ -206,22 +206,37 @@ pub trait ListenInfo<O, C>: ResourceConfig<O, C> {
     fn max_conn(&self) -> usize;
 }
 
-pub fn per_connection<Config, F, R, O, C>(action: F) -> impl ResourceConsumer<Config, O, C>
+pub fn per_connection_init<Config, I, F, R, O, C, Ctx>(
+    init: I,
+    action: F,
+) -> impl ResourceConsumer<Config, O, C>
 where
     Config: ListenInfo<O, C>,
     Config::Resource: IntoIncoming,
-    F: Fn(&Arc<Spirit<O, C>>, &Arc<Config>, <Config::Resource as IntoIncoming>::Connection) -> R
+    I: Fn(&Arc<Spirit<O, C>>, &Arc<Config>, &mut Config::Resource, &str) -> Ctx
+        + Send
+        + Sync
+        + 'static,
+    F: Fn(
+            &Arc<Spirit<O, C>>,
+            &Arc<Config>,
+            &mut Ctx,
+            <Config::Resource as IntoIncoming>::Connection,
+            &str,
+        ) -> R
         + Sync
         + Send
         + 'static,
     R: IntoFuture<Item = ()>,
     R::Error: Display,
     R::Future: Sync + Send + 'static,
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
+    O: Send + Sync + 'static,
+    C: Send + Sync + 'static,
+    Ctx: Send + Sync + 'static,
 {
     let action = Arc::new(action);
-    move |spirit: &_, config: &Arc<Config>, listener: Config::Resource, name: &str| {
+    move |spirit: &_, config: &Arc<Config>, mut listener: Config::Resource, name: &str| {
+        let mut ctx = init(spirit, config, &mut listener, &name);
         let spirit = Arc::clone(spirit);
         let config = Arc::clone(config);
         let max_conn = config.max_conn();
@@ -239,7 +254,7 @@ where
                 // it already terminated, therefore the done-channel.
                 let (done_send, done_recv) = oneshot::channel();
                 let name_err = Arc::clone(&name);
-                let handle_conn = action(&spirit, &config, new_conn)
+                let handle_conn = action(&spirit, &config, &mut ctx, new_conn, &name)
                     .into_future()
                     .then(move |r| {
                         if let Err(e) = r {
@@ -259,6 +274,33 @@ where
                 unreachable!("tk-listen never errors");
             })
     }
+}
+
+pub fn per_connection<Config, F, R, O, C>(action: F) -> impl ResourceConsumer<Config, O, C>
+where
+    Config: ListenInfo<O, C>,
+    Config::Resource: IntoIncoming,
+    F: Fn(
+            &Arc<Spirit<O, C>>,
+            &Arc<Config>,
+            <Config::Resource as IntoIncoming>::Connection,
+            &str,
+        ) -> R
+        + Sync
+        + Send
+        + 'static,
+    R: IntoFuture<Item = ()>,
+    R::Error: Display,
+    R::Future: Sync + Send + 'static,
+    O: Send + Sync + 'static,
+    C: Send + Sync + 'static,
+{
+    per_connection_init(
+        |_: &_, _: &_, _: &mut _, _: &str| (),
+        move |spirit: &_, config: &_, _: &mut (), connection, name: &str| {
+            action(spirit, config, connection, name)
+        },
+    )
 }
 
 // TODO: Cut it into smaller pieces
@@ -987,6 +1029,19 @@ where
     type Extra = ExtraCfg;
     fn extra(&self) -> &ExtraCfg {
         &self.extra_cfg
+    }
+}
+
+impl<ExtraCfg, ScaleMode, O, C> ListenInfo<O, C> for TcpListen<ExtraCfg, ScaleMode>
+where
+    ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
+    ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static,
+{
+    fn error_sleep(&self) -> Duration {
+        Duration::from_millis(self.error_sleep_ms)
+    }
+    fn max_conn(&self) -> usize {
+        self.max_conn
     }
 }
 
