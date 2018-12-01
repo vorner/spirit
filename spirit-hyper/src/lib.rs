@@ -75,6 +75,8 @@ extern crate arc_swap;
 extern crate failure;
 extern crate futures;
 extern crate hyper;
+#[macro_use]
+extern crate log;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -125,7 +127,7 @@ impl Future for SendOnDrop {
 
 pub fn server<R, O, C, NS, B, E, ME, S, F>(new_service: NS) -> impl ResourceConsumer<R, O, C>
 where
-    R: ResourceConfig,
+    R: ResourceConfig<O, C>,
     R::Resource: Stream,
     <R::Resource as Stream>::Error: Into<Box<dyn Error + Send + Sync>>,
     <R::Resource as Stream>::Item: AsyncRead + AsyncWrite + Send + 'static,
@@ -139,12 +141,17 @@ where
     F: Future<Item=S, Error=ME> + Send + 'static,
     B: Payload,
 {
-    move |_spirit: &Arc<Spirit<O, C>>, _config: &Arc<R>, resource: R::Resource| {
+    move |_spirit: &Arc<Spirit<O, C>>, _config: &Arc<R>, resource: R::Resource, name: &str| {
         let (sender, receiver) = oneshot::channel();
+        debug!("Starting hyper server {}", name);
+        let name_success = name.to_owned();
+        let name_err = name.to_owned();
         let server = Server::builder(resource)
             .serve(new_service.clone())
-            .with_graceful_shutdown(receiver);
-        tokio::spawn(server.map_err(|e| unimplemented!("TODO")));
+            .with_graceful_shutdown(receiver)
+            .map(move |()| debug!("Hyper server {} shut down", name_success))
+            .map_err(move |e| error!("Hyper server {} failed: {}", name_err, e));
+        tokio::spawn(server);
         SendOnDrop(Some(sender))
     }
 }
