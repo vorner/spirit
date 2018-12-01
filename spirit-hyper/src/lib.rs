@@ -225,7 +225,7 @@ where
     R::Resource: IntoIncoming,
     <R::Resource as IntoIncoming>::Connection: AsyncRead + AsyncWrite,
     CMS: ConfiguredMakeService<O, C, HyperServer<R>>,
-    // TODO: Ask hyper to make their MakeServiceRef public, this monster is ugly :-(.
+    // TODO: Once hyper with the MakeServiceRef is released, migrate to that instead of this beast.
     CMS::MakeService: for<'a> MakeService<
             &'a <R::Resource as IntoIncoming>::Connection,
             ReqBody = Body,
@@ -253,7 +253,16 @@ where
         let name_success = name.to_owned();
         let name_err = name.to_owned();
         let make_service = configured_make_service.make(spirit, config, &resource, name);
+        let (h1_only, h2_only) = match config.http_mode.http_mode {
+            HttpMode::Both => (false, false),
+            HttpMode::Http1Only => (true, false),
+            HttpMode::Http2Only => (false, true),
+        };
         let server = Server::builder(resource.into_incoming())
+            .http1_keepalive(config.http1_keepalive)
+            .http1_writev(config.http1_writev)
+            .http1_only(h1_only)
+            .http2_only(h2_only)
             .serve(make_service)
             .with_graceful_shutdown(receiver)
             .map(move |()| debug!("Hyper server {} shut down", name_success))
@@ -432,6 +441,33 @@ where
     server(configure_service)
 }
 
+fn default_on() -> bool {
+    true
+}
+
+#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[serde(rename_all = "kebab-case")]
+enum HttpMode {
+    Both,
+    #[serde(rename = "http1-only")]
+    Http1Only,
+    #[serde(rename = "http2-only")]
+    Http2Only,
+}
+
+impl Default for HttpMode {
+    fn default() -> Self {
+        HttpMode::Both
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[serde(rename_all = "kebab-case")]
+struct HttpModeWorkaround {
+    #[serde(default)]
+    http_mode: HttpMode,
+}
+
 /// A [`ResourceConfig`] for hyper servers.
 ///
 /// This is a wrapper around a `Transport` [`ResourceConfig`]. It takes something that accepts
@@ -447,11 +483,37 @@ where
 ///
 /// See also the [`HttpServer`] type alias.
 ///
-/// # TODO: Actually add the hyper-specific configuration.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+/// # Configuration options
+///
+/// In addition to options already provided by the `Transport`, these options are added:
+///
+/// * `http1-keepalive`: boolean, default true.
+/// * `http1-writev`: boolean, default true.
+/// * `http-mode`: One of `"both"`, `"http1-only"` or `"http2-only"`. Defaults to `"both"`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[serde(rename_all = "kebab-case")]
 pub struct HyperServer<Transport> {
     #[serde(flatten)]
     transport: Transport,
+    #[serde(default = "default_on")]
+    http1_keepalive: bool,
+    #[serde(default = "default_on")]
+    http1_writev: bool,
+    #[serde(default, flatten)]
+    http_mode: HttpModeWorkaround,
+}
+
+impl<Transport: Default> Default for HyperServer<Transport> {
+    fn default() -> Self {
+        HyperServer {
+            transport: Transport::default(),
+            http1_keepalive: true,
+            http1_writev: true,
+            http_mode: HttpModeWorkaround {
+                http_mode: HttpMode::Both,
+            },
+        }
+    }
 }
 
 impl<T> ExtraCfgCarrier for HyperServer<T>

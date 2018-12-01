@@ -46,6 +46,7 @@ impl Config {
 const DEFAULT_CONFIG: &str = r#"
 [[listen]]
 port = 1234
+http-mode = "http1-only"
 
 [[listen]]
 port = 5678
