@@ -127,8 +127,13 @@ where
     N: AsRef<str> + Clone + Send + Sync + 'static,
 {}
 
+pub trait ExtraCfgCarrier {
+    type Extra;
+    fn extra(&self) -> &Self::Extra;
+}
+
 // TODO: Are all these trait bounds necessary?
-pub trait ResourceConfig<O, C>: Debug + Sync + Send + PartialEq + 'static {
+pub trait ResourceConfig<O, C>: Debug + ExtraCfgCarrier + Sync + Send + PartialEq + 'static {
     type Seed: Send + Sync + 'static;
     type Resource: Send + 'static;
     fn create(&self, name: &str) -> Result<Self::Seed, Error>;
@@ -369,7 +374,7 @@ where
 
             let (scale, scale_validation) = cfg.scaled(name_validator.as_ref());
             results.merge(scale_validation);
-            assert!(scale <= cache.remote.len());
+            assert!(scale >= cache.remote.len());
             for _ in 0..scale - cache.remote.len() {
                 let resource = match cfg.fork(&cache.seed, name_validator.as_ref()) {
                     Ok(resource) => resource,
@@ -862,30 +867,6 @@ pub struct TcpListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
     extra_cfg: ExtraCfg,
 }
 
-impl<ExtraCfg, ScaleMode, O, C> ResourceConfig<O, C> for TcpListen<ExtraCfg, ScaleMode>
-where
-    ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
-    ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static,
-{
-    type Seed = StdTcpListener;
-    type Resource = TcpListener;
-    fn create(&self, _: &str) -> Result<StdTcpListener, Error> {
-        self.listen.create_tcp()
-    }
-    fn fork(&self, seed: &StdTcpListener, _: &str) -> Result<TcpListener, Error> {
-        seed.try_clone() // Another copy of the listener
-            // std → tokio socket conversion
-            .and_then(|listener| TcpListener::from_std(listener, &Handle::default()))
-            .map_err(Error::from)
-    }
-    fn scaled(&self, name: &str) -> (usize, ValidationResults) {
-        self.scale.scaled(name)
-    }
-    fn is_similar(&self, other: &Self, _: &str) -> bool {
-        self.listen == other.listen
-    }
-}
-
 impl<ExtraCfg, ScaleMode> TcpListen<ExtraCfg, ScaleMode>
 where
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
@@ -984,6 +965,40 @@ where
             to_task,
             name,
         }
+    }
+}
+
+impl<ExtraCfg, ScaleMode> ExtraCfgCarrier for TcpListen<ExtraCfg, ScaleMode>
+where
+    ScaleMode: Scaled,
+{
+    type Extra = ExtraCfg;
+    fn extra(&self) -> &ExtraCfg {
+        &self.extra_cfg
+    }
+}
+
+impl<ExtraCfg, ScaleMode, O, C> ResourceConfig<O, C> for TcpListen<ExtraCfg, ScaleMode>
+where
+    ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
+    ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static,
+{
+    type Seed = StdTcpListener;
+    type Resource = TcpListener;
+    fn create(&self, _: &str) -> Result<StdTcpListener, Error> {
+        self.listen.create_tcp()
+    }
+    fn fork(&self, seed: &StdTcpListener, _: &str) -> Result<TcpListener, Error> {
+        seed.try_clone() // Another copy of the listener
+            // std → tokio socket conversion
+            .and_then(|listener| TcpListener::from_std(listener, &Handle::default()))
+            .map_err(Error::from)
+    }
+    fn scaled(&self, name: &str) -> (usize, ValidationResults) {
+        self.scale.scaled(name)
+    }
+    fn is_similar(&self, other: &Self, _: &str) -> bool {
+        self.listen == other.listen
     }
 }
 
@@ -1133,30 +1148,6 @@ pub struct UdpListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
     extra_cfg: ExtraCfg,
 }
 
-impl<ExtraCfg, ScaleMode, O, C> ResourceConfig<O, C> for UdpListen<ExtraCfg, ScaleMode>
-where
-    ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
-    ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static,
-{
-    type Seed = StdUdpSocket;
-    type Resource = UdpSocket;
-    fn create(&self, _: &str) -> Result<StdUdpSocket, Error> {
-        self.listen.create_udp()
-    }
-    fn fork(&self, seed: &StdUdpSocket, _: &str) -> Result<UdpSocket, Error> {
-        seed.try_clone() // Another copy of the listener
-            // std → tokio socket conversion
-            .and_then(|listener| UdpSocket::from_std(listener, &Handle::default()))
-            .map_err(Error::from)
-    }
-    fn scaled(&self, name: &str) -> (usize, ValidationResults) {
-        self.scale.scaled(name)
-    }
-    fn is_similar(&self, other: &Self, _: &str) -> bool {
-        self.listen == other.listen
-    }
-}
-
 impl<ExtraCfg, ScaleMode> UdpListen<ExtraCfg, ScaleMode>
 where
     ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
@@ -1213,6 +1204,40 @@ where
             to_task,
             name,
         }
+    }
+}
+
+impl<ExtraCfg, ScaleMode> ExtraCfgCarrier for UdpListen<ExtraCfg, ScaleMode>
+where
+    ScaleMode: Scaled,
+{
+    type Extra = ExtraCfg;
+    fn extra(&self) -> &ExtraCfg {
+        &self.extra_cfg
+    }
+}
+
+impl<ExtraCfg, ScaleMode, O, C> ResourceConfig<O, C> for UdpListen<ExtraCfg, ScaleMode>
+where
+    ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
+    ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static,
+{
+    type Seed = StdUdpSocket;
+    type Resource = UdpSocket;
+    fn create(&self, _: &str) -> Result<StdUdpSocket, Error> {
+        self.listen.create_udp()
+    }
+    fn fork(&self, seed: &StdUdpSocket, _: &str) -> Result<UdpSocket, Error> {
+        seed.try_clone() // Another copy of the listener
+            // std → tokio socket conversion
+            .and_then(|listener| UdpSocket::from_std(listener, &Handle::default()))
+            .map_err(Error::from)
+    }
+    fn scaled(&self, name: &str) -> (usize, ValidationResults) {
+        self.scale.scaled(name)
+    }
+    fn is_similar(&self, other: &Self, _: &str) -> bool {
+        self.listen == other.listen
     }
 }
 

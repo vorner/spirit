@@ -93,7 +93,6 @@ use std::sync::Arc;
 
 use failure::Error as FailError;
 use futures::future::Shared;
-use futures::Stream;
 use futures::sync::oneshot::{self, Receiver, Sender};
 use futures::{Async, Future, IntoFuture, Poll};
 use hyper::body::Payload;
@@ -104,8 +103,9 @@ use hyper::{Body, Request, Response};
 use serde::de::DeserializeOwned;
 use spirit::helpers::{CfgHelper, IteratedCfgHelper};
 use spirit::{Builder, Empty, Spirit};
+use spirit::validation::Results as ValidationResults;
 use spirit_tokio::{ResourceMaker, TcpListen};
-use spirit_tokio::{ResourceConfig, ResourceConsumer};
+use spirit_tokio::{ExtraCfgCarrier, Name, IntoIncoming, ResourceConfig, ResourceConsumer};
 use structopt::StructOpt;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -125,15 +125,34 @@ impl Future for SendOnDrop {
     }
 }
 
-pub fn server<R, O, C, NS, B, E, ME, S, F>(new_service: NS) -> impl ResourceConsumer<R, O, C>
+pub trait ConfiguredMakeService<O, C, Cfg>: Send + Sync + 'static
+where
+    Cfg: ResourceConfig<O, C>,
+{
+    type MakeService;
+    fn make(&self, spirit: &Arc<Spirit<O, C>>, cfg: &Arc<Cfg>, resource: &Cfg::Resource, name: &str) -> Self::MakeService;
+}
+
+impl<O, C, Cfg, F, R> ConfiguredMakeService<O, C, Cfg> for F
+where
+    Cfg: ResourceConfig<O, C>,
+    F: Fn(&Arc<Spirit<O, C>>, &Arc<Cfg>, &Cfg::Resource, &str) -> R + Send + Sync + 'static,
+{
+    type MakeService = R;
+    fn make(&self, spirit: &Arc<Spirit<O, C>>, cfg: &Arc<Cfg>, resource: &Cfg::Resource, name: &str) -> R {
+        self(spirit, cfg, resource, name)
+    }
+}
+
+pub fn server<R, O, C, CMS, B, E, ME, S, F>(configured_make_service: CMS)
+    -> impl ResourceConsumer<HyperServer<R>, O, C>
 where
     R: ResourceConfig<O, C>,
-    R::Resource: Stream,
-    <R::Resource as Stream>::Error: Into<Box<dyn Error + Send + Sync>>,
-    <R::Resource as Stream>::Item: AsyncRead + AsyncWrite + Send + 'static,
+    R::Resource: IntoIncoming,
+    <R::Resource as IntoIncoming>::Connection: AsyncRead + AsyncWrite,
+    CMS: ConfiguredMakeService<O, C, HyperServer<R>>,
     // TODO: Ask hyper to make their MakeServiceRef public, this monster is ugly :-(.
-    NS: for<'a> MakeService<&'a <R::Resource as Stream>::Item, ReqBody = Body, Error = E, MakeError = ME, Service = S, Future = F, ResBody = B> + Clone + Send + Sync + 'static,
-    B: Payload,
+    CMS::MakeService: for<'a> MakeService<&'a <R::Resource as IntoIncoming>::Connection, ReqBody = Body, Error = E, MakeError = ME, Service = S, Future = F, ResBody = B> + Send + Sync + 'static,
     E: Into<Box<Error + Send + Sync>>,
     ME: Into<Box<Error + Send + Sync>>,
     S: Service<ReqBody=Body, ResBody=B, Error=E> + Send + 'static,
@@ -141,19 +160,80 @@ where
     F: Future<Item=S, Error=ME> + Send + 'static,
     B: Payload,
 {
-    move |_spirit: &Arc<Spirit<O, C>>, _config: &Arc<R>, resource: R::Resource, name: &str| {
+    move |spirit: &Arc<Spirit<O, C>>, config: &Arc<HyperServer<R>>, resource: R::Resource, name: &str| {
         let (sender, receiver) = oneshot::channel();
         debug!("Starting hyper server {}", name);
         let name_success = name.to_owned();
         let name_err = name.to_owned();
-        let server = Server::builder(resource)
-            .serve(new_service.clone())
+        let make_service = configured_make_service.make(spirit, config, &resource, name);
+        let server = Server::builder(resource.into_incoming())
+            .serve(make_service)
             .with_graceful_shutdown(receiver)
             .map(move |()| debug!("Hyper server {} shut down", name_success))
             .map_err(move |e| error!("Hyper server {} failed: {}", name_err, e));
         tokio::spawn(server);
         SendOnDrop(Some(sender))
     }
+}
+
+pub fn server_ok<R, O, C, S, B>(service: S) -> impl ResourceConsumer<HyperServer<R>, O, C>
+where
+    R: ResourceConfig<O, C>,
+    R::Resource: IntoIncoming,
+    <R::Resource as IntoIncoming>::Connection: AsyncRead + AsyncWrite,
+    S: Fn(Request<Body>) -> Response<B> + Clone + Send + Sync + 'static,
+    B: Payload,
+{
+    let configure_service = move |_: &_, _: &_, _: &_, _: &_| {
+        let service = service.clone();
+        move || hyper::service::service_fn_ok(service.clone())
+    };
+    server(configure_service)
+}
+
+pub fn server_simple<R, O, C, S, Fut, B>(service: S) -> impl ResourceConsumer<HyperServer<R>, O, C>
+where
+    R: ResourceConfig<O, C>,
+    R::Resource: IntoIncoming,
+    <R::Resource as IntoIncoming>::Connection: AsyncRead + AsyncWrite,
+    S: Fn(Request<Body>) -> Fut + Clone + Send + Sync + 'static,
+    Fut: IntoFuture<Item = Response<B>> + Send + 'static,
+    Fut::Future: Send + 'static,
+    Fut::Error: Into<Box<Error + Send + Sync>>,
+    B: Payload,
+{
+    let configure_service = move |_: &_, _: &_, _: &_, _: &_| {
+        let service = service.clone();
+        move || hyper::service::service_fn(service.clone())
+    };
+    server(configure_service)
+}
+
+pub fn server_configured<R, O, C, S, Fut, B>(service: S) -> impl ResourceConsumer<HyperServer<R>, O, C>
+where
+    C: Send + Sync + 'static,
+    O: Send + Sync + 'static,
+    R: ResourceConfig<O, C>,
+    R::Resource: IntoIncoming,
+    <R::Resource as IntoIncoming>::Connection: AsyncRead + AsyncWrite,
+    S: Fn(&Arc<Spirit<O, C>>, &Arc<HyperServer<R>>, Request<Body>) -> Fut + Clone + Send + Sync + 'static,
+    Fut: IntoFuture<Item = Response<B>> + Send + 'static,
+    Fut::Future: Send + 'static,
+    Fut::Error: Into<Box<Error + Send + Sync>>,
+    B: Payload,
+{
+    let configure_service = move |spirit: &_, cfg: &_, _: &_, _: &_| {
+        let service = service.clone();
+        let spirit = Arc::clone(spirit);
+        let cfg = Arc::clone(cfg);
+        move || {
+            let service = service.clone();
+            let spirit = Arc::clone(&spirit);
+            let cfg = Arc::clone(&cfg);
+            hyper::service::service_fn(move |req| service(&spirit, &cfg, req))
+        }
+    };
+    server(configure_service)
 }
 
 /// A configuration fragment that can spawn Hyper server.
@@ -169,6 +249,39 @@ where
 pub struct HyperServer<Transport> {
     #[serde(flatten)]
     transport: Transport,
+}
+
+impl<T> ExtraCfgCarrier for HyperServer<T>
+where
+    T: ExtraCfgCarrier,
+{
+    type Extra = T::Extra;
+    fn extra(&self) -> &T::Extra {
+        self.transport.extra()
+    }
+}
+
+impl<O, C, T> ResourceConfig<O, C> for HyperServer<T>
+where
+    T: ResourceConfig<O, C>,
+{
+    type Seed = T::Seed;
+    type Resource = T::Resource;
+    fn create(&self, name: &str) -> Result<Self::Seed, FailError> {
+        self.transport.create(name)
+    }
+    fn fork(&self, seed: &Self::Seed, name: &str) -> Result<Self::Resource, FailError> {
+        self.transport.fork(seed, name)
+    }
+    fn scaled(&self, name: &str) -> (usize, ValidationResults) {
+        self.transport.scaled(name)
+    }
+    fn is_similar(&self, other: &Self, name: &str) -> bool {
+        self.transport.is_similar(&other.transport, name)
+    }
+    fn install<N: Name>(builder: Builder<O, C>, name: &N) -> Builder<O, C> {
+        T::install(builder, name)
+    }
 }
 
 /// A type alias for http (plain TCP) hyper server.
