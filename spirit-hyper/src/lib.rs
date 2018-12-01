@@ -13,16 +13,13 @@
 //! # Examples
 //!
 //! ```rust
-//! #![type_length_limit="8388608"]
-//! extern crate failure;
 //! extern crate hyper;
 //! extern crate serde;
 //! #[macro_use]
 //! extern crate serde_derive;
 //! extern crate spirit;
 //! extern crate spirit_hyper;
-//!
-//! use std::sync::Arc;
+//! extern crate spirit_tokio;
 //!
 //! use hyper::{Body, Request, Response};
 //! use spirit::{Empty, Spirit};
@@ -32,6 +29,7 @@
 //! [server]
 //! port = 1234
 //! "#;
+//!
 //! #[derive(Default, Deserialize)]
 //! struct Config {
 //!     server: HttpServer,
@@ -43,35 +41,31 @@
 //!     }
 //! }
 //!
-//! fn request(_: &Arc<Spirit<Empty, Config>>, _req: Request<Body>, _: &Empty) -> Response<Body> {
+//! fn request(_req: Request<Body>) -> Response<Body> {
 //!     Response::new(Body::from("Hello world\n"))
 //! }
 //!
 //! fn main() {
 //!     Spirit::<Empty, Config>::new()
 //!         .config_defaults(DEFAULT_CONFIG)
-//!         .config_helper(Config::server, spirit_hyper::service_fn_ok(request), "Server")
+//!         .with(spirit_tokio::resource(
+//!             Config::server,
+//!             spirit_hyper::server_ok(request),
+//!             "server",
+//!         ))
 //!         .run(|spirit| {
-//! #           let spirit = Arc::clone(spirit);
+//! #           let spirit = std::sync::Arc::clone(spirit);
 //! #           std::thread::spawn(move || spirit.terminate());
 //!             Ok(())
 //!         });
 //! }
 //! ```
+//!
 //! Further examples are in the
 //! [git repository](https://github.com/vorner/spirit/tree/master/spirit-hyper/examples).
 //!
-//! # Known problems
-//!
-//! * Not many helper generators are present ‒ only [`service_fn_ok`](fn.service_fn_ok.html) for
-//!   now. And that one doesn't (yet) support futures.
-//! * It creates some huge types under the hood. For now, if the compiler complains about
-//!   `type_length_limit`, try increasing it (maybe even multiple times). This might be overcome in
-//!   the future, but for now, the main downside to it is probably compile times.
-//!
 //! [Spirit]: https://crates.io/crates/spirit.
 
-extern crate arc_swap;
 extern crate failure;
 extern crate futures;
 extern crate hyper;
@@ -82,33 +76,26 @@ extern crate serde;
 extern crate serde_derive;
 extern crate spirit;
 extern crate spirit_tokio;
-extern crate structopt;
 extern crate tokio;
 
-use std::borrow::Borrow;
 use std::error::Error;
-use std::fmt::{Debug, Display};
-use std::iter;
 use std::sync::Arc;
 
 use failure::Error as FailError;
-use futures::future::Shared;
-use futures::sync::oneshot::{self, Receiver, Sender};
+use futures::sync::oneshot::{self, Sender};
 use futures::{Async, Future, IntoFuture, Poll};
 use hyper::body::Payload;
 use hyper::server::Server;
-use hyper::server::conn::{Connection, Http};
-use hyper::service::{self, MakeService, Service};
+use hyper::service::{MakeService, Service};
 use hyper::{Body, Request, Response};
-use serde::de::DeserializeOwned;
-use spirit::helpers::{CfgHelper, IteratedCfgHelper};
-use spirit::{Builder, Empty, Spirit};
 use spirit::validation::Results as ValidationResults;
-use spirit_tokio::{ResourceMaker, TcpListen};
-use spirit_tokio::{ExtraCfgCarrier, Name, IntoIncoming, ResourceConfig, ResourceConsumer};
-use structopt::StructOpt;
+use spirit::{Builder, Empty, Spirit};
+use spirit_tokio::{
+    ExtraCfgCarrier, IntoIncoming, Name, ResourceConfig, ResourceConsumer, TcpListen,
+};
 use tokio::io::{AsyncRead, AsyncWrite};
 
+/// Used to signal the graceful shutdown to hyper server.
 struct SendOnDrop(Option<Sender<()>>);
 
 impl Drop for SendOnDrop {
@@ -125,12 +112,40 @@ impl Future for SendOnDrop {
     }
 }
 
+/// Factory for [`MakeService`] implementations.
+///
+/// Each HTTP connection needs its own [`Service`] instance. As the hyper server accepts the
+/// connections, it uses the [`MakeService`] factory to create them.
+///
+/// The configuration needs to spawn whole new servers (each with its own [`MakeService`]).
+/// Therefore, we introduce another level ‒ this trait. It is passed to the [`server`] function.
+///
+/// There's a blanket implementation for compatible closures.
+///
+/// There are also functions similar to [`server`] which forgo some flexibility in favor of
+/// convenience.
 pub trait ConfiguredMakeService<O, C, Cfg>: Send + Sync + 'static
 where
     Cfg: ResourceConfig<O, C>,
 {
+    /// The type of `MakeService` created.
     type MakeService;
-    fn make(&self, spirit: &Arc<Spirit<O, C>>, cfg: &Arc<Cfg>, resource: &Cfg::Resource, name: &str) -> Self::MakeService;
+
+    /// Create a new `MakeService` instance.
+    ///
+    /// # Parameters
+    ///
+    /// * `spirit`: The spirit instance.
+    /// * `cfg`: The configuration fragment that caused creation of the server.
+    /// * `resource`: The acceptor (eg. `TcpListener::accept`) the server will use.
+    /// * `name`: Logging name.
+    fn make(
+        &self,
+        spirit: &Arc<Spirit<O, C>>,
+        cfg: &Arc<Cfg>,
+        resource: &Cfg::Resource,
+        name: &str,
+    ) -> Self::MakeService;
 }
 
 impl<O, C, Cfg, F, R> ConfiguredMakeService<O, C, Cfg> for F
@@ -139,28 +154,100 @@ where
     F: Fn(&Arc<Spirit<O, C>>, &Arc<Cfg>, &Cfg::Resource, &str) -> R + Send + Sync + 'static,
 {
     type MakeService = R;
-    fn make(&self, spirit: &Arc<Spirit<O, C>>, cfg: &Arc<Cfg>, resource: &Cfg::Resource, name: &str) -> R {
+    fn make(
+        &self,
+        spirit: &Arc<Spirit<O, C>>,
+        cfg: &Arc<Cfg>,
+        resource: &Cfg::Resource,
+        name: &str,
+    ) -> R {
         self(spirit, cfg, resource, name)
     }
 }
 
-pub fn server<R, O, C, CMS, B, E, ME, S, F>(configured_make_service: CMS)
-    -> impl ResourceConsumer<HyperServer<R>, O, C>
+/// Creates a [`ResourceConsumer`] from a [`ConfiguredMakeService`].
+///
+/// This is the lowest level constructor of the hyper resource consumers, when the full flexibility
+/// is needed.
+///
+/// # Examples
+///
+/// ```rust
+/// extern crate hyper;
+/// extern crate serde;
+/// #[macro_use]
+/// extern crate serde_derive;
+/// extern crate spirit;
+/// extern crate spirit_hyper;
+/// extern crate spirit_tokio;
+///
+/// use hyper::{Body, Request, Response};
+/// use spirit::{Empty, Spirit};
+/// use spirit_hyper::HttpServer;
+///
+/// #[derive(Default, Deserialize)]
+/// struct Config {
+///     #[serde(default)]
+///     server: Vec<HttpServer>,
+/// }
+///
+/// impl Config {
+///     fn server(&self) -> Vec<HttpServer> {
+///         self.server.clone()
+///     }
+/// }
+///
+/// fn request(_req: Request<Body>) -> Response<Body> {
+///     Response::new(Body::from("Hello world\n"))
+/// }
+///
+/// fn main() {
+///     Spirit::<Empty, Config>::new()
+///         .with(spirit_tokio::resources(
+///             Config::server,
+///             spirit_hyper::server(|_spirit: &_, _cfg: &_, _resource: &_, _name: &str| {
+///                 || hyper::service::service_fn_ok(request)
+///             }),
+///             "server",
+///         ))
+///         .run(|spirit| {
+/// #           let spirit = std::sync::Arc::clone(spirit);
+/// #           std::thread::spawn(move || spirit.terminate());
+///             Ok(())
+///         });
+/// }
+/// ```
+pub fn server<R, O, C, CMS, B, E, ME, S, F>(
+    configured_make_service: CMS,
+) -> impl ResourceConsumer<HyperServer<R>, O, C>
 where
     R: ResourceConfig<O, C>,
     R::Resource: IntoIncoming,
     <R::Resource as IntoIncoming>::Connection: AsyncRead + AsyncWrite,
     CMS: ConfiguredMakeService<O, C, HyperServer<R>>,
     // TODO: Ask hyper to make their MakeServiceRef public, this monster is ugly :-(.
-    CMS::MakeService: for<'a> MakeService<&'a <R::Resource as IntoIncoming>::Connection, ReqBody = Body, Error = E, MakeError = ME, Service = S, Future = F, ResBody = B> + Send + Sync + 'static,
+    CMS::MakeService: for<'a> MakeService<
+            &'a <R::Resource as IntoIncoming>::Connection,
+            ReqBody = Body,
+            Error = E,
+            MakeError = ME,
+            Service = S,
+            Future = F,
+            ResBody = B,
+        > + Send
+        + Sync
+        + 'static,
     E: Into<Box<Error + Send + Sync>>,
     ME: Into<Box<Error + Send + Sync>>,
-    S: Service<ReqBody=Body, ResBody=B, Error=E> + Send + 'static,
+    S: Service<ReqBody = Body, ResBody = B, Error = E> + Send + 'static,
     S::Future: Send,
-    F: Future<Item=S, Error=ME> + Send + 'static,
+    F: Future<Item = S, Error = ME> + Send + 'static,
     B: Payload,
 {
-    move |spirit: &Arc<Spirit<O, C>>, config: &Arc<HyperServer<R>>, resource: R::Resource, name: &str| {
+    move |spirit: &Arc<Spirit<O, C>>,
+          config: &Arc<HyperServer<R>>,
+          resource: R::Resource,
+          name: &str| {
         let (sender, receiver) = oneshot::channel();
         debug!("Starting hyper server {}", name);
         let name_success = name.to_owned();
@@ -176,6 +263,10 @@ where
     }
 }
 
+/// Creates a hyper [`ResourceConfig`] for a closure that returns the [`Response`] directly.
+///
+/// This is like [`server`], but the passed parameter is `Fn(Request) -> Response`. This means it
+/// is not passed anything from `spirit`, it is synchronous and never fails. It must be cloneable.
 pub fn server_ok<R, O, C, S, B>(service: S) -> impl ResourceConsumer<HyperServer<R>, O, C>
 where
     R: ResourceConfig<O, C>,
@@ -191,6 +282,11 @@ where
     server(configure_service)
 }
 
+/// Creates a hyper [`ResourceConfig`] for a closure that returns a future of [`Response`].
+///
+/// This is like [`server`], but the passed parameter is
+/// `Fn(Request) -> impl Future<Item = Response>`. This means it is not passed any configuration
+/// from `spirit`. It also needs to be cloneable.
 pub fn server_simple<R, O, C, S, Fut, B>(service: S) -> impl ResourceConsumer<HyperServer<R>, O, C>
 where
     R: ResourceConfig<O, C>,
@@ -209,14 +305,114 @@ where
     server(configure_service)
 }
 
-pub fn server_configured<R, O, C, S, Fut, B>(service: S) -> impl ResourceConsumer<HyperServer<R>, O, C>
+/// Like [`server`], but taking a closure to answer request directly.
+///
+/// The closure taken is `Fn(spirit, cfg, request) -> impl Future<Response>`.
+///
+/// If the configuration is not needed, the [`server_simple`] or [`server_ok`] might be an
+/// alternative.
+///
+/// # Examples
+///
+/// ```rust
+/// extern crate hyper;
+/// extern crate serde;
+/// #[macro_use]
+/// extern crate serde_derive;
+/// extern crate spirit;
+/// extern crate spirit_hyper;
+/// extern crate spirit_tokio;
+///
+/// use std::collections::HashSet;
+/// use std::sync::Arc;
+///
+/// use hyper::{Body, Request, Response};
+/// use spirit::{Empty, Spirit};
+/// use spirit_tokio::ExtraCfgCarrier;
+/// use spirit_hyper::HttpServer;
+///
+/// const DEFAULT_CONFIG: &str = r#"
+/// [[server]]
+/// port = 3456
+///
+/// [ui]
+/// msg = "Hello world"
+/// "#;
+///
+///
+/// #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Hash)]
+/// struct Signature {
+///     signature: Option<String>,
+/// }
+///
+/// #[derive(Default, Deserialize)]
+/// struct Ui {
+///     msg: String,
+/// }
+///
+/// #[derive(Default, Deserialize)]
+/// struct Config {
+///     /// On which ports (and interfaces) to listen.
+///     ///
+///     /// With some additional configuration about listening, the http server...
+///     ///
+///     /// Also, signature of the given listening port.
+///     #[serde(default)]
+///     listen: HashSet<HttpServer<Signature>>,
+///     /// The UI (there's only the message to send).
+///     ui: Ui,
+/// }
+///
+/// impl Config {
+///     /// A function to extract the HTTP servers configuration
+///     fn listen(&self) -> HashSet<HttpServer<Signature>> {
+///         self.listen.clone()
+///     }
+/// }
+///
+/// fn hello(
+///     spirit: &Arc<Spirit<Empty, Config>>,
+///     cfg: &Arc<HttpServer<Signature>>,
+///    _req: Request<Body>,
+/// ) -> Result<Response<Body>, std::io::Error> {
+///     // Get some global configuration
+///     let mut msg = format!("{}\n", spirit.config().ui.msg);
+///     // Get some listener-local configuration.
+///     if let Some(ref signature) = cfg.extra().signature {
+///         msg.push_str(&format!("Brought to you by {}\n", signature));
+///     }
+///     Ok(Response::new(Body::from(msg)))
+/// }
+///
+/// fn main() {
+///     Spirit::<Empty, Config>::new()
+///         .config_defaults(DEFAULT_CONFIG)
+///         .with(spirit_tokio::resources(
+///             Config::listen,
+///             spirit_hyper::server_configured(hello),
+///             "server",
+///         ))
+///         .run(|spirit| {
+/// #           let spirit = Arc::clone(spirit);
+/// #           std::thread::spawn(move || spirit.terminate());
+///             Ok(())
+///         });
+/// }
+/// ```
+pub fn server_configured<R, O, C, S, Fut, B>(
+    service: S,
+) -> impl ResourceConsumer<HyperServer<R>, O, C>
 where
     C: Send + Sync + 'static,
     O: Send + Sync + 'static,
     R: ResourceConfig<O, C>,
     R::Resource: IntoIncoming,
     <R::Resource as IntoIncoming>::Connection: AsyncRead + AsyncWrite,
-    S: Fn(&Arc<Spirit<O, C>>, &Arc<HyperServer<R>>, Request<Body>) -> Fut + Clone + Send + Sync + 'static,
+    S: Fn(&Arc<Spirit<O, C>>, &Arc<HyperServer<R>>, Request<Body>) -> Fut
+        + Clone
+        + Send
+        + Sync
+        + 'static,
     Fut: IntoFuture<Item = Response<B>> + Send + 'static,
     Fut::Future: Send + 'static,
     Fut::Error: Into<Box<Error + Send + Sync>>,
@@ -236,15 +432,22 @@ where
     server(configure_service)
 }
 
-/// A configuration fragment that can spawn Hyper server.
+/// A [`ResourceConfig`] for hyper servers.
 ///
-/// This is `CfgHelper` and `IteratedCfgHelper` ‒ you can use either singular or a container as the
-/// configuration fragment and pair it with a request handler.
+/// This is a wrapper around a `Transport` [`ResourceConfig`]. It takes something that accepts
+/// connections ‒ like [`TcpListen`] and adds configuration specific for HTTP server.
 ///
-/// The `Transport` type parameter is subfragment that describes the listening socket or something
-/// similar ‒ for example `spirit_tokio::TcpListen`.
+/// This can then be paired with one of the [`ResourceConsumer`]s created by `server` functions to
+/// spawn servers:
 ///
-/// The request handler must implement the [`ConnAction`](trait.ConnAction.html) trait.
+/// * [`server`]
+/// * [`server_configured`]
+/// * [`server_simple`]
+/// * [`server_ok`]
+///
+/// See also the [`HttpServer`] type alias.
+///
+/// # TODO: Actually add the hyper-specific configuration.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct HyperServer<Transport> {
     #[serde(flatten)]
@@ -286,181 +489,3 @@ where
 
 /// A type alias for http (plain TCP) hyper server.
 pub type HttpServer<ExtraCfg = Empty> = HyperServer<TcpListen<ExtraCfg>>;
-
-struct ShutdownConn<T, S: Service> {
-    conn: Connection<T, S>,
-    shutdown: Option<Shared<Receiver<()>>>,
-}
-
-impl<T, S, B> Future for ShutdownConn<T, S>
-where
-    S: Service<ReqBody = Body, ResBody = B> + 'static,
-    S::Error: Into<Box<Error + Send + Sync>>,
-    S::Future: Send,
-    T: AsyncRead + AsyncWrite + 'static,
-    B: Payload + 'static,
-{
-    type Item = <Connection<T, S> as Future>::Item;
-    type Error = <Connection<T, S> as Future>::Error;
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        let do_shutdown = self
-            .shutdown
-            .as_mut()
-            .map(Future::poll)
-            .unwrap_or(Ok(Async::NotReady));
-        match do_shutdown {
-            Ok(Async::NotReady) => (), // Don't shutdown yet (or already done that)
-            _ => {
-                self.conn.graceful_shutdown();
-                self.shutdown.take();
-            }
-        }
-        self.conn.poll()
-    }
-}
-
-/// A trait describing the connection action.
-///
-/// This is usually a function
-/// `Fn(&Arc<Spirit>, &ExtraCfg) -> impl IntoFuture<Item = (impl Service, Http), Error>`
-///
-/// It is similar to `hyper::NewService`, but with extra access to the spirit and extra config from
-/// the transport fragment.
-pub trait ConnAction<O, C, ExtraCfg> {
-    /// The type the function-like thing returns.
-    type IntoFuture;
-
-    /// Performs the action.
-    ///
-    /// This should create the `hyper::Service` used to handle a connection.
-    fn action(&self, &Arc<Spirit<O, C>>, &ExtraCfg) -> Self::IntoFuture;
-}
-
-impl<F, O, C, ExtraCfg, R> ConnAction<O, C, ExtraCfg> for F
-where
-    F: Fn(&Arc<Spirit<O, C>>, &ExtraCfg) -> R,
-{
-    type IntoFuture = R;
-    fn action(&self, arc: &Arc<Spirit<O, C>>, extra: &ExtraCfg) -> R {
-        self(arc, extra)
-    }
-}
-
-/// A helper to create a [`ConnAction`](trait.ConnAction.html) from a function (or closure).
-///
-/// This turns a `Fn(&Arc<Spirit>, &Request<Body>, &ExtraCfg) -> Response<Body>` into a
-/// `ConnAction`, so it can be fed into `cfg_helper`.
-pub fn service_fn_ok<F, O, C, ExtraCfg>(
-    f: F,
-) -> impl ConnAction<
-    O,
-    C,
-    ExtraCfg,
-    IntoFuture = Result<
-        (
-            impl Service<ReqBody = Body, Future = impl Send> + Send,
-            Http,
-        ),
-        FailError,
-    >,
->
-where
-    // TODO: Make more generic ‒ return future, payload, ...
-    F: Fn(&Arc<Spirit<O, C>>, Request<Body>, &ExtraCfg) -> Response<Body> + Send + Sync + 'static,
-    ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-{
-    let f = Arc::new(f);
-    move |spirit: &_, extra_cfg: &ExtraCfg| -> Result<_, FailError> {
-        let spirit = Arc::clone(spirit);
-        let extra_cfg = extra_cfg.clone();
-        let f = Arc::clone(&f);
-        let svc = move |req: Request<Body>| -> Response<Body> { f(&spirit, req, &extra_cfg) };
-        Ok((service::service_fn_ok(svc), Http::new()))
-    }
-}
-
-// TODO: implement service_fn
-
-impl<O, C, Transport, Action, Srv, H> IteratedCfgHelper<O, C, Action> for HyperServer<Transport>
-where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-    Transport: ResourceMaker<O, C, ()>,
-    Transport::Resource: AsyncRead + AsyncWrite + Send + 'static,
-    Action: ConnAction<O, C, Transport::ExtraCfg> + Sync + Send + 'static,
-    Action::IntoFuture: IntoFuture<Item = (Srv, H), Error = FailError>,
-    <Action::IntoFuture as IntoFuture>::Future: Send + 'static,
-    Srv: Service<ReqBody = Body> + Send + 'static,
-    Srv::Future: Send,
-    H: Borrow<Http> + Send + 'static,
-{
-    fn apply<Extractor, ExtractedIter, Name>(
-        mut extractor: Extractor,
-        action: Action,
-        name: Name,
-        builder: Builder<O, C>,
-    ) -> Builder<O, C>
-    where
-        Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
-        ExtractedIter: IntoIterator<Item = Self>,
-        Name: Clone + Display + Send + Sync + 'static,
-    {
-        let (shutdown_send, shutdown_recv) = oneshot::channel::<()>();
-        let shutdown_recv = shutdown_recv.shared();
-        let inner_action = move |spirit: &_, resource, extra_cfg: &_, _: &()| {
-            let shutdown_recv = shutdown_recv.clone();
-            action
-                .action(spirit, extra_cfg)
-                .into_future()
-                .and_then(|(srv, http)| {
-                    let conn = http.borrow().serve_connection(resource, srv);
-                    let conn = ShutdownConn {
-                        shutdown: Some(shutdown_recv),
-                        conn,
-                    };
-                    conn.map_err(FailError::from)
-                })
-        };
-        let inner_extractor = move |cfg: &_| {
-            extractor(cfg)
-                .into_iter()
-                .map(|instance| (instance.transport, ()))
-        };
-        let mut shutdown_send = Some(shutdown_send);
-        Transport::apply(inner_extractor, inner_action, name, builder).on_terminate(move || {
-            if let Some(send) = shutdown_send.take() {
-                let _ = send.send(());
-            }
-        })
-    }
-}
-
-impl<O, C, Transport, Action, Srv, H> CfgHelper<O, C, Action> for HyperServer<Transport>
-where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-    Transport: ResourceMaker<O, C, ()>,
-    Transport::Resource: AsyncRead + AsyncWrite + Send + 'static,
-    Action: ConnAction<O, C, Transport::ExtraCfg> + Sync + Send + 'static,
-    Action::IntoFuture: IntoFuture<Item = (Srv, H), Error = FailError>,
-    <Action::IntoFuture as IntoFuture>::Future: Send + 'static,
-    Srv: Service<ReqBody = Body> + Send + 'static,
-    Srv::Future: Send,
-    H: Borrow<Http> + Send + 'static,
-{
-    fn apply<Extractor, Name>(
-        mut extractor: Extractor,
-        action: Action,
-        name: Name,
-        builder: Builder<O, C>,
-    ) -> Builder<O, C>
-    where
-        Extractor: FnMut(&C) -> Self + Send + 'static,
-        Name: Clone + Display + Send + Sync + 'static,
-    {
-        let extractor = move |cfg: &_| iter::once(extractor(cfg));
-        <Self as IteratedCfgHelper<O, C, Action>>::apply(extractor, action, name, builder)
-    }
-}

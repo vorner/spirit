@@ -3,16 +3,16 @@ extern crate hyper;
 #[macro_use]
 extern crate serde_derive;
 extern crate spirit;
-extern crate spirit_tokio;
 extern crate spirit_hyper;
+extern crate spirit_tokio;
 
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use hyper::{Body, Request, Response};
 use spirit::{Empty, Spirit};
-use spirit_tokio::ExtraCfgCarrier;
 use spirit_hyper::HttpServer;
+use spirit_tokio::ExtraCfgCarrier;
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Hash)]
 struct Signature {
@@ -56,9 +56,11 @@ signature = "local"
 msg = "Hello world"
 "#;
 
-fn hello(spirit: &Arc<Spirit<Empty, Config>>, cfg: &Arc<HttpServer<Signature>>, _req: Request<Body>)
-    -> Result<Response<Body>, std::io::Error>
-{
+fn hello(
+    spirit: &Arc<Spirit<Empty, Config>>,
+    cfg: &Arc<HttpServer<Signature>>,
+    _req: Request<Body>,
+) -> Result<Response<Body>, std::io::Error> {
     // Get some global configuration
     let mut msg = format!("{}\n", spirit.config().ui.msg);
     // Get some listener-local configuration.

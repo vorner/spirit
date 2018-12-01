@@ -122,10 +122,7 @@ impl Drop for RemoteDrop {
 }
 
 pub trait Name: AsRef<str> + Clone + Send + Sync + 'static {}
-impl<N> Name for N
-where
-    N: AsRef<str> + Clone + Send + Sync + 'static,
-{}
+impl<N> Name for N where N: AsRef<str> + Clone + Send + Sync + 'static {}
 
 pub trait ExtraCfgCarrier {
     type Extra;
@@ -133,7 +130,9 @@ pub trait ExtraCfgCarrier {
 }
 
 // TODO: Are all these trait bounds necessary?
-pub trait ResourceConfig<O, C>: Debug + ExtraCfgCarrier + Sync + Send + PartialEq + 'static {
+pub trait ResourceConfig<O, C>:
+    Debug + ExtraCfgCarrier + Sync + Send + PartialEq + 'static
+{
     type Seed: Send + Sync + 'static;
     type Resource: Send + 'static;
     fn create(&self, name: &str) -> Result<Self::Seed, Error>;
@@ -300,12 +299,21 @@ where
             let cfg_str_err = Arc::clone(&cfg_str);
             let name = name.clone();
             let name_err = name.clone();
-            debug!("Installing resource {} with config {}", name.as_ref(), cfg_str);
+            debug!(
+                "Installing resource {} with config {}",
+                name.as_ref(),
+                cfg_str
+            );
 
             let task = consumer
                 .build_future(&spirit, &config, resource, name.as_ref())
                 .map_err(move |e| {
-                    error!("Task {} on config {} failed: {}", name_err.as_ref(), cfg_str_err, e);
+                    error!(
+                        "Task {} on config {} failed: {}",
+                        name_err.as_ref(),
+                        cfg_str_err,
+                        e
+                    );
                 })
                 .select(drop_req.map_err(|_| ())) // Cancelation is OK too
                 .then(move |orig| {
@@ -405,7 +413,11 @@ where
         let sender = install_sender.clone();
         results.merge(ValidationResult::nothing().on_success(move || {
             for install in to_send {
-                trace!("Sending {}/{:?} to the reactor", name.as_ref(), install.config);
+                trace!(
+                    "Sending {}/{:?} to the reactor",
+                    name.as_ref(),
+                    install.config
+                );
                 sender
                     .unbounded_send(install)
                     .expect("The tokio end got dropped");
