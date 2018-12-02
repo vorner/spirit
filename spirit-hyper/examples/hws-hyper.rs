@@ -76,10 +76,10 @@ fn main() {
     Spirit::<Empty, _>::new()
         .config_defaults(DEFAULT_CONFIG)
         .config_exts(&["toml", "ini", "json"])
-        .with(spirit_tokio::resources(
+        .config_helper(
             Config::listen,
             spirit_hyper::server_configured(hello),
             "listen",
-        ))
+        )
         .run(|_| Ok(()));
 }

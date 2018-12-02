@@ -12,6 +12,7 @@
 //! case of TCP, the action is handling one incoming connection) and a name (which is used in
 //! logs).
 
+extern crate env_logger;
 extern crate failure;
 #[macro_use]
 extern crate log;
@@ -26,11 +27,11 @@ use std::sync::Arc;
 
 use failure::Error;
 use spirit::{Empty, Spirit};
-use spirit_tokio::TcpListen;
+use spirit_tokio::TcpListenWithLimits;
 use tokio::net::TcpStream;
 use tokio::prelude::*;
 
-// Configuration. It has the same shape as the one in hws.rs.
+// Configuration. It has the same shape as the one in spirit's hws.rs.
 
 #[derive(Default, Deserialize)]
 struct Ui {
@@ -40,14 +41,14 @@ struct Ui {
 #[derive(Default, Deserialize)]
 struct Config {
     /// On which ports (and interfaces) to listen.
-    listen: HashSet<TcpListen>,
+    listen: HashSet<TcpListenWithLimits>,
     /// The UI (there's only the message to send).
     ui: Ui,
 }
 
 impl Config {
     /// A function to extract the tcp ports configuration.
-    fn listen(&self) -> HashSet<TcpListen> {
+    fn listen(&self) -> HashSet<TcpListenWithLimits> {
         self.listen.clone()
     }
 }
@@ -55,6 +56,8 @@ impl Config {
 const DEFAULT_CONFIG: &str = r#"
 [[listen]]
 port = 1234
+max-conn = 30
+error-sleep = "50ms"
 
 [[listen]]
 port = 5678
@@ -67,8 +70,9 @@ msg = "Hello world"
 /// Handle one connection, the tokio way.
 fn handle_connection(
     spirit: &Arc<Spirit<Empty, Config>>,
+    _conf: &Arc<TcpListenWithLimits>,
     conn: TcpStream,
-    _: &Empty,
+    _name: &str,
 ) -> impl Future<Item = (), Error = Error> {
     let addr = conn
         .peer_addr()
@@ -86,9 +90,14 @@ fn handle_connection(
 }
 
 pub fn main() {
+    env_logger::init();
     Spirit::<Empty, Config>::new()
         .config_defaults(DEFAULT_CONFIG)
         .config_exts(&["toml", "ini", "json"])
-        .config_helper(Config::listen, handle_connection, "listen")
+        .config_helper(
+            Config::listen,
+            spirit_tokio::per_connection(handle_connection),
+            "listen",
+        )
         .run(|_| Ok(()));
 }

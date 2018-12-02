@@ -48,11 +48,7 @@
 //! fn main() {
 //!     Spirit::<Empty, Config>::new()
 //!         .config_defaults(DEFAULT_CONFIG)
-//!         .with(spirit_tokio::resource(
-//!             Config::server,
-//!             spirit_hyper::server_ok(request),
-//!             "server",
-//!         ))
+//!         .config_helper(Config::server, spirit_hyper::server_ok(request), "server")
 //!         .run(|spirit| {
 //! #           let spirit = std::sync::Arc::clone(spirit);
 //! #           std::thread::spawn(move || spirit.terminate());
@@ -75,6 +71,7 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate spirit;
+#[macro_use]
 extern crate spirit_tokio;
 extern crate tokio;
 
@@ -88,11 +85,8 @@ use hyper::body::Payload;
 use hyper::server::Server;
 use hyper::service::{MakeService, Service};
 use hyper::{Body, Request, Response};
-use spirit::validation::Results as ValidationResults;
 use spirit::{Builder, Empty, Spirit};
-use spirit_tokio::{
-    ExtraCfgCarrier, IntoIncoming, Name, ResourceConfig, ResourceConsumer, TcpListen,
-};
+use spirit_tokio::{IntoIncoming, ResourceConfig, ResourceConsumer, TcpListen};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 /// Used to signal the graceful shutdown to hyper server.
@@ -516,37 +510,12 @@ impl<Transport: Default> Default for HyperServer<Transport> {
     }
 }
 
-impl<T> ExtraCfgCarrier for HyperServer<T>
-where
-    T: ExtraCfgCarrier,
-{
-    type Extra = T::Extra;
-    fn extra(&self) -> &T::Extra {
-        self.transport.extra()
-    }
+delegate_resource_traits! {
+    delegate ResourceConfig, ExtraCfgCarrier to transport on HyperServer;
 }
 
-impl<O, C, T> ResourceConfig<O, C> for HyperServer<T>
-where
-    T: ResourceConfig<O, C>,
-{
-    type Seed = T::Seed;
-    type Resource = T::Resource;
-    fn create(&self, name: &str) -> Result<Self::Seed, FailError> {
-        self.transport.create(name)
-    }
-    fn fork(&self, seed: &Self::Seed, name: &str) -> Result<Self::Resource, FailError> {
-        self.transport.fork(seed, name)
-    }
-    fn scaled(&self, name: &str) -> (usize, ValidationResults) {
-        self.transport.scaled(name)
-    }
-    fn is_similar(&self, other: &Self, name: &str) -> bool {
-        self.transport.is_similar(&other.transport, name)
-    }
-    fn install<N: Name>(builder: Builder<O, C>, name: &N) -> Builder<O, C> {
-        T::install(builder, name)
-    }
+cfg_helpers! {
+    impl helpers for HyperServer<Transport> where;
 }
 
 /// A type alias for http (plain TCP) hyper server.

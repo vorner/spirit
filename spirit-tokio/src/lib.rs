@@ -25,28 +25,33 @@
 //!
 //! use failure::Error;
 //! use spirit::{Empty, Spirit};
-//! use spirit_tokio::TcpListen;
+//! use spirit_tokio::TcpListenWithLimits;
 //! use tokio::net::TcpStream;
 //! use tokio::prelude::*;
 //!
 //! const DEFAULT_CONFIG: &str = r#"
 //! [listening_socket]
 //! port = 1234
+//! max-conn = 20
+//! error-sleep = "100ms"
 //! "#;
 //! #[derive(Default, Deserialize)]
 //! struct Config {
-//!     listening_socket: TcpListen,
+//!     listening_socket: TcpListenWithLimits,
 //! }
 //!
 //! impl Config {
-//!     fn listening_socket(&self) -> TcpListen {
+//!     fn listening_socket(&self) -> TcpListenWithLimits {
 //!         self.listening_socket.clone()
 //!     }
 //! }
 //!
-//! fn connection(_: &Arc<Spirit<Empty, Config>>, conn: TcpStream, _: &Empty)
-//!     -> impl Future<Item = (), Error = Error>
-//! {
+//! fn connection(
+//!     _: &Arc<Spirit<Empty, Config>>,
+//!     _: &Arc<TcpListenWithLimits>,
+//!     conn: TcpStream,
+//!     _: &str
+//! ) -> impl Future<Item = (), Error = Error> {
 //!     tokio::io::write_all(conn, "Hello\n")
 //!         .map(|_| ())
 //!         .map_err(Error::from)
@@ -55,7 +60,11 @@
 //! fn main() {
 //!     Spirit::<Empty, Config>::new()
 //!         .config_defaults(DEFAULT_CONFIG)
-//!         .config_helper(Config::listening_socket, connection, "Listener")
+//!         .config_helper(
+//!             Config::listening_socket,
+//!             spirit_tokio::per_connection(connection),
+//!             "Listener",
+//!         )
 //!         .run(|spirit| {
 //! #           let spirit = Arc::clone(spirit);
 //! #           std::thread::spawn(move || spirit.terminate());
@@ -77,6 +86,7 @@ extern crate parking_lot;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate serde_humanize_rs;
 extern crate spirit;
 extern crate structopt;
 extern crate tk_listen;
@@ -94,7 +104,7 @@ use futures::sync::{mpsc, oneshot};
 use futures::{Future, IntoFuture};
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
-use spirit::helpers::{CfgHelper, Helper, IteratedCfgHelper};
+use spirit::helpers::Helper;
 use spirit::validation::{Result as ValidationResult, Results as ValidationResults};
 use spirit::{Builder, Empty, Spirit};
 use structopt::StructOpt;
@@ -103,6 +113,8 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::prelude::*;
 use tokio::reactor::Handle;
 use tokio::runtime;
+
+pub mod macros;
 
 // TODO: Make this public, it may be useful to other helper crates.
 struct RemoteDrop {
@@ -124,6 +136,7 @@ impl Drop for RemoteDrop {
 pub trait Name: AsRef<str> + Clone + Send + Sync + 'static {}
 impl<N> Name for N where N: AsRef<str> + Clone + Send + Sync + 'static {}
 
+// TODO: Move to spirit itself? Might be useful there.
 pub trait ExtraCfgCarrier {
     type Extra;
     fn extra(&self) -> &Self::Extra;
@@ -201,7 +214,7 @@ impl IntoIncoming for TcpListener {
     }
 }
 
-pub trait ListenInfo<O, C>: ResourceConfig<O, C> {
+pub trait ListenLimits {
     fn error_sleep(&self) -> Duration;
     fn max_conn(&self) -> usize;
 }
@@ -211,7 +224,7 @@ pub fn per_connection_init<Config, I, F, R, O, C, Ctx>(
     action: F,
 ) -> impl ResourceConsumer<Config, O, C>
 where
-    Config: ListenInfo<O, C>,
+    Config: ListenLimits + ResourceConfig<O, C>,
     Config::Resource: IntoIncoming,
     I: Fn(&Arc<Spirit<O, C>>, &Arc<Config>, &mut Config::Resource, &str) -> Ctx
         + Send
@@ -278,7 +291,7 @@ where
 
 pub fn per_connection<Config, F, R, O, C>(action: F) -> impl ResourceConsumer<Config, O, C>
 where
-    Config: ListenInfo<O, C>,
+    Config: ListenLimits + ResourceConfig<O, C>,
     Config::Resource: IntoIncoming,
     F: Fn(
             &Arc<Spirit<O, C>>,
@@ -314,7 +327,7 @@ where
     Consumer: ResourceConsumer<Config, O, C>,
     C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
-    E: FnMut(&C) -> R + Sync + Send + 'static,
+    E: FnMut(&C) -> R + Send + 'static,
     R: IntoIterator<Item = Config>,
     N: Name,
 {
@@ -493,218 +506,10 @@ where
     Consumer: ResourceConsumer<Config, O, C>,
     C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
-    E: FnMut(&C) -> Config + Sync + Send + 'static,
+    E: FnMut(&C) -> Config + Send + 'static,
     N: Name,
 {
     resources(move |c: &C| iter::once(extract(c)), consumer, name)
-}
-
-/// An inner tokio task helper.
-///
-/// This is mostly used internally, but it is also made public as it may be useful for authors of
-/// other tokio-related helpers.
-///
-/// There are several stages with some tokio resource. First, the configuration is extracted using
-/// the `extract` closure. Note that the closure should return an iterator of configurations. Then,
-/// it is turned into a base resource by the `build` closure. The resource is then sent into the
-/// tokio runtime where the `to_task` is run on it, to turn it into a future/task to be spawned on
-/// the runtime.
-///
-/// See the bounds on the `Helper` trait implementation for exact signatures.
-pub struct Task<Extract, Build, ToTask, Name> {
-    /// A closure used to extract configuration.
-    pub extract: Extract,
-    /// A closure to turn one bit of configuration into some kind of resource.
-    pub build: Build,
-    /// Wraps a resource, adds some activity around it and returns a future to be spawned onto
-    /// tokio.
-    pub to_task: ToTask,
-    /// A name used in logging.
-    pub name: Name,
-}
-
-impl<O, C, SubCfg, Resource, Extract, ExtractIt, ExtraCfg, Build, ToTask, InnerTask, Name>
-    Helper<O, C> for Task<Extract, Build, ToTask, Name>
-where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-    Extract: FnMut(&C) -> ExtractIt + Send + 'static,
-    ExtractIt: IntoIterator<Item = (SubCfg, ExtraCfg, usize, ValidationResults)>,
-    ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
-    SubCfg: Clone + Debug + PartialEq + Send + 'static,
-    Build: FnMut(&SubCfg) -> Result<Resource, Error> + Send + 'static,
-    Resource: Clone + Send + 'static,
-    ToTask: FnMut(&Arc<Spirit<O, C>>, Resource, ExtraCfg) -> InnerTask + Send + 'static,
-    InnerTask: IntoFuture<Item = (), Error = Error> + Send + 'static,
-    <InnerTask as IntoFuture>::Future: Send,
-    Name: Clone + Display + Send + Sync + 'static,
-{
-    fn apply(self, builder: Builder<O, C>) -> Builder<O, C> {
-        let Task {
-            mut extract,
-            mut build,
-            mut to_task,
-            name,
-        } = self;
-        debug!("Installing helper {}", name);
-        // Note: this depends on the specific drop order to avoid races
-        struct Install<R, ExtraCfg> {
-            resource: R,
-            drop_req: oneshot::Receiver<()>,
-            confirm_drop: oneshot::Sender<()>,
-            cfg: String,
-            extra_conf: ExtraCfg,
-        }
-        #[derive(Clone)]
-        struct Cache<SubCfg, ExtraCfg, Resource> {
-            sub_cfg: SubCfg,
-            extra_cfg: ExtraCfg,
-            resource: Resource,
-            remote: Vec<Arc<RemoteDrop>>,
-        }
-        let (install_sender, install_receiver) = mpsc::unbounded::<Install<Resource, ExtraCfg>>();
-
-        let installer_name = name.clone();
-        let installer = move |spirit: &Arc<Spirit<O, C>>| {
-            let spirit = Arc::clone(spirit);
-            install_receiver.for_each(move |install| {
-                let Install {
-                    resource,
-                    drop_req,
-                    confirm_drop,
-                    cfg,
-                    extra_conf,
-                } = install;
-                let name = installer_name.clone();
-                debug!("Installing resource {} with config {}", name, cfg);
-                // Get the task itself
-                let task = to_task(&spirit, resource, extra_conf).into_future();
-                let err_name = name.clone();
-                let err_cfg = cfg.clone();
-                // Wrap it in the cancelation routine
-                let wrapped = task
-                    .map_err(move |e| error!("Task {} on cfg {} failed: {}", err_name, err_cfg, e))
-                    .select(drop_req.map_err(|_| ())) // Cancelation is OK too
-                    .then(move |orig| {
-                        debug!("Terminated resource {} on cfg {}", name, cfg);
-                        drop(orig); // Make sure the original future is dropped first.
-                        confirm_drop.send(())
-                    })
-                    .map_err(|_| ()); // If nobody waits for confirm_drop, that's OK.
-                tokio::spawn(wrapped)
-            })
-        };
-
-        let cache = Arc::new(Mutex::new(Vec::new()));
-        let validator = move |_: &Arc<C>, cfg: &mut C, _: &O| -> ValidationResults {
-            let mut results = ValidationResults::new();
-            let orig_cache = cache.lock();
-            let mut new_cache = Vec::new();
-            let mut to_send = Vec::new();
-            for sub in extract(cfg) {
-                let (sub, extra, mut scale, sub_results) = sub;
-                results.merge(sub_results);
-
-                let previous = orig_cache
-                    .iter()
-                    .find(|Cache { sub_cfg, .. }| sub_cfg == &sub);
-
-                let mut cached = if let Some(previous) = previous {
-                    debug!("Reusing previous instance of {} for {:?}", name, sub);
-                    previous.clone()
-                } else {
-                    trace!("Creating new instance of {} for {:?}", name, sub);
-                    match build(&sub) {
-                        Ok(resource) => {
-                            debug!("Successfully created instance of {} for {:?}", name, sub);
-                            Cache {
-                                sub_cfg: sub.clone(),
-                                extra_cfg: extra.clone(),
-                                resource,
-                                remote: Vec::new(),
-                            }
-                        }
-                        Err(e) => {
-                            let msg = format!("Creationg of {} for {:?} failed", name, sub);
-                            // The error will appear together for the validator
-                            debug!("{}: {}", msg, e);
-                            results.merge(ValidationResult::from_error(e.context(msg).into()));
-                            continue;
-                        }
-                    }
-                };
-
-                if extra != cached.extra_cfg {
-                    debug!(
-                        "Extra config for {:?} differs (old: {:?}, new: {:?}",
-                        sub, cached.extra_cfg, extra
-                    );
-                    // If we have no old remotes here, they'll get dropped on installation and
-                    // we'll „scale up“ to the current scale.
-                    cached.remote.clear();
-                }
-
-                if cached.remote.len() > scale {
-                    debug!(
-                        "Scaling down {} from {} to {}",
-                        name,
-                        cached.remote.len(),
-                        scale
-                    );
-                    cached.remote.drain(scale..);
-                }
-
-                if cached.remote.len() < scale {
-                    debug!(
-                        "Scaling up {} from {} to {}",
-                        name,
-                        cached.remote.len(),
-                        scale
-                    );
-                    while cached.remote.len() < scale {
-                        let (req_sender, req_recv) = oneshot::channel();
-                        let (confirm_sender, confirm_recv) = oneshot::channel();
-                        to_send.push(Install {
-                            resource: cached.resource.clone(),
-                            drop_req: req_recv,
-                            confirm_drop: confirm_sender,
-                            cfg: format!("{:?}", sub),
-                            extra_conf: extra.clone(),
-                        });
-                        cached.remote.push(Arc::new(RemoteDrop {
-                            request_drop: Some(req_sender),
-                            drop_confirmed: Some(confirm_recv),
-                        }));
-                    }
-                }
-
-                new_cache.push(cached);
-            }
-
-            let sender = install_sender.clone();
-            let cache = Arc::clone(&cache);
-            let name = name.clone();
-            results.merge(ValidationResult::nothing().on_success(move || {
-                for install in to_send {
-                    trace!("Sending {} to the reactor", install.cfg);
-                    sender
-                        .unbounded_send(install)
-                        .expect("The tokio end got dropped");
-                }
-                *cache.lock() = new_cache;
-                debug!("New version of {} sent", name);
-            }));
-            results
-        };
-
-        builder
-            .config_validator(validator)
-            .with_singleton(Runtime::default())
-            .before_body(move |spirit| {
-                tokio::spawn(installer(spirit));
-                Ok(())
-            })
-    }
 }
 
 fn default_host() -> String {
@@ -751,14 +556,6 @@ impl Listen {
     pub fn create_udp(&self) -> Result<StdUdpSocket, Error> {
         Ok(StdUdpSocket::bind((&self.host as &str, self.port))?)
     }
-}
-
-fn default_error_sleep() -> u64 {
-    100
-}
-
-fn default_max_conn() -> usize {
-    1000
 }
 
 /// Description of scaling into multiple tasks.
@@ -822,64 +619,6 @@ impl Scaled for Singleton {
     }
 }
 
-/// An alternative (more concrete) trait to `IteratedCfgHelper` for futures/tokio integration.
-///
-/// While the `IteratedCfgHelper` is good for end-user integration with extractors, there are too
-/// many loose ends to be usable to reuse in implementing composed helpers.
-///
-/// This has more concrete parts (specifically, it mandates that it produces only one specific type
-/// of something), so higher level abstractions can reuse lower-level builders. The current use
-/// case is being able to wrap the creator of TcpStream (or other streams, like possible SSL
-/// stream, Unix domain streams, etc) to be able to put something on top of them (a HTTP server,
-/// for example), regardless of what stream is used underneath.
-pub trait ResourceMaker<O, C, PipeThrough>
-where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-    Self: Sized,
-{
-    /// The kind of resource the low-level thing builds.
-    ///
-    /// This is, for example, the TCP stream.
-    type Resource;
-
-    /// Extra custom configuration carried in the config fragment.
-    ///
-    /// This allows some data to be passed from the configuration to the provided action without
-    /// interference by the maker. If not used, it can be ().
-    type ExtraCfg: Clone + Debug + PartialEq + Send + 'static;
-
-    /// Installs the pipeline.
-    ///
-    /// Similarly to helpers, this takes all the needed pieces and installs the pipeline to extract
-    /// part of configuration, turn it into a resource, apply the user action and spawn the
-    /// returned future into the builder.
-    ///
-    /// # Params
-    ///
-    /// * `extractor`: Closure that extracts a fragment from the configuration. This describe how
-    ///   the resource is created.
-    /// * `action`: Something the user wants to be done with each created resource.
-    /// * `name`: How the thing is called in the logs.
-    /// * `builder`: The builder to modify.
-    fn apply<Extractor, ExtractedIter, Action, ActionFut, Name>(
-        extractor: Extractor,
-        action: Action,
-        name: Name,
-        builder: Builder<O, C>,
-    ) -> Builder<O, C>
-    where
-        Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
-        ExtractedIter: IntoIterator<Item = (Self, PipeThrough)>,
-        Action: Fn(&Arc<Spirit<O, C>>, Self::Resource, &Self::ExtraCfg, &PipeThrough) -> ActionFut
-            + Send
-            + Sync
-            + 'static,
-        ActionFut: IntoFuture<Item = (), Error = Error>,
-        ActionFut::Future: Send + 'static,
-        Name: Clone + Display + Send + Sync + 'static;
-}
-
 /// A configuration fragment of a TCP listening socket.
 ///
 /// This describes a TCP listening socket. It works as an iterated configuration helper ‒ if you
@@ -898,128 +637,25 @@ where
 ///
 /// * `host`: The host/interface to listen on, defaults to `*`.
 /// * `port`: Mandatory, the port to listen to.
-/// * `error_sleep_ms`: If there's a recoverable error like „Too many open files“, this many
-///   milliseconds is waited before trying to accept more connections. Defaults to 100.
-/// * `max_conn`: Maximum number of parallel connections. This is per one instance, therefore the
+/// * `error-sleep`: If there's a recoverable error like „Too many open files“, sleep this long
+///   before trying again to accept more connections. Defaults to "100ms".
+/// * `max-conn`: Maximum number of parallel connections. This is per one instance, therefore the
 ///   total number of connections being handled is `scale * max_conn` (if scaling is enabled).
 ///   Defaults to 1000.
+///
+/// TODO: The max-conn is in the WithListenLimits
 ///
 /// # Example
 ///
 /// TODO (adjust the one from the crate level config)
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct TcpListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
     #[serde(flatten)]
     listen: Listen,
     #[serde(flatten)]
     scale: ScaleMode,
-    #[serde(rename = "error-sleep-ms", default = "default_error_sleep")]
-    error_sleep_ms: u64,
-    #[serde(rename = "max-conn", default = "default_max_conn")]
-    max_conn: usize,
     #[serde(flatten)]
     extra_cfg: ExtraCfg,
-}
-
-impl<ExtraCfg, ScaleMode> TcpListen<ExtraCfg, ScaleMode>
-where
-    ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
-    ScaleMode: Scaled,
-{
-    /// Provides a helper for this configuration.
-    ///
-    /// While you are free to use this directly, it is more commonly used through
-    /// `spirit::Builder::config_helper` with an extractor returning iterator of this type.
-    ///
-    /// # Parameters
-    ///
-    /// * `extract`: Closure that extracts an iterator of `TcpListen` out of the whole
-    ///   configuration.
-    /// * `conn`: An action to be taken on each accepted connection.
-    /// * `name`: How to call the instances in logs.
-    pub fn helper<Extract, ExtractIt, Conn, ConnFut, Name, O, C>(
-        mut extract: Extract,
-        conn: Conn,
-        name: Name,
-    ) -> impl Helper<O, C>
-    where
-        C: DeserializeOwned + Send + Sync + 'static,
-        O: Debug + StructOpt + Sync + Send + 'static,
-        Extract: FnMut(&C) -> ExtractIt + Send + 'static,
-        ExtractIt: IntoIterator<Item = Self>,
-        Conn: Fn(&Arc<Spirit<O, C>>, TcpStream, &ExtraCfg) -> ConnFut + Sync + Send + 'static,
-        ConnFut: IntoFuture<Item = (), Error = Error>,
-        ConnFut::Future: Send + 'static,
-        Name: Clone + Display + Send + Sync + 'static,
-    {
-        let conn = Arc::new(conn);
-
-        let to_task_name = name.clone();
-        let to_task =
-            move |spirit: &Arc<Spirit<O, C>>,
-                  listener: Arc<StdTcpListener>,
-                  (cfg, error_sleep, max_conn): (ExtraCfg, Duration, usize)| {
-                let spirit = Arc::clone(spirit);
-                let conn = Arc::clone(&conn);
-                let name = to_task_name.clone();
-                listener
-                    .try_clone() // Another copy of the listener
-                    // std → tokio socket conversion
-                    .and_then(|listener| TcpListener::from_std(listener, &Handle::default()))
-                    .into_future()
-                    .and_then(move |listener| {
-                        listener
-                            .incoming()
-                            // Handle errors like too many open FDs gracefully
-                            .sleep_on_error(error_sleep)
-                            .map(move |new_conn| {
-                                let name = name.clone();
-                                // The listen below keeps track of how many parallel connections
-                                // there are. But it does so inside the same future, which prevents
-                                // the separate connections to be handled in parallel on a thread
-                                // pool. So we spawn the future to handle the connection itself.
-                                // But we want to keep the future alive so the listen doesn't think
-                                // it already terminated, therefore the done-channel.
-                                let (done_send, done_recv) = oneshot::channel();
-                                let handle_conn =
-                                    conn(&spirit, new_conn, &cfg).into_future().then(move |r| {
-                                        if let Err(e) = r {
-                                            error!(
-                                                "Failed to handle connection on {}: {}",
-                                                name, e
-                                            );
-                                        }
-                                        // Ignore the other side going away. This may happen if the
-                                        // listener terminated, but the connection lingers for
-                                        // longer.
-                                        let _ = done_send.send(());
-                                        future::ok(())
-                                    });
-                                tokio::spawn(handle_conn);
-                                done_recv.then(|_| future::ok(()))
-                            })
-                            .listen(max_conn)
-                            .map_err(|()| unreachable!("tk-listen never errors"))
-                    })
-                    .map_err(Error::from)
-            };
-
-        let extract_name = name.clone();
-        let extract = move |cfg: &C| {
-            extract(cfg).into_iter().map(|c| {
-                let (scale, results) = c.scale.scaled(&extract_name);
-                let sleep = Duration::from_millis(c.error_sleep_ms);
-                (c.listen, (c.extra_cfg, sleep, c.max_conn), scale, results)
-            })
-        };
-
-        Task {
-            extract,
-            build: |cfg: &Listen| cfg.create_tcp().map(Arc::new),
-            to_task,
-            name,
-        }
-    }
 }
 
 impl<ExtraCfg, ScaleMode> ExtraCfgCarrier for TcpListen<ExtraCfg, ScaleMode>
@@ -1029,19 +665,6 @@ where
     type Extra = ExtraCfg;
     fn extra(&self) -> &ExtraCfg {
         &self.extra_cfg
-    }
-}
-
-impl<ExtraCfg, ScaleMode, O, C> ListenInfo<O, C> for TcpListen<ExtraCfg, ScaleMode>
-where
-    ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
-    ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static,
-{
-    fn error_sleep(&self) -> Duration {
-        Duration::from_millis(self.error_sleep_ms)
-    }
-    fn max_conn(&self) -> usize {
-        self.max_conn
     }
 }
 
@@ -1069,116 +692,53 @@ where
     }
 }
 
-impl<ExtraCfg: Default, ScaleMode: Default + Scaled> Default for TcpListen<ExtraCfg, ScaleMode> {
+fn default_error_sleep() -> Duration {
+    Duration::from_millis(100)
+}
+
+fn default_max_conn() -> usize {
+    1000
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct WithListenLimits<Listener> {
+    #[serde(flatten)]
+    inner: Listener,
+    #[serde(
+        rename = "error-sleep",
+        default = "default_error_sleep",
+        with = "serde_humanize_rs"
+    )]
+    error_sleep: Duration,
+    #[serde(rename = "max-conn", default = "default_max_conn")]
+    max_conn: usize,
+}
+
+impl<Listener: Default> Default for WithListenLimits<Listener> {
     fn default() -> Self {
         Self {
-            listen: Listen::default(),
-            scale: ScaleMode::default(),
-            error_sleep_ms: default_error_sleep(),
+            inner: Listener::default(),
+            error_sleep: default_error_sleep(),
             max_conn: default_max_conn(),
-            extra_cfg: ExtraCfg::default(),
         }
     }
 }
 
-impl<O, C, Conn, ConnFut, ExtraCfg, ScaleMode> IteratedCfgHelper<O, C, Conn>
-    for TcpListen<ExtraCfg, ScaleMode>
-where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-    ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
-    Conn: Fn(&Arc<Spirit<O, C>>, TcpStream, &ExtraCfg) -> ConnFut + Sync + Send + 'static,
-    ConnFut: IntoFuture<Item = (), Error = Error>,
-    ConnFut::Future: Send + 'static,
-    ScaleMode: Scaled,
-{
-    fn apply<Extractor, ExtractedIter, Name>(
-        extractor: Extractor,
-        action: Conn,
-        name: Name,
-        builder: Builder<O, C>,
-    ) -> Builder<O, C>
-    where
-        Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
-        ExtractedIter: IntoIterator<Item = Self>,
-        Name: Clone + Display + Send + Sync + 'static,
-    {
-        Self::helper(extractor, action, name).apply(builder)
+impl<Listener> ListenLimits for WithListenLimits<Listener> {
+    fn error_sleep(&self) -> Duration {
+        self.error_sleep
+    }
+    fn max_conn(&self) -> usize {
+        self.max_conn
     }
 }
 
-impl<O, C, ExtraCfg, PipeThrough, ScaleMode> ResourceMaker<O, C, PipeThrough>
-    for TcpListen<ExtraCfg, ScaleMode>
-where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-    ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
-    PipeThrough: Clone + Debug + PartialEq + Send + 'static,
-    ScaleMode: Scaled,
-{
-    type Resource = TcpStream;
-    type ExtraCfg = ExtraCfg;
-    fn apply<Extractor, ExtractedIter, Action, ActionFut, Name>(
-        mut extractor: Extractor,
-        action: Action,
-        name: Name,
-        builder: Builder<O, C>,
-    ) -> Builder<O, C>
-    where
-        Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
-        ExtractedIter: IntoIterator<Item = (Self, PipeThrough)>,
-        Action: Fn(&Arc<Spirit<O, C>>, TcpStream, &Self::ExtraCfg, &PipeThrough) -> ActionFut
-            + Send
-            + Sync
-            + 'static,
-        ActionFut: IntoFuture<Item = (), Error = Error>,
-        ActionFut::Future: Send + 'static,
-        Name: Clone + Display + Send + Sync + 'static,
-    {
-        let extractor = move |cfg: &_| {
-            extractor(cfg)
-                .into_iter()
-                .map(|(tcp, pipe_through)| TcpListen {
-                    listen: tcp.listen,
-                    scale: tcp.scale,
-                    error_sleep_ms: tcp.error_sleep_ms,
-                    max_conn: tcp.max_conn,
-                    extra_cfg: (tcp.extra_cfg, pipe_through),
-                })
-        };
-        let action = move |spirit: &_, stream, extra_cfg: &(_, _)| {
-            action(spirit, stream, &extra_cfg.0, &extra_cfg.1)
-        };
-        TcpListen::<(ExtraCfg, PipeThrough), ScaleMode>::helper(extractor, action, name)
-            .apply(builder)
-    }
+delegate_resource_traits! {
+    delegate ExtraCfgCarrier, ResourceConfig to inner on WithListenLimits;
 }
 
-impl<O, C, Conn, ConnFut, ExtraCfg, ScaleMode> CfgHelper<O, C, Conn>
-    for TcpListen<ExtraCfg, ScaleMode>
-where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-    ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
-    Conn: Fn(&Arc<Spirit<O, C>>, TcpStream, &ExtraCfg) -> ConnFut + Sync + Send + 'static,
-    ConnFut: IntoFuture<Item = (), Error = Error> + Send + 'static,
-    ConnFut::Future: Send + 'static,
-    ScaleMode: Scaled,
-{
-    fn apply<Extractor, Name>(
-        mut extractor: Extractor,
-        action: Conn,
-        name: Name,
-        builder: Builder<O, C>,
-    ) -> Builder<O, C>
-    where
-        Extractor: FnMut(&C) -> Self + Send + 'static,
-        Name: Clone + Display + Send + Sync + 'static,
-    {
-        let extractor = move |cfg: &_| iter::once(extractor(cfg));
-        Self::helper(extractor, action, name).apply(builder)
-    }
-}
+pub type TcpListenWithLimits<ExtraCfg = Empty, ScaleMode = Scale> =
+    WithListenLimits<TcpListen<ExtraCfg, ScaleMode>>;
 
 /// A configuration fragment describing a bound UDP socket.
 ///
@@ -1215,65 +775,6 @@ pub struct UdpListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
     extra_cfg: ExtraCfg,
 }
 
-impl<ExtraCfg, ScaleMode> UdpListen<ExtraCfg, ScaleMode>
-where
-    ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
-    ScaleMode: Scaled,
-{
-    /// Returns a helper for handling reconfiguration of the UDP sockets.
-    ///
-    /// While it can be used manually, it is usually used through the
-    /// `spirit::Builder::config_helper` with extractor returning an iterator of `UdpListen`.
-    pub fn helper<Extract, ExtractIt, Action, Fut, Name, O, C>(
-        mut extract: Extract,
-        action: Action,
-        name: Name,
-    ) -> impl Helper<O, C>
-    where
-        C: DeserializeOwned + Send + Sync + 'static,
-        O: Debug + StructOpt + Sync + Send + 'static,
-        Extract: FnMut(&C) -> ExtractIt + Send + 'static,
-        ExtractIt: IntoIterator<Item = Self>,
-        Action: Fn(&Arc<Spirit<O, C>>, UdpSocket, &ExtraCfg) -> Fut + Sync + Send + 'static,
-        Fut: Future<Item = (), Error = Error> + Send + 'static,
-        Name: Clone + Display + Send + Sync + 'static,
-    {
-        trace!("Creating UDP listen helper for {}", name);
-        let action = Arc::new(action);
-
-        let to_task_name = name.clone();
-        let to_task =
-            move |spirit: &Arc<Spirit<O, C>>, socket: Arc<StdUdpSocket>, cfg: ExtraCfg| {
-                trace!("Running UDP listener {} for {:?}", to_task_name, cfg);
-                let spirit = Arc::clone(spirit);
-                let action = Arc::clone(&action);
-                socket
-                    .try_clone() // Another copy of the listener
-                    // std → tokio socket conversion
-                    .and_then(|socket| UdpSocket::from_std(socket, &Handle::default()))
-                    .map_err(Error::from)
-                    .into_future()
-                    .and_then(move |socket| action(&spirit, socket, &cfg))
-            };
-
-        let extract_name = name.clone();
-        let extract = move |cfg: &C| {
-            trace!("Extracting {}", extract_name);
-            extract(cfg).into_iter().map(|c| {
-                let (scale, results) = c.scale.scaled(&extract_name);
-                (c.listen, c.extra_cfg, scale, results)
-            })
-        };
-
-        Task {
-            extract,
-            build: |listen: &Listen| listen.create_udp().map(Arc::new),
-            to_task,
-            name,
-        }
-    }
-}
-
 impl<ExtraCfg, ScaleMode> ExtraCfgCarrier for UdpListen<ExtraCfg, ScaleMode>
 where
     ScaleMode: Scaled,
@@ -1305,56 +806,6 @@ where
     }
     fn is_similar(&self, other: &Self, _: &str) -> bool {
         self.listen == other.listen
-    }
-}
-
-impl<O, C, Action, Fut, ExtraCfg, ScaleMode> IteratedCfgHelper<O, C, Action>
-    for UdpListen<ExtraCfg, ScaleMode>
-where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-    ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
-    Action: Fn(&Arc<Spirit<O, C>>, UdpSocket, &ExtraCfg) -> Fut + Sync + Send + 'static,
-    Fut: Future<Item = (), Error = Error> + Send + 'static,
-    ScaleMode: Scaled,
-{
-    fn apply<Extractor, ExtractedIter, Name>(
-        extractor: Extractor,
-        action: Action,
-        name: Name,
-        builder: Builder<O, C>,
-    ) -> Builder<O, C>
-    where
-        Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
-        ExtractedIter: IntoIterator<Item = Self>,
-        Name: Clone + Display + Send + Sync + 'static,
-    {
-        Self::helper(extractor, action, name).apply(builder)
-    }
-}
-
-impl<O, C, Action, Fut, ExtraCfg, ScaleMode> CfgHelper<O, C, Action>
-    for UdpListen<ExtraCfg, ScaleMode>
-where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-    ExtraCfg: Clone + Debug + PartialEq + Send + 'static,
-    Action: Fn(&Arc<Spirit<O, C>>, UdpSocket, &ExtraCfg) -> Fut + Sync + Send + 'static,
-    Fut: Future<Item = (), Error = Error> + Send + 'static,
-    ScaleMode: Scaled,
-{
-    fn apply<Extractor, Name>(
-        mut extractor: Extractor,
-        action: Action,
-        name: Name,
-        builder: Builder<O, C>,
-    ) -> Builder<O, C>
-    where
-        Extractor: FnMut(&C) -> Self + Send + 'static,
-        Name: Clone + Display + Send + Sync + 'static,
-    {
-        let extractor = move |cfg: &_| iter::once(extractor(cfg));
-        Self::helper(extractor, action, name).apply(builder)
     }
 }
 
@@ -1446,4 +897,18 @@ where
             }
         })
     }
+}
+
+cfg_helpers! {
+    impl helpers for TcpListen <ExtraCfg, ScaleMode>
+    where
+        ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
+        ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static;
+
+    impl helpers for UdpListen <ExtraCfg, ScaleMode>
+    where
+        ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
+        ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static;
+
+    impl helpers for WithListenLimits<Listener> where;
 }
