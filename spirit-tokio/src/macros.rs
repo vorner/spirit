@@ -58,8 +58,8 @@ macro_rules! cfg_helpers {
                 extractor: Extractor,
                 action: Action,
                 name: Name,
-                builder: Builder<O, C>
-            ) -> Builder<O, C>
+                builder: $crate::macros::Builder<O, C>
+            ) -> $crate::macros::Builder<O, C>
             where
                 Extractor: FnMut(&C) -> ExtractedIter + Send + 'static,
                 ExtractedIter: IntoIterator<Item = Self>,

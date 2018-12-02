@@ -85,8 +85,9 @@ use hyper::body::Payload;
 use hyper::server::Server;
 use hyper::service::{MakeService, Service};
 use hyper::{Body, Request, Response};
-use spirit::{Builder, Empty, Spirit};
-use spirit_tokio::{IntoIncoming, ResourceConfig, ResourceConsumer, TcpListen};
+use spirit::{Empty, Spirit};
+use spirit_tokio::net::IntoIncoming;
+use spirit_tokio::{ResourceConfig, ResourceConsumer, TcpListen};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 /// Used to signal the graceful shutdown to hyper server.
