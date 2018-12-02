@@ -47,10 +47,13 @@ const DEFAULT_CONFIG: &str = r#"
 [[listen]]
 port = 1234
 http-mode = "http1-only"
+tcp-keepalive = "20s"
+backlog = 30
+only-v6 = true
 
 [[listen]]
 port = 5678
-host = "localhost"
+host = "127.0.0.1"
 signature = "local"
 
 [ui]

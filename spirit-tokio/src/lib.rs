@@ -82,6 +82,7 @@ extern crate failure;
 extern crate futures;
 #[macro_use]
 extern crate log;
+extern crate net2;
 extern crate parking_lot;
 extern crate serde;
 #[macro_use]

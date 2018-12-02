@@ -100,11 +100,13 @@ macro_rules! delegate_resource_traits {
         {
             type Seed = Inner::Seed;
             type Resource = Inner::Resource;
-            fn create(&self, name: &str) -> Result<Self::Seed, $crate::macros::Error> {
+            fn create(&self, name: &str)
+                -> ::std::result::Result<Self::Seed, $crate::macros::Error>
+            {
                 self.$inner.create(name)
             }
             fn fork(&self, seed: &Self::Seed, name: &str)
-                -> Result<Self::Resource, $crate::macros::Error>
+                -> ::std::result::Result<Self::Resource, $crate::macros::Error>
             {
                 self.$inner.fork(seed, name)
             }

@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use spirit::validation::{Result as ValidationResult, Results as ValidationResults};
+use spirit::Empty;
 
 fn default_scale() -> usize {
     1
@@ -18,6 +19,11 @@ fn default_scale() -> usize {
 ///
 /// While it is possible to define on `Scaled` types, it is expected the provided ones should be
 /// enough.
+///
+/// # The empty scale
+///
+/// Using [`Empty`] as the scaling fragment will always return 1 instance and won't add any
+/// configuration.
 pub trait Scaled {
     /// Returns how many instances there should be.
     ///
@@ -54,14 +60,7 @@ impl Scaled for Scale {
     }
 }
 
-/// Turns scaling off and provides a single instance.
-///
-/// This contains no configuration options and work just as a „plug“ type to fill in a type
-/// parameter.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct Singleton {}
-
-impl Scaled for Singleton {
+impl Scaled for Empty {
     fn scaled<Name: Display>(&self, _: Name) -> (usize, ValidationResults) {
         (1, ValidationResults::new())
     }

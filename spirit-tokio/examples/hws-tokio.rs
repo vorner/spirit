@@ -61,7 +61,7 @@ error-sleep = "50ms"
 
 [[listen]]
 port = 5678
-host = "localhost"
+host = "127.0.0.1"
 
 [ui]
 msg = "Hello world"
