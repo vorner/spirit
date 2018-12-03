@@ -5,3 +5,5 @@
 * config_exts_all?
 * Maybe log-errors as a macro?
 * Maybe stuck Serialize on stuff too?
+* The TcpListen, UdpListen, UnixListen and DatagramListen look very similar ‒
+  share the code somehow? Macro?

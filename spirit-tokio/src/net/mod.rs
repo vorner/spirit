@@ -20,6 +20,9 @@ use tokio::reactor::Handle;
 use super::{ExtraCfgCarrier, ResourceConfig, ResourceConsumer};
 use scaled::{Scale, Scaled};
 
+#[cfg(unix)]
+pub mod unix;
+
 pub trait IntoIncoming: Send + Sync + 'static {
     type Connection: Send + Sync + 'static;
     type Incoming: Stream<Item = Self::Connection, Error = IoError> + Send + Sync + 'static;
@@ -454,7 +457,7 @@ where
     fn fork(&self, seed: &StdUdpSocket, _: &str) -> Result<UdpSocket, Error> {
         seed.try_clone() // Another copy of the socket
             // std → tokio socket conversion
-            .and_then(|listener| UdpSocket::from_std(listener, &Handle::default()))
+            .and_then(|socket| UdpSocket::from_std(socket, &Handle::default()))
             .map_err(Error::from)
     }
     fn scaled(&self, name: &str) -> (usize, ValidationResults) {

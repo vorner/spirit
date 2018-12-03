@@ -24,7 +24,7 @@ macro_rules! cfg_helpers {
         impl<$($ty_param,)* O, C, Action> $crate::macros::CfgHelper<O, C, Action>
             for $type<$($ty_param),*>
         where
-            Self: ResourceConfig<O, C>,
+            Self: $crate::ResourceConfig<O, C>,
             Action: $crate::ResourceConsumer<Self, O, C>,
             C: $crate::macros::DeserializeOwned + Send + Sync + 'static,
             O: ::std::fmt::Debug + $crate::macros::StructOpt + Sync + Send + 'static,
@@ -48,8 +48,8 @@ macro_rules! cfg_helpers {
         impl<$($ty_param,)* O, C, Action> $crate::macros::IteratedCfgHelper<O, C, Action>
             for $type<$($ty_param),*>
         where
-            Self: ResourceConfig<O, C>,
-            Action: ResourceConsumer<Self, O, C>,
+            Self: $crate::ResourceConfig<O, C>,
+            Action: $crate::ResourceConsumer<Self, O, C>,
             C: $crate::macros::DeserializeOwned + Send + Sync + 'static,
             O: ::std::fmt::Debug + $crate::macros::StructOpt + Sync + Send + 'static,
             $( $ty_name: $bound $(+ $bounds)*, )*
