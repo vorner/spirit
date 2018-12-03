@@ -17,7 +17,7 @@ use tokio::net::tcp::Incoming;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::reactor::Handle;
 
-use super::{ExtraCfgCarrier, ResourceConfig, ResourceConsumer};
+use super::{ExtraCfgCarrier, ResourceConfig};
 use scaled::{Scale, Scaled};
 
 #[cfg(unix)]
@@ -314,13 +314,6 @@ pub struct TcpListen<ExtraCfg = Empty, ScaleMode = Scale, TcpStreamConfigure = T
     extra_cfg: ExtraCfg,
 }
 
-impl<ExtraCfg, ScaleMode, TcpConfig> ExtraCfgCarrier for TcpListen<ExtraCfg, ScaleMode, TcpConfig> {
-    type Extra = ExtraCfg;
-    fn extra(&self) -> &ExtraCfg {
-        &self.extra_cfg
-    }
-}
-
 impl<ExtraCfg, ScaleMode, TcpConfig, O, C> ResourceConfig<O, C>
     for TcpListen<ExtraCfg, ScaleMode, TcpConfig>
 where
@@ -392,10 +385,6 @@ impl<Listener> ListenLimits for WithListenLimits<Listener> {
     }
 }
 
-delegate_resource_traits! {
-    delegate ExtraCfgCarrier, ResourceConfig to inner on WithListenLimits;
-}
-
 pub type TcpListenWithLimits<ExtraCfg = Empty, ScaleMode = Scale, TcpStreamConfigure = TcpConfig> =
     WithListenLimits<TcpListen<ExtraCfg, ScaleMode, TcpStreamConfigure>>;
 
@@ -425,23 +414,13 @@ pub type TcpListenWithLimits<ExtraCfg = Empty, ScaleMode = Scale, TcpStreamConfi
 ///
 /// #
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct UdpListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
+pub struct UdpListen<ExtraCfg = Empty, ScaleMode = Scale> {
     #[serde(flatten)]
     listen: Listen,
     #[serde(flatten)]
     scale: ScaleMode,
     #[serde(flatten)]
     extra_cfg: ExtraCfg,
-}
-
-impl<ExtraCfg, ScaleMode> ExtraCfgCarrier for UdpListen<ExtraCfg, ScaleMode>
-where
-    ScaleMode: Scaled,
-{
-    type Extra = ExtraCfg;
-    fn extra(&self) -> &ExtraCfg {
-        &self.extra_cfg
-    }
 }
 
 impl<ExtraCfg, ScaleMode, O, C> ResourceConfig<O, C> for UdpListen<ExtraCfg, ScaleMode>
@@ -466,6 +445,15 @@ where
     fn is_similar(&self, other: &Self, _: &str) -> bool {
         self.listen == other.listen
     }
+}
+
+extra_cfg_impl! {
+    TcpListen<ExtraCfg, ScaleMode, TcpConfig>::extra_cfg: ExtraCfg;
+    UdpListen<ExtraCfg, ScaleMode>::extra_cfg: ExtraCfg;
+}
+
+delegate_resource_traits! {
+    delegate ExtraCfgCarrier, ResourceConfig to inner on WithListenLimits;
 }
 
 cfg_helpers! {

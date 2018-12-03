@@ -12,6 +12,22 @@ pub use spirit::Builder;
 pub use structopt::StructOpt;
 
 #[macro_export]
+macro_rules! extra_cfg_impl {
+    ($(
+         $type: ident<$($ty_param: ident),*>::$field: ident: $field_ty: ty;
+    )*) => {
+        $(
+            impl<$($ty_param),*> $crate::ExtraCfgCarrier for $type<$($ty_param),*> {
+                type Extra = $field_ty;
+                fn extra(&self) -> &Self::Extra {
+                    &self.$field
+                }
+            }
+        )*
+    }
+}
+
+#[macro_export]
 macro_rules! cfg_helpers {
     (
         $(

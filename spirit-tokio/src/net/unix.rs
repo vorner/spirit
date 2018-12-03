@@ -8,7 +8,7 @@ use spirit::validation::Results as ValidationResults;
 use tokio::net::unix::{Incoming, UnixDatagram, UnixListener, UnixStream};
 use tokio::reactor::Handle;
 
-use base_traits::{ExtraCfgCarrier, ResourceConfig};
+use base_traits::ResourceConfig;
 use scaled::{Scale, Scaled};
 use net::{ConfiguredStreamListener, IntoIncoming, StreamConfig, WithListenLimits};
 
@@ -51,15 +51,6 @@ pub struct UnixListen<ExtraCfg = Empty, ScaleMode = Scale, UnixStreamConfig = Un
     unix_config: UnixStreamConfig,
 }
 
-impl<ExtraCfg, ScaleMode, UnixStreamConfig> ExtraCfgCarrier
-    for UnixListen<ExtraCfg, ScaleMode, UnixStreamConfig>
-{
-    type Extra = ExtraCfg;
-    fn extra(&self) -> &ExtraCfg {
-        &self.extra_cfg
-    }
-}
-
 impl<ExtraCfg, ScaleMode, UnixStreamConfig, O, C> ResourceConfig<O, C>
     for UnixListen<ExtraCfg, ScaleMode, UnixStreamConfig>
 where
@@ -94,23 +85,13 @@ pub type UnixListenWithLimits<ExtraCfg = Empty, ScaleMode = Scale, UnixStreamCon
     WithListenLimits<UnixListen<ExtraCfg, ScaleMode, UnixStreamConfig>>;
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct DatagramListen<ExtraCfg = Empty, ScaleMode: Scaled = Scale> {
+pub struct DatagramListen<ExtraCfg = Empty, ScaleMode = Scale> {
     #[serde(flatten)]
     listen: Listen,
     #[serde(flatten)]
     scale: ScaleMode,
     #[serde(flatten)]
     extra_cfg: ExtraCfg,
-}
-
-impl<ExtraCfg, ScaleMode> ExtraCfgCarrier for DatagramListen<ExtraCfg, ScaleMode>
-where
-    ScaleMode: Scaled,
-{
-    type Extra = ExtraCfg;
-    fn extra(&self) -> &ExtraCfg {
-        &self.extra_cfg
-    }
 }
 
 impl<ExtraCfg, ScaleMode, O, C> ResourceConfig<O, C> for DatagramListen<ExtraCfg, ScaleMode>
@@ -135,6 +116,11 @@ where
     fn is_similar(&self, other: &Self, _: &str) -> bool {
         self.listen == other.listen
     }
+}
+
+extra_cfg_impl! {
+    UnixListen<ExtraCfg, ScaleMode, UnixStreamConfig>::extra_cfg: ExtraCfg;
+    DatagramListen<ExtraCfg, ScaleMode>::extra_cfg: ExtraCfg;
 }
 
 cfg_helpers! {
