@@ -4,3 +4,4 @@
 * Why C needs to be Debug?
 * config_exts_all?
 * Maybe log-errors as a macro?
+* Maybe stuck Serialize on stuff too?

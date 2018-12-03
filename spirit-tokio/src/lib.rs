@@ -94,6 +94,7 @@ extern crate tk_listen;
 extern crate tokio;
 
 pub mod base_traits;
+pub mod either;
 #[macro_use]
 pub mod macros;
 pub mod net;
