@@ -1,3 +1,14 @@
+//! Support for unix domain sockets.
+//!
+//! This is equivalent to the configuration fragments in the [`net`] module, but for unix domain
+//! sockets. This is available only on unix platforms.
+//!
+//! If you want to accept both normal (IP) sockets and unix domain sockets as part of the
+//! configuration, you can use the [`Either`] enum.
+//!
+//! [`net`]: ::net
+//! [`Either`]: ::either::Either
+
 use std::fmt::Debug;
 use std::os::unix::net::{UnixDatagram as StdUnixDatagram, UnixListener as StdUnixListener};
 use std::path::PathBuf;
@@ -12,6 +23,24 @@ use base_traits::ResourceConfig;
 use scaled::{Scale, Scaled};
 use net::{ConfiguredStreamListener, IntoIncoming, StreamConfig, WithListenLimits};
 
+/// Configuration of where to bind a unix domain socket.
+///
+/// This is the lower-level configuration fragment that doesn't directly provide much
+/// functionality. But it is the basic building block of both [`UnixListen`] and [`UnixDatagram`].
+///
+/// Note that this does provide the [`Default`] trait, but the default value is mostly useless.
+///
+/// # Fragmets
+///
+/// * `path`: The filesystem path to bind the socket to.
+///
+/// # TODO
+///
+/// * Setting permissions on the newly bound socket.
+/// * Ability to remove previous socket:
+///   - In case it is a dead socket (leftover, but nobody listens on it).
+///   - It is any socket.
+///   - Always.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[serde(rename_all = "kebab-case")]
 pub struct Listen {
@@ -21,14 +50,28 @@ pub struct Listen {
 }
 
 impl Listen {
+    /// Creates a unix listener.
+    ///
+    /// This is a low-level function, returning the *blocking* (std) listener.
     pub fn create_listener(&self) -> Result<StdUnixListener, Error> {
         StdUnixListener::bind(&self.path).map_err(Error::from)
     }
+
+    /// Creates a unix datagram socket.
+    ///
+    /// This is a low-level function, returning the *blocking* (std) socket.
     pub fn create_datagram(&self) -> Result<StdUnixDatagram, Error> {
         StdUnixDatagram::bind(&self.path).map_err(Error::from)
     }
 }
 
+/// Additional config for unix domain stream sockets.
+///
+/// *Currently* this is an alias to `Empty`, because there haven't been yet any idea what further
+/// to configure on them. However, this can turn into its own type in some future time and it won't
+/// be considered semver-incompatible change.
+///
+/// If you want to always have no additional configuration, use [`Empty`] explicitly.
 pub type UnixConfig = Empty;
 
 impl IntoIncoming for UnixListener {
@@ -39,6 +82,15 @@ impl IntoIncoming for UnixListener {
     }
 }
 
+/// A listener for unix domain stream sockets.
+///
+/// This is the unix-domain equivalent of [`TcpListen`]. All notes about it apply here with the
+/// sole difference that the fields added by it are from [`unix::Listen`] instead of
+/// [`net::Listen`].
+///
+/// [`TcpListen`]: ::net::TcpListen
+/// [`unix::Listen`]: Listen
+/// [`net::Listen`]: ::net::Listen
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct UnixListen<ExtraCfg = Empty, ScaleMode = Scale, UnixStreamConfig = UnixConfig> {
     #[serde(flatten)]
@@ -69,7 +121,7 @@ where
             // std → tokio socket conversion
             .and_then(|listener| UnixListener::from_std(listener, &Handle::default()))
             .map_err(Error::from)
-            .map(|listener| ConfiguredStreamListener { listener, config })
+            .map(|listener| ConfiguredStreamListener::new(listener, config))
     }
     fn scaled(&self, name: &str) -> (usize, ValidationResults) {
         self.scale.scaled(name)
@@ -79,11 +131,24 @@ where
     }
 }
 
+/// Type alias for [`UnixListen`] without any unnecessary configuration options.
 pub type MinimalUnixListen<ExtraCfg = Empty> = UnixListen<ExtraCfg, Empty, Empty>;
 
+/// Wrapped [`UnixListen`] for use with the [`per_connection`] [`ResourceConsumer`]
+///
+/// [`ResourceConsumer`]: ::ResourceConsumer
 pub type UnixListenWithLimits<ExtraCfg = Empty, ScaleMode = Scale, UnixStreamConfig = UnixConfig> =
     WithListenLimits<UnixListen<ExtraCfg, ScaleMode, UnixStreamConfig>>;
 
+/// A [`ResourceConfig`] for unix datagram sockets
+///
+/// This is an unix domain equivalent to the [`UdpListen`] configuration fragment. All its notes
+/// apply here except that the base configuration fields are taken from [`unix::Listen`] instead of
+/// [`net::Listen`].
+///
+/// [`UdpListen`]: ::UdpListen
+/// [`unix::Listen`]: Listen
+/// [`net::Listen`]: ::net::Listen
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct DatagramListen<ExtraCfg = Empty, ScaleMode = Scale> {
     #[serde(flatten)]

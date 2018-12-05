@@ -1,3 +1,8 @@
+//! Scaling of resources.
+//!
+//! As described with the [`ResourceConfig`] trait, resources can be scaled into multiple
+//! instances. The items in this module specify how to configure the number of instances.
+
 use std::fmt::Display;
 
 use spirit::validation::{Result as ValidationResult, Results as ValidationResults};
@@ -9,8 +14,8 @@ fn default_scale() -> usize {
 
 /// Description of scaling into multiple tasks.
 ///
-/// The helpers in this crate allow creating multiple copies of the socket. If using the default
-/// (threadpool) tokio executor, it makes it possible to share the load across multiple threads.
+/// It is possible to create multiple instances of a resource, to scale it up for performance and
+/// to share the load across multiple threads in the threadpool tokio executore.
 ///
 /// Note that in case of TCP, even if there's just one instance of the listening sockets, the
 /// individual connections still can be handled by multiple threads, as each accepted connection is
@@ -25,6 +30,7 @@ fn default_scale() -> usize {
 /// Using [`Empty`] as the scaling fragment will always return 1 instance and won't add any
 /// configuration.
 pub trait Scaled {
+
     /// Returns how many instances there should be.
     ///
     /// And accompanies it with optional validation results, to either refuse or warn about the

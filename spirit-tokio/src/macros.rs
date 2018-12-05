@@ -1,3 +1,16 @@
+//! Macros to help implementing custom fragments.
+//!
+//! This module holds several macros that aim to help with boilerplate when implementing
+//! [`ResourceConfig`] configuration fragments. Look into the [source code] for examples of use.
+//!
+//! The macros are not necessary for normal everyday use in daemons simply accepting configuration.
+//!
+//! There are also few re-exports (hidden from documentation). These are not expected to be used by
+//! code, but only by the macros.
+//!
+//! [`ResourceConfig`]: ::ResourceConfig
+//! [source code]: https://github.com/vorner/spirit/tree/master/spirit-tokio
+
 #[doc(hidden)]
 pub use failure::Error;
 #[doc(hidden)]
@@ -11,6 +24,30 @@ pub use spirit::Builder;
 #[doc(hidden)]
 pub use structopt::StructOpt;
 
+/// Implements the [`ExtraCfgCarrier`] trait by extracting a given field.
+///
+/// # Examples
+///
+/// ```rust
+/// #[macro_use]
+/// extern crate serde_derive;
+/// #[macro_use]
+/// extern crate spirit_tokio;
+///
+/// #[derive(Deserialize)]
+/// struct MyConfig<ExtraCfg> {
+///     _whatever_other_fields: String,
+///     #[serde(flatten)]
+///     extra_cfg: ExtraCfg,
+/// }
+///
+/// extra_cfg_impl! {
+///     MyConfig<ExtraCfg>::extra_cfg: ExtraCfg;
+/// }
+/// # fn main() {}
+/// ```
+///
+/// [`ExtraCfgCarrier`]: ::ExtraCfgCarrier
 #[macro_export]
 macro_rules! extra_cfg_impl {
     ($(
@@ -27,6 +64,13 @@ macro_rules! extra_cfg_impl {
     }
 }
 
+/// Implements the [`CfgHelper`] and [`IteratedCfgHelper`] traits.
+///
+/// Given a type that already implements the [`ResourceConfig`], this adds the above two traits by
+/// delegating the implementation to them.
+///
+/// [`CfgHelper`]: ::spirit::helpers::CfgHelper
+/// [`IteratedCfgHelper`]: ::spirit::helpers::IteratedCfgHelper
 #[macro_export]
 macro_rules! cfg_helpers {
     (
@@ -89,16 +133,46 @@ macro_rules! cfg_helpers {
     }
 }
 
+/// Delegates listed traits into a field.
+///
+/// If a trait is implemented for a field of a type, this allows for implementing it on the
+/// container too by delegating it to the field. This is limited to these traits:
+///
+/// * [`ListenLimits`]
+/// * [`ExtraCfgCarrier`]
+/// * [`ResourceConfig`]
+///
+/// # Examples
+///
+/// ```rust
+/// #[macro_use]
+/// extern crate spirit_tokio;
+///
+/// // This one is trivial ‒ the real one would actually add some functionality or fields.
+/// #[derive(Debug, Eq, PartialEq)]
+/// struct Wrapper<Inner> {
+///     inner: Inner,
+/// }
+///
+/// delegate_resource_traits! {
+///     delegate ListenLimits, ExtraCfgCarrier, ResourceConfig to inner on Wrapper;
+/// }
+/// # fn main() { let _x = Wrapper { inner: () }; }
+/// ```
+///
+/// [`ListenLimits`]: ::net::ListenLimits
+/// [`ExtraCfgCarrier`]: ::base_traits::ExtraCfgCarrier
+/// [`ResourceConfig`]: ::base_traits::ResourceConfig
 #[macro_export]
 macro_rules! delegate_resource_traits {
     (delegate impl ListenLimits to $inner: ident on $type: ident;) => {
-        impl<Inner: $crate::ListenLimits> $crate::ListenLimits for $type<Inner> {
+        impl<Inner: $crate::net::ListenLimits> $crate::net::ListenLimits for $type<Inner> {
             fn error_sleep(&self) -> ::std::time::Duration {
                 self.$inner.error_sleep()
             }
-        }
-        fn max_conn(&self) -> usize {
-            self.$inner.max_conn()
+            fn max_conn(&self) -> usize {
+                self.$inner.max_conn()
+            }
         }
     };
     (delegate impl ExtraCfgCarrier to $inner: ident on $type: ident;) => {

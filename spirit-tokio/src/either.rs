@@ -1,8 +1,11 @@
+//! Support for alternative choices of configuration.
+
 use std::io::{BufRead, Error as IoError, Read, Seek, SeekFrom, Write};
 use std::time::Duration;
 
 use failure::Error;
 use futures::{Async, Future, Poll, Sink, StartSend, Stream};
+use futures::future::Either as FutEither;
 use spirit::validation::Results as ValidationResults;
 use spirit::Builder;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -10,14 +13,155 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use base_traits::{ExtraCfgCarrier, Name, ResourceConfig};
 use net::{IntoIncoming, ListenLimits};
 
+/// The [`Either`] type allows to wrap two similar [`ResourceConfig`]s and let the user choose
+/// which one will be used.
+///
+/// For example, if your server could run both on common TCP and unix domain stream sockets, you
+/// could use the `Either<TcpListen, UnixListen>`. This fragment would then create resources of
+/// type `Either<TcpListener, UnixListener>`.
+///
+/// Many traits are delegated through to one or the other instance inside (in case both implement
+/// it). So, the above resource will implement the [`IntoIncoming`] trait that will accept
+/// instances of `Either<TcpStream, UnixStream>`. These'll in turn implement [`AsyncRead`] and
+/// [`AsyncWrite`], therefore can be handled uniformly just as connections. Similarly, the original
+/// resource will implement [`ExtraCfgCarrier`].
+///
+/// # Deserialization
+///
+/// This uses the [untagged] serde attribute. This means there are no additional configuration
+/// options present and the choice is made by trying to first deserialize the [`A`] variant and
+/// if that fails, trying the [`B`] one. Therefore, the inner resource configs need to have some
+/// distinct fields. In our example, this would parse as [`TcpListen`]:
+///
+/// ```toml
+/// [[listen]]
+/// port = 1234
+/// ```
+///
+/// While this as an [`UnixListen`]:
+///
+/// ```toml
+/// [[listen]]
+/// path = "/tmp/socket"
+/// ```
+///
+/// If you need different parsing, you can use either a newtype (and delegate relevant traits into
+/// it with the [`macros`]) or [remote derive].
+///
+/// # Other similar types
+///
+/// This is not the only `Either` type around. Unfortunately, none of the available ones was just
+/// right for the use case here, so this crate rolls its own. But it provides [`From`]/[`Into`]
+/// conversions between them:
+///
+/// * [`futures::future::Either`]
+/// * The [`either`](https://crates.io/crates/either) crate (under the `either` feature flag, off
+///   by default).
+///
+/// # More than two options
+///
+/// This allows only two variants. However, if you need more, it is possible to nest them and form
+/// a tree.
+///
+/// # Examples
+///
+/// ```rust
+/// extern crate failure;
+/// extern crate serde;
+/// #[macro_use]
+/// extern crate serde_derive;
+/// extern crate spirit;
+/// extern crate spirit_tokio;
+/// extern crate tokio;
+///
+/// use std::sync::Arc;
+///
+/// use failure::Error;
+/// use spirit::{Empty, Spirit};
+/// #[cfg(unix)]
+/// use spirit_tokio::either::Either;
+/// use spirit_tokio::net::{TcpListen, IntoIncoming, WithListenLimits};
+/// #[cfg(unix)]
+/// use spirit_tokio::net::unix::UnixListen;
+/// use spirit_tokio::ResourceConfig;
+/// use tokio::prelude::*;
+///
+/// // If we want to work on systems that don't have unix domain sockets...
+///
+/// #[cfg(unix)]
+/// type Listener = WithListenLimits<Either<TcpListen, UnixListen>>;
+/// #[cfg(not(unix))]
+/// type Listener = WithListenLimits<TcpListen>;
+///
+/// type Connection =
+///     <<Listener as ResourceConfig<Empty, Config>>::Resource as IntoIncoming>::Connection;
+///
+/// const DEFAULT_CONFIG: &str = r#"
+/// [[listening_socket]]
+/// port = 1234
+/// max-conn = 20
+/// error-sleep = "100ms"
+/// "#;
+/// #[derive(Default, Deserialize)]
+/// struct Config {
+///     listening_socket: Vec<Listener>,
+/// }
+///
+/// impl Config {
+///     fn listening_socket(&self) -> Vec<Listener> {
+///         self.listening_socket.clone()
+///     }
+/// }
+///
+/// fn connection(
+///     _: &Arc<Spirit<Empty, Config>>,
+///     _: &Arc<Listener>,
+///     conn: Connection,
+///     _: &str
+/// ) -> impl Future<Item = (), Error = Error> {
+///     tokio::io::write_all(conn, "Hello\n")
+///         .map(|_| ())
+///         .map_err(Error::from)
+/// }
+///
+/// fn main() {
+///     Spirit::<Empty, Config>::new()
+///         .config_defaults(DEFAULT_CONFIG)
+///         .config_helper(
+///             Config::listening_socket,
+///             spirit_tokio::per_connection(connection),
+///             "Listener",
+///         )
+///         .run(|spirit| {
+/// #           let spirit = Arc::clone(spirit);
+/// #           std::thread::spawn(move || spirit.terminate());
+///             Ok(())
+///         });
+/// }
+/// ```
+///
+/// [untagged]: https://serde.rs/container-attrs.html#untagged
+/// [remote derive]: https://serde.rs/remote-derive.html
+/// [`TcpListen`]: ::TcpListen
+/// [`UnixListen`]: ::net::unix::UnixListen
+/// [`macros`]: ::macros
 #[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[serde(untagged)]
 pub enum Either<A, B> {
+    /// The first variant
     A(A),
+    /// The second variant
     B(B),
 }
 
+use self::Either::{A, B};
+
 impl<T> Either<T, T> {
+
+    /// Extracts the inner value in case both have the same type.
+    ///
+    /// Sometimes, a series of operations produces an `Either` with both types the same. In such
+    /// case, `Either` plays no role anymore and this method can be used to get to the inner value.
     pub fn into_inner(self) -> T {
         match self {
             A(a) => a,
@@ -26,7 +170,50 @@ impl<T> Either<T, T> {
     }
 }
 
-use self::Either::{A, B};
+impl<A, B> From<FutEither<A, B>> for Either<A, B> {
+    fn from(e: FutEither<A, B>) -> Self {
+        match e {
+            FutEither::A(a) => A(a),
+            FutEither::B(b) => B(b),
+        }
+    }
+}
+
+impl<A, B> Into<FutEither<A, B>> for Either<A, B> {
+    fn into(self) -> FutEither<A, B> {
+        match self {
+            A(a) => FutEither::A(a),
+            B(b) => FutEither::B(b),
+        }
+    }
+}
+
+#[cfg(feature = "either")]
+mod other_either {
+    extern crate either;
+
+    use self::either::Either as OtherEither;
+    use super::*;
+
+    impl<A, B> From<OtherEither<A, B>> for Either<A, B> {
+        fn from(e: OtherEither<A, B>) -> Self {
+            match e {
+                OtherEither::Left(a) => A(a),
+                OtherEither::Right(b) => B(b),
+            }
+        }
+    }
+
+    impl<A, B> Into<OtherEither<A, B>> for Either<A, B> {
+        fn into(self) -> OtherEither<A, B> {
+            match self {
+                A(a) => OtherEither::Left(a),
+                B(b) => OtherEither::Right(b),
+            }
+        }
+    }
+
+}
 
 macro_rules! either {
     ($either: expr, $pat: pat => $res: expr) => {

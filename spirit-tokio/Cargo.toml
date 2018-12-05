@@ -8,11 +8,14 @@ repository = "https://github.com/vorner/spirit"
 license = "Apache-2.0/MIT"
 readme = "README.md"
 
+[features]
+
 [badges]
 travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
 [dependencies]
+either = { version = "~1", optional = true }
 failure = "~0.1"
 futures = "~0.1"
 log = "~0.4"

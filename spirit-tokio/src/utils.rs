@@ -1,3 +1,5 @@
+//! Utility and glue functions
+
 use std::fmt::{Debug, Display};
 use std::iter;
 use std::sync::Arc;
@@ -35,6 +37,31 @@ impl Drop for RemoteDrop {
     }
 }
 
+/// Creates a [`ResourceConsumer`] that takes a listener and runs the provided closure on each
+/// accepted connection.
+///
+/// This accepts two closures. The first one is run once per each resource to initialize a context
+/// for that resource.
+///
+/// Then, whenever a connection is accepted on the resource, the second closure is run (with the
+/// connection, the configuration and the context created by the `init`). The returned future is
+/// spawned and becomes an independent task (therefore the connections can be handled by multiple
+/// threads if they are available). However, the number of parallel connections per resource
+/// instance is limited. If the number is exceeded, new connections won't be accepted until some of
+/// them terminate.
+///
+/// Dropping the listener future (the one created by this [`ResourceConsumer`]), for example when
+/// reconfiguring, will not drop the already spawned connections. However, the current count of
+/// parallel connections won't be transferred and starts at 0.
+///
+/// If you don't care about some per-listener context, you can prefer the simpler
+/// [`per_connection`].
+///
+/// The resource accepted by this consumer must implement the [`IntoIncoming`] trait (that
+/// abstracts over listeners that can accept connections). The [`ResourceConfig`] must also be
+/// [`WithListenLimits`].
+///
+/// [`WithListenLimits`]: ::net::WithListenLimits
 pub fn per_connection_init<Config, I, F, R, O, C, Ctx>(
     init: I,
     action: F,
@@ -105,6 +132,10 @@ where
     }
 }
 
+/// A simplified version of [`per_connection_init`].
+///
+/// This simpler version doesn't have the initialization phase and doesn't handle per-listener
+/// context. Usually it is enough and should be preferred.
 pub fn per_connection<Config, F, R, O, C>(action: F) -> impl ResourceConsumer<Config, O, C>
 where
     Config: ListenLimits + ResourceConfig<O, C>,
@@ -132,6 +163,19 @@ where
     )
 }
 
+/// Binds a [`ResourceConfig`] and [`ResourceConsumer`] together to form a [`Helper`].
+///
+/// This takes an extractor function returning an iterator of [`ResourceConfig`]s from the
+/// configuration. Then it binds it together with the provided [`ResourceConsumer`] and takes care
+/// of reconfiguring the resources, spawning the appropriate number of them, etc.
+///
+/// If the configuration always contains exactly one instance, use [`resource`].
+///
+/// Oftentimes, the configuration fragments also implement [`IteratedCfgHelper`], so it can be used
+/// with [`config_helper`] too.
+///
+/// [`IteratedCfgHelper`]: ::spirit::helpers::IteratedCfgHelper
+/// [`config_helper`]: ::spirit::Builder::config_helper
 // TODO: Cut it into smaller pieces
 pub fn resources<Config, Consumer, E, R, O, C, N>(
     mut extract: E,
@@ -312,6 +356,10 @@ where
     }
 }
 
+/// Similar to [`resources`], but for just a single instance of the resource configuration.
+///
+/// Use this instead of [`resources`] if the configuration always contains exactly one of the
+/// relevant [`ResourceConfig`].
 pub fn resource<Config, Consumer, E, O, C, N>(
     mut extract: E,
     consumer: Consumer,

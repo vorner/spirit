@@ -1,3 +1,12 @@
+//! Autoconfiguration of network primitives of [tokio]
+//!
+//! This is where the „meat“ of this crate lives. It contains various configuration fragments and
+//! utilities to manage network primitives. However, currently only listening (bound) sockets.
+//! Keeping a set of connecting socket (eg. a connection pool or something like that) is vaguely
+//! planned, though it is not clear how it'll look exactly. Input is welcome.
+//!
+//! Note that many common types are reexported to the root of the crate.
+
 use std::cmp;
 use std::fmt::Debug;
 use std::io::Error as IoError;
@@ -17,15 +26,29 @@ use tokio::net::tcp::Incoming;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::reactor::Handle;
 
-use super::{ExtraCfgCarrier, ResourceConfig};
+use super::ResourceConfig;
 use scaled::{Scale, Scaled};
 
 #[cfg(unix)]
 pub mod unix;
 
+/// Abstraction over endpoints that accept connections.
+///
+/// The [`TcpListener`] has the [`incoming`] method that produces a stream of incoming
+/// connections. This abstracts over types with similar functionality ‒ either wrapped
+/// [`TcpListener`], [`UnixListener`] on unix, types that provide encryption on top of these, etc.
+///
+/// [`TcpListener`]: ::tokio::net::TcpListener
+/// [`incoming`]: ::tokio::net::TcpListener::incoming
+/// [`UnixListener`]: ::tokio::net::unix::UnixListener
 pub trait IntoIncoming: Send + Sync + 'static {
+    /// The type of one accepted connection.
     type Connection: Send + Sync + 'static;
+
+    /// The stream produced.
     type Incoming: Stream<Item = Self::Connection, Error = IoError> + Send + Sync + 'static;
+
+    /// Turns the given resource into the stream of incoming connections.
     fn into_incoming(self) -> Self::Incoming;
 }
 
@@ -37,8 +60,30 @@ impl IntoIncoming for TcpListener {
     }
 }
 
+/// Safety limits for listening sockets
+///
+/// The [`per_connection`] needs certain limits to be configured. This trait extends the
+/// configuration fragments that provide such limits.
+///
+/// The configuration fragment can either provide them natively (eg. either contain them or
+/// hardcode them in code), or you can use the [`WithListenLimits`] wrapper to add the
+/// configuration to arbitrary fragment. Also, there's the [`TcpListenWithLimits`] type alias for
+/// convenience.
+///
+/// [`per_connection`]: ::per_connection
 pub trait ListenLimits {
+    /// How long to sleep on non-fatal accepting errors.
+    ///
+    /// Certain errors caused by the `accept` call are non-fatal ‒ for example „Too Many Open
+    /// Files“. In such case, further accepting is postponed for this long in a hope some other
+    /// connections might have gone away and made space.
     fn error_sleep(&self) -> Duration;
+
+    /// Maximum number of currently accepted connections.
+    ///
+    /// This is the maximum number *per one listening instance*. If this is exceeded, accepting
+    /// further connections will wait until some existing terminates. They are tracked by when the
+    /// future handling the connection terminates.
     fn max_conn(&self) -> usize;
 }
 
@@ -57,10 +102,20 @@ fn default_backlog() -> u32 {
 /// Note that the `Default` implementation is there to provide something on creation of `Spirit`,
 /// but isn't very useful.
 ///
-/// It contains these configuration options:
+/// This is used as the base of the [`TcpListen`] and [`UdpListen`] configuration fragments.
+///
+/// # Configuration options
 ///
 /// * `port` (mandatory)
-/// * `host` (optional, if not present, `*` is used)
+/// * `host` (optional, if not present, `::` is used)
+/// * `reuse_addr` (optional, boolean, if not present the OS default is used)
+/// * `reuse_port` (optional, boolean, if not present the OS default is used, does something only
+///   on unix).
+/// * `only_v6` (optional, boolean, if not present the OS default is used, does nothing for IPv4
+///   sockets).
+/// * `backlog` (optional, number of waiting connections to be accepted in the OS queue, defaults
+///   to 128)
+/// * `ttl` (TTL of the listening/UDP socket).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[serde(rename_all = "kebab-case")]
 pub struct Listen {
@@ -141,7 +196,19 @@ impl Listen {
     }
 }
 
+/// Abstracts over a configuration subfragment that applies further settings to an already accepted
+/// stream.
+///
+/// The fragments that accept connections can apply some configuration to them after they have been
+/// accepted but before handling them to the rest of the application. The trait is generic over the
+/// type of connections accepted.
+///
+/// The [`Empty`] fragment provides a default configuration that does nothing.
 pub trait StreamConfig<S> {
+    /// Applies the configuration to the stream.
+    ///
+    /// If the configuration fails and error is returned, the connection is dropped (and the error
+    /// is logged).
     fn configure(&self, stream: &mut S) -> Result<(), IoError>;
 }
 
@@ -151,16 +218,32 @@ impl<S> StreamConfig<S> for Empty {
     }
 }
 
+/// Configuration that can be unset, explicitly turned off or set to a duration.
+///
+/// Some network configuration options can be either turned off or set to a certain duration. We
+/// add the ability to leave them on the OS default (which is done if the field is not present in
+/// the configuration).
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum MaybeDuration {
-    Default,
+    /// Leaves the option at the OS default.
+    ///
+    /// Signified by not being present in the configuration.
+    Unset,
+
+    /// Turns the option off.
+    ///
+    /// Deserialized from `false`.
     Off,
+
+    /// Turns the option on with given duration.
+    ///
+    /// Deserialized from human-readable duration specification, eg. `100ms` or `30s`.
     Duration(Duration),
 }
 
 impl Default for MaybeDuration {
     fn default() -> Self {
-        MaybeDuration::Default
+        MaybeDuration::Unset
     }
 }
 
@@ -185,6 +268,21 @@ impl<'de> Deserialize<'de> for MaybeDuration {
     }
 }
 
+/// An implementation of the [`StreamConfig`] trait to configure TCP connections.
+///
+/// This is an implementation that allows the user configure several options of accepted TCP
+/// connections.
+///
+/// This is also the default implementation if none is specified for [`TcpListen`].
+///
+/// # Fields
+///
+/// * `tcp-nodelay` (optional, boolean, if not set uses OS default)
+/// * `tcp-recv-buf-size` (optional, size of the OS buffer on the receive end of the socket,
+///   if not set uses the OS default)
+/// * `tcp-send-buf-size` (similar, but for the send end)
+/// * `tcp-keepalive` (optional, see [`MaybeDuration`])
+/// * `accepted-ttl` (optional, uses OS default if not set)
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct TcpConfig {
     #[serde(rename = "tcp-nodelay")]
@@ -211,7 +309,7 @@ impl StreamConfig<TcpStream> for TcpConfig {
             stream.set_send_buffer_size(send_buf_size)?;
         }
         match self.keepalive {
-            MaybeDuration::Default => (),
+            MaybeDuration::Unset => (),
             MaybeDuration::Off => stream.set_keepalive(None)?,
             MaybeDuration::Duration(duration) => stream.set_keepalive(Some(duration))?,
         }
@@ -222,6 +320,10 @@ impl StreamConfig<TcpStream> for TcpConfig {
     }
 }
 
+/// A wrapper around an [`IntoIncoming`] that applies configuration.
+///
+/// This is produced by [`ResourceConfig`]s that produce listeners which configure the accepted
+/// connections. Usually doesn't need to be used directly (this is more of a plumbing type).
 #[derive(Debug)]
 pub struct ConfiguredStreamListener<Listener, Config> {
     listener: Listener,
@@ -229,6 +331,11 @@ pub struct ConfiguredStreamListener<Listener, Config> {
 }
 
 impl<Listener, Config> ConfiguredStreamListener<Listener, Config> {
+    /// Creates a new instance from parts.
+    pub fn new(listener: Listener, config: Config) -> Self {
+        Self { listener, config }
+    }
+    /// Disassembles it into the components.
     pub fn into_parts(self) -> (Listener, Config) {
         (self.listener, self.config)
     }
@@ -249,6 +356,13 @@ where
     }
 }
 
+/// A stream wrapper that applies configuration to each item.
+///
+/// This is produced by the [`ConfiguredStreamListener`]. It applies the configuration to each
+/// connection just before yielding it.
+///
+/// Can't be directly constructed and probably isn't something to interact with directly (this is
+/// more of a plumbing type).
 #[derive(Debug)]
 pub struct ConfiguredIncoming<Incoming, Config> {
     incoming: Incoming,
@@ -275,33 +389,34 @@ where
 
 /// A configuration fragment of a TCP listening socket.
 ///
-/// This describes a TCP listening socket. It works as an iterated configuration helper ‒ if you
-/// extract a vector of these from configuration and an action to handle one TCP connection, it
-/// manages the listening itself when attached to spirit.
+/// The [`ResourceConfig`] creates a [`TcpListener`] (wrapped in [`ConfiguredIncoming`]). It can be
+/// handled directly. To use the [`per_connection`] function as the [`ResourceConsumer`], you need
+/// to wrap this in [`WithListenLimits`] (see [`TcpListenWithLimits`] for convenient type alias).
 ///
-/// # Type parameters
+/// It can be used directly through the [`resource`] or [`resources`] functions, or through the
+/// [`CfgHelper`] and [`IteratedCfgHelper`] traits.
 ///
-/// * `ExtraCfg`: Any additional configuration options, passed to the action callback. Defaults to
-///   an empty set of parameters.
-/// * `ScaleMode`: A description of how to scale into multiple listening instances.
+/// # Type parametes
 ///
-/// # Configuration options
+/// * `ExtraCfg`: Additional application specific configuration that can be extracted through the
+///   [`ExtraCfgCarrier`] trait. Defaults to an empty configuration.
+/// * `ScaleMode`: The [`Scaled`] instance to specify number of instances to spawn. Defaults to
+///   [`Scale`], which lets the user configure.
+/// * `TcpStreamConfigure`: Further configuration for the accepted TCP streams in the form of
+///   [`StreamConfig`]
 ///
-/// Aside from the options from the type parameters above, these options are present:
+/// # Fields
 ///
-/// * `host`: The host/interface to listen on, defaults to `*`.
-/// * `port`: Mandatory, the port to listen to.
-/// * `error-sleep`: If there's a recoverable error like „Too many open files“, sleep this long
-///   before trying again to accept more connections. Defaults to "100ms".
-/// * `max-conn`: Maximum number of parallel connections. This is per one instance, therefore the
-///   total number of connections being handled is `scale * max_conn` (if scaling is enabled).
-///   Defaults to 1000.
+/// The configuration fields are pooled from all three type parameters above and from the
+/// [`Listen`] configuration fragment.
 ///
-/// TODO: The max-conn is in the WithListenLimits
-///
-/// # Example
-///
-/// TODO (adjust the one from the crate level config)
+/// [`per_connection`]: ::per_connection
+/// [`resource`]: ::resource
+/// [`resources`]: ::resources
+/// [`ResourceConsumer`]: ::ResourceConsumer
+/// [`CfgHelper`]: ::spirit::helpers::CfgHelper
+/// [`IteratedCfgHelper`]: ::spirit::helpers::IteratedCfgHelper
+/// [`ExtraCfgCarrier`]: ::base_traits::ExtraCfgCarrier
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct TcpListen<ExtraCfg = Empty, ScaleMode = Scale, TcpStreamConfigure = TcpConfig> {
     #[serde(flatten)]
@@ -332,7 +447,7 @@ where
             // std → tokio socket conversion
             .and_then(|listener| TcpListener::from_std(listener, &Handle::default()))
             .map_err(Error::from)
-            .map(|listener| ConfiguredStreamListener { listener, config })
+            .map(|listener| ConfiguredStreamListener::new(listener, config))
     }
     fn scaled(&self, name: &str) -> (usize, ValidationResults) {
         self.scale.scaled(name)
@@ -342,6 +457,9 @@ where
     }
 }
 
+/// A [`TcpListen`] with all parameters set to [`Empty`].
+///
+/// This doesn't configure much more than the minimum actually needed.
 pub type MinimalTcpListen<ExtraCfg = Empty> = TcpListen<ExtraCfg, Empty, Empty>;
 
 fn default_error_sleep() -> Duration {
@@ -352,6 +470,21 @@ fn default_max_conn() -> usize {
     1000
 }
 
+/// Wrapper to enrich inner configuration fragment with [`ListenLimits`].
+///
+/// The [`ListenLimits`] is needed for the [`per_connection`] function to work. This lets the user
+/// configure them.
+///
+/// # Fields
+///
+/// In addition to what the inner `Listener` contains, this adds these fields (that directly
+/// correspond to the methods on [`ListenLimits`]):
+///
+/// * `error-sleep`: The back-off time when non-fatal error happens, in human readable form. Defaults
+///   to `100ms` if not present.
+/// * `max-conn`: Maximum number of parallel connections on this listener.
+///
+/// [`per_connection`]: ::per_connection
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct WithListenLimits<Listener> {
     #[serde(flatten)]
@@ -385,34 +518,29 @@ impl<Listener> ListenLimits for WithListenLimits<Listener> {
     }
 }
 
+/// Convenience type alias for configuration fragment that can be used with [`per_connection`].
+///
+/// [`per_connection`]: ::per_connection
 pub type TcpListenWithLimits<ExtraCfg = Empty, ScaleMode = Scale, TcpStreamConfigure = TcpConfig> =
     WithListenLimits<TcpListen<ExtraCfg, ScaleMode, TcpStreamConfigure>>;
 
 /// A configuration fragment describing a bound UDP socket.
 ///
-/// This is similar to [`TcpListen`](struct.TcpListen.html), but for UDP sockets. While the action
-/// on a TCP socket is called for each new accepted connection, the action for UDP socket is used
-/// to handle the whole UDP socket created from this configuration.
+/// This is similar to [`TcpListen`](struct.TcpListen.html), but for UDP sockets.
 ///
 /// # Type parameters
 ///
 /// * `ExtraCfg`: Extra options folded into this configuration, for application specific options.
-///   They are passed to the action.
-/// * `ScaleMode`: How scaling should be done. If scaling is enabled, the action should handle
-///   situation where it runs in multiple instances. However, even in case scaling is disabled, the
-///   action needs to handle being „restarted“ ‒ if there's a new configuration for the socket, the
-///   old future is dropped and new one, with a new socket, is created.
+///   They can be extracted using the [`ExtraCfgCarrier`] trait.
+/// * `ScaleMode`: An implementation of the [`Scaled`] trait, describing into how many instances
+///   the socket should be scaled.
 ///
 /// # Configuration options
 ///
-/// In addition to options provided by the above type parameters, these are present:
+/// In addition to options provided by the above type parameters, the options from [`Listen`] are
+/// prestent.
 ///
-/// * `host`: The hostname/interface to bind to. Defaults to `*`.
-/// * `port`: The port to bind the UDP socket to (mandatory). While it is possible to create
-///   unbound UDP sockets with an OS-assigned port, these don't need the configuration and are not
-///   created by this configuration fragment.
-///
-/// #
+/// [`ExtraCfgCarrier`]: ::base_traits::ExtraCfgCarrier
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct UdpListen<ExtraCfg = Empty, ScaleMode = Scale> {
     #[serde(flatten)]
@@ -510,7 +638,7 @@ mod tests {
     #[test]
     fn maybe_duration_default() {
         assert_eq!(
-            MaybeDuration::Default,
+            MaybeDuration::Unset,
             MaybeDuration::load(r#"{}"#).unwrap()
         );
     }
