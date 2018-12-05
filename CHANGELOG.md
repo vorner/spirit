@@ -1,3 +1,15 @@
+# spirit-hyper-0.3.0
+
+* Redesigned (same changes as with spirit-tokio).
+* Support for arbitrary `Service` implementations.
+
+# spirit-tokio-0.3.0
+
+* Redesigned; the main traits are now `ResourceConfig` and `ResourceConsumer`.
+  They interlock in a similar way the serde traits do.
+* Support for unix domain sockets.
+* Either for alternative sockets (usually unix vs. IP).
+
 # spirit-log-0.1.3
 
 * Some more logging formats.
