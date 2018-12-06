@@ -10,6 +10,13 @@
 * Support for unix domain sockets.
 * Either for alternative sockets (usually unix vs. IP).
 
+# 0.2.7
+# spirit-daemonize-0.1.2
+# spirit-log-0.1.4
+
+* Ability to opt out of several dependencies by features (the config
+  dependencies).
+
 # spirit-log-0.1.3
 
 * Some more logging formats.

@@ -21,7 +21,7 @@ log = "~0.4"
 serde = "~1"
 serde_derive = "~1"
 spirit = { path = "..", version = "~0.2" }
-spirit-tokio = { path = "../spirit-tokio", version = "~0.3" }
+spirit-tokio = { path = "../spirit-tokio", version = "~0.3", default-features = false }
 structopt = "~0.2"
 tokio = "~0.1"
 

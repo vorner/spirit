@@ -24,7 +24,7 @@ parking_lot = "~0.6"
 serde = "~1"
 serde_derive = "~1"
 serde-humanize-rs = "~0.1"
-spirit = { version = "~0.2", path = ".." }
+spirit = { version = "~0.2", path = "..", default-features = false }
 structopt = "~0.2"
 tk-listen = "~0.2"
 tokio = "~0.1.8"

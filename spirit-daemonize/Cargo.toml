@@ -1,6 +1,6 @@
 [package]
 name = "spirit-daemonize"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Spirit helpers and config fragments to daemonize"
 documentation = "https://docs.rs/spirit-daemonize"
@@ -20,7 +20,7 @@ nix = "~0.11"
 privdrop = "~0.2"
 serde = "~1"
 serde_derive = "~1"
-spirit = { version = "~0.2", path = ".." }
+spirit = { version = "~0.2", path = "..", default-features = false }
 structopt = "~0.2"
 
 [dev-dependencies]
