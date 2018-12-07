@@ -637,9 +637,6 @@ mod tests {
 
     #[test]
     fn maybe_duration_default() {
-        assert_eq!(
-            MaybeDuration::Unset,
-            MaybeDuration::load(r#"{}"#).unwrap()
-        );
+        assert_eq!(MaybeDuration::Unset, MaybeDuration::load(r#"{}"#).unwrap());
     }
 }

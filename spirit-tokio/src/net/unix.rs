@@ -14,14 +14,14 @@ use std::os::unix::net::{UnixDatagram as StdUnixDatagram, UnixListener as StdUni
 use std::path::PathBuf;
 
 use failure::Error;
-use spirit::Empty;
 use spirit::validation::Results as ValidationResults;
+use spirit::Empty;
 use tokio::net::unix::{Incoming, UnixDatagram, UnixListener, UnixStream};
 use tokio::reactor::Handle;
 
 use base_traits::ResourceConfig;
-use scaled::{Scale, Scaled};
 use net::{ConfiguredStreamListener, IntoIncoming, StreamConfig, WithListenLimits};
+use scaled::{Scale, Scaled};
 
 /// Configuration of where to bind a unix domain socket.
 ///

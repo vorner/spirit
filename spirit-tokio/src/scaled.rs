@@ -30,7 +30,6 @@ fn default_scale() -> usize {
 /// Using [`Empty`] as the scaling fragment will always return 1 instance and won't add any
 /// configuration.
 pub trait Scaled {
-
     /// Returns how many instances there should be.
     ///
     /// And accompanies it with optional validation results, to either refuse or warn about the

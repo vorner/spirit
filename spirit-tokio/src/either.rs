@@ -4,8 +4,8 @@ use std::io::{BufRead, Error as IoError, Read, Seek, SeekFrom, Write};
 use std::time::Duration;
 
 use failure::Error;
-use futures::{Async, Future, Poll, Sink, StartSend, Stream};
 use futures::future::Either as FutEither;
+use futures::{Async, Future, Poll, Sink, StartSend, Stream};
 use spirit::validation::Results as ValidationResults;
 use spirit::Builder;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -157,7 +157,6 @@ pub enum Either<A, B> {
 use self::Either::{A, B};
 
 impl<T> Either<T, T> {
-
     /// Extracts the inner value in case both have the same type.
     ///
     /// Sometimes, a series of operations produces an `Either` with both types the same. In such
