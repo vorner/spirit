@@ -9,6 +9,7 @@
   They interlock in a similar way the serde traits do.
 * Support for unix domain sockets.
 * Either for alternative sockets (usually unix vs. IP).
+* Fixed problem of not shutting down on error from inner body.
 
 # 0.2.7
 # spirit-daemonize-0.1.2

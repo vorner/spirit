@@ -1,6 +1,7 @@
 //! A helper to start the tokio runtime at the appropriate time.
 
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use failure::Error;
 use futures::future::{self, Future};
@@ -137,21 +138,28 @@ where
 {
     fn apply(self, builder: Builder<O, C>) -> Builder<O, C> {
         trace!("Wrapping in tokio runtime");
-        builder.body_wrapper(|_spirit, inner| {
-            let fut = future::lazy(move || inner.run());
+        builder.body_wrapper(|spirit, inner| {
+            let spirit = Arc::clone(spirit);
+            let fut = future::lazy(move || {
+                inner.run().map_err(move |e| {
+                    spirit.terminate();
+                    e
+                })
+            });
             match self {
                 Runtime::ThreadPool(mut mod_builder) => {
                     let mut builder = runtime::Builder::new();
                     mod_builder(&mut builder);
-                    builder.build()?.block_on_all(fut)
+                    let mut runtime = builder.build()?;
+                    runtime.block_on(fut)?;
+                    runtime.block_on_all(future::lazy(|| Ok(())))
                 }
                 Runtime::CurrentThread(mut mod_builder) => {
                     let mut builder = runtime::current_thread::Builder::new();
                     mod_builder(&mut builder);
                     let mut runtime = builder.build()?;
-                    let result = runtime.block_on(fut);
-                    runtime.run()?;
-                    result
+                    runtime.block_on(fut)?;
+                    runtime.run().map_err(Error::from)
                 }
                 Runtime::Custom(mut callback) => callback(Box::new(fut)),
                 Runtime::__NonExhaustive__ => unreachable!(),
