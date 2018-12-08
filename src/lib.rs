@@ -38,8 +38,8 @@
 //! the table. It just takes other crates doing something useful and gluing them together to form
 //! something most daemons want to do.
 //!
-//! Composing these things together the crate allows for cutting down on your own boilerplate code
-//! around configuration handling, signal handling, command line arguments.
+//! By composing these things together the crate allows for cutting down on your own boilerplate
+//! code around configuration handling, signal handling and command line arguments.
 //!
 //! Using the builder pattern, you create a singleton [`Spirit`] object. That one starts a
 //! background thread that runs some callbacks configured previously when things happen.
@@ -59,6 +59,14 @@
 //! [`Deserialize`]: https://docs.rs/serde/*/serde/trait.Deserialize.html
 //! [`config`]: https://crates.io/crates/config
 //! [`signal-hook`]: https://crates.io/crates/signal-hook
+//!
+//! # Features
+//!
+//! There are several features that can tweak functionality. Currently, they are all *on* by
+//! default, but they can be opted out of. All the other spirit crates depend only on the bare
+//! minimum of features they need.
+//!
+//! * `ini`, `json`, `hjson`, `yaml`: support for given configuration formats.
 //!
 //! # Helpers
 //!
