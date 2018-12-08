@@ -48,7 +48,6 @@
 //!
 //! * Reconnecting to the remote server if a TCP connection is lost.
 //! * Log file rotation.
-//! * Setting of logging format (choosing either local or UTC, the format argument or JSON).
 //! * Colors on `stdout`/`stderr`.
 //! * Async and buffered logging and ability to drop log messages when logging doesn't keep up.
 //!

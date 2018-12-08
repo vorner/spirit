@@ -16,6 +16,7 @@ members = [
     "spirit-hyper",
     "spirit-log",
     "spirit-tokio",
+    "examples/hws-complete",
 ]
 
 [badges]
