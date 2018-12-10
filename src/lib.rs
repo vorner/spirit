@@ -32,6 +32,9 @@
 //!   ‒ being able to write a single code and compile a cross-platform service with all the needed
 //!   plumbing would indeed sound very useful.
 //!
+//! You can have a look at a [tutorial](https://vorner.github.io/2018/12/09/Spirit-Tutorial.html)
+//! first before diving into the API documentation.
+//!
 //! # What the crate does and how
 //!
 //! To be honest, the crate doesn't bring much (or, maybe mostly none) of novelty functionality to
