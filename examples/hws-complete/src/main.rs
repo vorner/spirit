@@ -29,10 +29,10 @@ use spirit::Spirit;
 use spirit_daemonize::{Daemon, Opts as DaemonOpts};
 use spirit_hyper::HyperServer;
 use spirit_log::{Cfg as Logging, Opts as LogOpts};
-use spirit_tokio::{ExtraCfgCarrier, TcpListen};
 use spirit_tokio::either::Either;
 #[cfg(unix)]
 use spirit_tokio::net::unix::UnixListen;
+use spirit_tokio::{ExtraCfgCarrier, TcpListen};
 use structopt::StructOpt;
 
 /// The command line arguments we would like our application to have.
@@ -224,7 +224,11 @@ fn main() {
         .config_helper(Cfg::logging, Opts::logging, "logging")
         // And with the HTTP servers. We pass the handler of one request, so it knows what to do
         // with it.
-        .config_helper(Cfg::listen, spirit_hyper::server_configured(hello), "listen")
+        .config_helper(
+            Cfg::listen,
+            spirit_hyper::server_configured(hello),
+            "listen",
+        )
         // A custom callback ‒ when a new config is loaded, we want to print it to logs.
         .on_config(|cmd_line, new_cfg| {
             debug!("Current cmdline: {:?} and config {:?}", cmd_line, new_cfg);
