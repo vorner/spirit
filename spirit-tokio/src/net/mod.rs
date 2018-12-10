@@ -108,10 +108,10 @@ fn default_backlog() -> u32 {
 ///
 /// * `port` (mandatory)
 /// * `host` (optional, if not present, `::` is used)
-/// * `reuse_addr` (optional, boolean, if not present the OS default is used)
-/// * `reuse_port` (optional, boolean, if not present the OS default is used, does something only
+/// * `reuse-addr` (optional, boolean, if not present the OS default is used)
+/// * `reuse-port` (optional, boolean, if not present the OS default is used, does something only
 ///   on unix).
-/// * `only_v6` (optional, boolean, if not present the OS default is used, does nothing for IPv4
+/// * `only-v6` (optional, boolean, if not present the OS default is used, does nothing for IPv4
 ///   sockets).
 /// * `backlog` (optional, number of waiting connections to be accepted in the OS queue, defaults
 ///   to 128)
