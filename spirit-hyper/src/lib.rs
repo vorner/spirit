@@ -86,6 +86,7 @@ use hyper::server::Server;
 use hyper::service::{MakeService, Service};
 use hyper::{Body, Request, Response};
 use spirit::{Empty, Spirit};
+use spirit_tokio::net::limits::WithListenLimits;
 use spirit_tokio::net::IntoIncoming;
 use spirit_tokio::{ResourceConfig, ResourceConsumer, TcpListen};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -165,6 +166,9 @@ where
 /// This is the lowest level constructor of the hyper resource consumers, when the full flexibility
 /// is needed.
 ///
+/// Note that when pairing with a [`ResourceConfig`] whose stream of connection returns an error,
+/// it'll shut down the server. See [`WithListenLimits`].
+///
 /// # Examples
 ///
 /// ```rust
@@ -212,6 +216,8 @@ where
 ///         });
 /// }
 /// ```
+///
+/// [`WithListenLimits`]: spirit_tokio::net::limits::WithListenLimits
 pub fn server<R, O, C, CMS, B, E, ME, S, F>(
     configured_make_service: CMS,
 ) -> impl ResourceConsumer<HyperServer<R>, O, C>
@@ -520,4 +526,4 @@ cfg_helpers! {
 }
 
 /// A type alias for http (plain TCP) hyper server.
-pub type HttpServer<ExtraCfg = Empty> = HyperServer<TcpListen<ExtraCfg>>;
+pub type HttpServer<ExtraCfg = Empty> = HyperServer<WithListenLimits<TcpListen<ExtraCfg>>>;

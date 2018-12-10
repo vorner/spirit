@@ -1,7 +1,6 @@
 //! Support for alternative choices of configuration.
 
 use std::io::{BufRead, Error as IoError, Read, Seek, SeekFrom, Write};
-use std::time::Duration;
 
 use failure::Error;
 use futures::future::Either as FutEither;
@@ -11,7 +10,7 @@ use spirit::Builder;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use base_traits::{ExtraCfgCarrier, Name, ResourceConfig};
-use net::{IntoIncoming, ListenLimits};
+use net::IntoIncoming;
 
 /// The [`Either`] type allows to wrap two similar [`ResourceConfig`]s and let the user choose
 /// which one will be used.
@@ -80,7 +79,8 @@ use net::{IntoIncoming, ListenLimits};
 /// use spirit::{Empty, Spirit};
 /// #[cfg(unix)]
 /// use spirit_tokio::either::Either;
-/// use spirit_tokio::net::{TcpListen, IntoIncoming, WithListenLimits};
+/// use spirit_tokio::net::{TcpListen, IntoIncoming};
+/// use spirit_tokio::net::limits::WithListenLimits;
 /// #[cfg(unix)]
 /// use spirit_tokio::net::unix::UnixListen;
 /// use spirit_tokio::ResourceConfig;
@@ -98,7 +98,7 @@ use net::{IntoIncoming, ListenLimits};
 ///
 /// const DEFAULT_CONFIG: &str = r#"
 /// [[listening_socket]]
-/// port = 1234
+/// port = 1235
 /// max-conn = 20
 /// error-sleep = "100ms"
 /// "#;
@@ -267,19 +267,6 @@ where
     fn install<N: Name>(builder: Builder<O, C>, name: &N) -> Builder<O, C> {
         let builder = A::install(builder, name);
         B::install(builder, name)
-    }
-}
-
-impl<A, B> ListenLimits for Either<A, B>
-where
-    A: ListenLimits,
-    B: ListenLimits,
-{
-    fn error_sleep(&self) -> Duration {
-        either!(self, v => v.error_sleep()).into_inner()
-    }
-    fn max_conn(&self) -> usize {
-        either!(self, v => v.max_conn()).into_inner()
     }
 }
 

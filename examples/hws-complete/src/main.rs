@@ -30,6 +30,7 @@ use spirit_daemonize::{Daemon, Opts as DaemonOpts};
 use spirit_hyper::HyperServer;
 use spirit_log::{Cfg as Logging, Opts as LogOpts};
 use spirit_tokio::either::Either;
+use spirit_tokio::net::limits::WithListenLimits;
 #[cfg(unix)]
 use spirit_tokio::net::unix::UnixListen;
 use spirit_tokio::{ExtraCfgCarrier, TcpListen};
@@ -94,9 +95,9 @@ struct Signature {
 ///
 /// We also bundle the optional signature inside of that thing.
 #[cfg(unix)]
-type ListenSocket = Either<TcpListen<Signature>, UnixListen<Signature>>;
+type ListenSocket = WithListenLimits<Either<TcpListen<Signature>, UnixListen<Signature>>>;
 #[cfg(not(unix))]
-type ListenSocket = TcpListen<Signature>;
+type ListenSocket = WithListenLimits<TcpListen<Signature>>;
 type Server = HyperServer<ListenSocket>;
 
 /// Putting the whole configuration together.
@@ -166,6 +167,7 @@ backlog = 256
 scale = 2
 only-v6 = true
 signature = "IPv6"
+max-conn = 20
 
 [[listen]]
 # This one will be rejected on Windows, because it'll turn off the unix domain socket support.
@@ -173,6 +175,7 @@ path = "/tmp/hws.socket"
 http-mode = "http1-only"
 backlog = 256
 scale = 2
+error-sleep = "100ms"
 
 [ui]
 msg = "Hello world"

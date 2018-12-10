@@ -20,7 +20,8 @@ use tokio::net::unix::{Incoming, UnixDatagram, UnixListener, UnixStream};
 use tokio::reactor::Handle;
 
 use base_traits::ResourceConfig;
-use net::{ConfiguredStreamListener, IntoIncoming, StreamConfig, WithListenLimits};
+use net::limits::WithListenLimits;
+use net::{ConfiguredStreamListener, IntoIncoming, StreamConfig};
 use scaled::{Scale, Scaled};
 
 /// Configuration of where to bind a unix domain socket.

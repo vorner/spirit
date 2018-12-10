@@ -27,6 +27,7 @@ use std::sync::Arc;
 
 use failure::Error;
 use spirit::{Empty, Spirit};
+use spirit_tokio::net::limits::LimitedConn;
 use spirit_tokio::TcpListenWithLimits;
 use tokio::net::TcpStream;
 use tokio::prelude::*;
@@ -71,7 +72,7 @@ msg = "Hello world"
 fn handle_connection(
     spirit: &Arc<Spirit<Empty, Config>>,
     _conf: &Arc<TcpListenWithLimits>,
-    conn: TcpStream,
+    conn: LimitedConn<TcpStream>,
     _name: &str,
 ) -> impl Future<Item = (), Error = Error> {
     let addr = conn
