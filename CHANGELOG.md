@@ -1,3 +1,11 @@
+# spirit-0.2.8
+
+* Docs extensions (example, listing features, adding link to tutorial).
+
+# spirit-tokio-0.3.1
+
+* Docs fixes.
+
 # spirit-hyper-0.3.0
 
 * Redesigned (same changes as with spirit-tokio).

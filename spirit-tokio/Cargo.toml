@@ -1,6 +1,6 @@
 [package]
 name = "spirit-tokio"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Tokio helpers for Spirit"
 documentation = "https://docs.rs/spirit-tokio"
