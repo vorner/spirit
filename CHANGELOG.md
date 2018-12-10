@@ -1,3 +1,8 @@
+# spirit-log-0.1.5
+
+* (Re)enabled log-panics integration. It got lost when splitting of the main
+  `spirit`, but was always intended to be present.
+
 # spirit-0.2.8
 
 * Docs extensions (example, listing features, adding link to tutorial).

@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-log/0.1.4/spirit_log/",
+    html_root_url = "https://docs.rs/spirit-log/0.1.5/spirit_log/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -15,7 +15,9 @@
 //! Currently, it also allows asking for log output on the command line and multiple logging
 //! destinations with different log levels set.
 //!
-//! It assumes the application doesn't set the global logger (this crate sets it on its own).
+//! It assumes the application doesn't set the global logger (this crate sets it on its own). It
+//! also sets the panic hook through the [`log_panics`] crate. The `with-backtrace` cargo feature
+//! is propagated through.
 //!
 //! For details about added options, see the [`Opts`](struct.Opts.html) and
 //! [`Cfg`](struct.Cfg.html) configuration fragments.
@@ -118,6 +120,7 @@ extern crate fern;
 extern crate itertools;
 #[macro_use]
 extern crate log;
+extern crate log_panics;
 extern crate log_reroute;
 extern crate serde;
 #[macro_use]
@@ -745,6 +748,7 @@ where
             Ok(())
         };
         if builder.singleton::<Configured>() {
+            log_panics::init();
             let logger = Logger {
                 destination: LogDestination::StdErr,
                 level: LevelFilter::Warn,

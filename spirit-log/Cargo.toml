@@ -1,6 +1,6 @@
 [package]
 name = "spirit-log"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Spirit helpers and config fragments for logging"
 documentation = "https://docs.rs/spirit-log"
@@ -12,6 +12,10 @@ license = "Apache-2.0/MIT"
 [badges]
 travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
+
+[features]
+default = ["with-backtrace"]
+with-backtrace = ["log-panics/with-backtrace"]
 
 [dependencies]
 chrono = "~0.4"
