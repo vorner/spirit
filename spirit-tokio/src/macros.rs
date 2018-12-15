@@ -138,7 +138,6 @@ macro_rules! cfg_helpers {
 /// If a trait is implemented for a field of a type, this allows for implementing it on the
 /// container too by delegating it to the field. This is limited to these traits:
 ///
-/// * [`ListenLimits`]
 /// * [`ExtraCfgCarrier`]
 /// * [`ResourceConfig`]
 ///
@@ -155,26 +154,15 @@ macro_rules! cfg_helpers {
 /// }
 ///
 /// delegate_resource_traits! {
-///     delegate ListenLimits, ExtraCfgCarrier, ResourceConfig to inner on Wrapper;
+///     delegate ExtraCfgCarrier, ResourceConfig to inner on Wrapper;
 /// }
 /// # fn main() { let _x = Wrapper { inner: () }; }
 /// ```
 ///
-/// [`ListenLimits`]: ::net::ListenLimits
 /// [`ExtraCfgCarrier`]: ::base_traits::ExtraCfgCarrier
 /// [`ResourceConfig`]: ::base_traits::ResourceConfig
 #[macro_export]
 macro_rules! delegate_resource_traits {
-    (delegate impl ListenLimits to $inner: ident on $type: ident;) => {
-        impl<Inner: $crate::net::ListenLimits> $crate::net::ListenLimits for $type<Inner> {
-            fn error_sleep(&self) -> ::std::time::Duration {
-                self.$inner.error_sleep()
-            }
-            fn max_conn(&self) -> usize {
-                self.$inner.max_conn()
-            }
-        }
-    };
     (delegate impl ExtraCfgCarrier to $inner: ident on $type: ident;) => {
         impl<Inner: $crate::ExtraCfgCarrier> $crate::ExtraCfgCarrier for $type<Inner> {
             type Extra = Inner::Extra;

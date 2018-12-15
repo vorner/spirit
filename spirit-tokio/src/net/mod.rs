@@ -13,7 +13,7 @@ use std::io::Error as IoError;
 use std::net::{IpAddr, TcpListener as StdTcpListener, UdpSocket as StdUdpSocket};
 use std::time::Duration;
 
-use failure::Error;
+use failure::{Error, ResultExt};
 use futures::{Async, Poll, Stream};
 #[cfg(unix)]
 use net2::unix::{UnixTcpBuilderExt, UnixUdpBuilderExt};
@@ -29,6 +29,7 @@ use tokio::reactor::Handle;
 use super::ResourceConfig;
 use scaled::{Scale, Scaled};
 
+pub mod limits;
 #[cfg(unix)]
 pub mod unix;
 
@@ -58,33 +59,6 @@ impl IntoIncoming for TcpListener {
     fn into_incoming(self) -> Self::Incoming {
         self.incoming()
     }
-}
-
-/// Safety limits for listening sockets
-///
-/// The [`per_connection`] needs certain limits to be configured. This trait extends the
-/// configuration fragments that provide such limits.
-///
-/// The configuration fragment can either provide them natively (eg. either contain them or
-/// hardcode them in code), or you can use the [`WithListenLimits`] wrapper to add the
-/// configuration to arbitrary fragment. Also, there's the [`TcpListenWithLimits`] type alias for
-/// convenience.
-///
-/// [`per_connection`]: ::per_connection
-pub trait ListenLimits {
-    /// How long to sleep on non-fatal accepting errors.
-    ///
-    /// Certain errors caused by the `accept` call are non-fatal ‒ for example „Too Many Open
-    /// Files“. In such case, further accepting is postponed for this long in a hope some other
-    /// connections might have gone away and made space.
-    fn error_sleep(&self) -> Duration;
-
-    /// Maximum number of currently accepted connections.
-    ///
-    /// This is the maximum number *per one listening instance*. If this is exceeded, accepting
-    /// further connections will wait until some existing terminates. They are tracked by when the
-    /// future handling the connection terminates.
-    fn max_conn(&self) -> usize;
 }
 
 fn default_host() -> IpAddr {
@@ -390,8 +364,12 @@ where
 /// A configuration fragment of a TCP listening socket.
 ///
 /// The [`ResourceConfig`] creates a [`TcpListener`] (wrapped in [`ConfiguredIncoming`]). It can be
-/// handled directly. To use the [`per_connection`] function as the [`ResourceConsumer`], you need
-/// to wrap this in [`WithListenLimits`] (see [`TcpListenWithLimits`] for convenient type alias).
+/// handled directly, or through [`per_connection`].
+///
+/// Note that this stream sometimes returns errors „in the middle“, but [`per_connection`] (and
+/// some consumers) terminate on the first error. You might be interested in the
+/// [`WithListenLimits`] wrapper to handle that automatically (or, see the [`TcpListenWithLimits`]
+/// for a convenient type alias).
 ///
 /// It can be used directly through the [`resource`] or [`resources`] functions, or through the
 /// [`CfgHelper`] and [`IteratedCfgHelper`] traits.
@@ -417,6 +395,7 @@ where
 /// [`CfgHelper`]: ::spirit::helpers::CfgHelper
 /// [`IteratedCfgHelper`]: ::spirit::helpers::IteratedCfgHelper
 /// [`ExtraCfgCarrier`]: ::base_traits::ExtraCfgCarrier
+/// [`WithListenLimits`]: limits::WithListenLimits
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct TcpListen<ExtraCfg = Empty, ScaleMode = Scale, TcpStreamConfigure = TcpConfig> {
     #[serde(flatten)]
@@ -438,14 +417,18 @@ where
 {
     type Seed = StdTcpListener;
     type Resource = ConfiguredStreamListener<TcpListener, TcpConfig>;
-    fn create(&self, _: &str) -> Result<StdTcpListener, Error> {
-        self.listen.create_tcp()
+    fn create(&self, name: &str) -> Result<StdTcpListener, Error> {
+        self.listen
+            .create_tcp()
+            .with_context(|_| format!("Failed to create socket {}/{:?}", name, self))
+            .map_err(Error::from)
     }
-    fn fork(&self, seed: &StdTcpListener, _: &str) -> Result<Self::Resource, Error> {
+    fn fork(&self, seed: &StdTcpListener, name: &str) -> Result<Self::Resource, Error> {
         let config = self.tcp_config.clone();
         seed.try_clone() // Another copy of the listener
             // std → tokio socket conversion
             .and_then(|listener| TcpListener::from_std(listener, &Handle::default()))
+            .with_context(|_| format!("Failed to fork socket {}/{:?}", name, self))
             .map_err(Error::from)
             .map(|listener| ConfiguredStreamListener::new(listener, config))
     }
@@ -462,67 +445,10 @@ where
 /// This doesn't configure much more than the minimum actually needed.
 pub type MinimalTcpListen<ExtraCfg = Empty> = TcpListen<ExtraCfg, Empty, Empty>;
 
-fn default_error_sleep() -> Duration {
-    Duration::from_millis(100)
-}
-
-fn default_max_conn() -> usize {
-    1000
-}
-
-/// Wrapper to enrich inner configuration fragment with [`ListenLimits`].
-///
-/// The [`ListenLimits`] is needed for the [`per_connection`] function to work. This lets the user
-/// configure them.
-///
-/// # Fields
-///
-/// In addition to what the inner `Listener` contains, this adds these fields (that directly
-/// correspond to the methods on [`ListenLimits`]):
-///
-/// * `error-sleep`: The back-off time when non-fatal error happens, in human readable form. Defaults
-///   to `100ms` if not present.
-/// * `max-conn`: Maximum number of parallel connections on this listener.
-///
-/// [`per_connection`]: ::per_connection
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct WithListenLimits<Listener> {
-    #[serde(flatten)]
-    inner: Listener,
-    #[serde(
-        rename = "error-sleep",
-        default = "default_error_sleep",
-        with = "serde_humanize_rs"
-    )]
-    error_sleep: Duration,
-    #[serde(rename = "max-conn", default = "default_max_conn")]
-    max_conn: usize,
-}
-
-impl<Listener: Default> Default for WithListenLimits<Listener> {
-    fn default() -> Self {
-        Self {
-            inner: Listener::default(),
-            error_sleep: default_error_sleep(),
-            max_conn: default_max_conn(),
-        }
-    }
-}
-
-impl<Listener> ListenLimits for WithListenLimits<Listener> {
-    fn error_sleep(&self) -> Duration {
-        self.error_sleep
-    }
-    fn max_conn(&self) -> usize {
-        self.max_conn
-    }
-}
-
-/// Convenience type alias for configuration fragment that can be used with [`per_connection`].
-///
-/// [`per_connection`]: ::per_connection
+/// Convenience type alias for configuration fragment for TCP listening socket with handling of
+/// accept errors and limiting number of current connections.
 pub type TcpListenWithLimits<ExtraCfg = Empty, ScaleMode = Scale, TcpStreamConfigure = TcpConfig> =
-    WithListenLimits<TcpListen<ExtraCfg, ScaleMode, TcpStreamConfigure>>;
+    limits::WithListenLimits<TcpListen<ExtraCfg, ScaleMode, TcpStreamConfigure>>;
 
 /// A configuration fragment describing a bound UDP socket.
 ///
@@ -558,13 +484,17 @@ where
 {
     type Seed = StdUdpSocket;
     type Resource = UdpSocket;
-    fn create(&self, _: &str) -> Result<StdUdpSocket, Error> {
-        self.listen.create_udp()
+    fn create(&self, name: &str) -> Result<StdUdpSocket, Error> {
+        self.listen
+            .create_udp()
+            .with_context(|_| format!("Failed to create socket {}/{:?}", name, self))
+            .map_err(Error::from)
     }
-    fn fork(&self, seed: &StdUdpSocket, _: &str) -> Result<UdpSocket, Error> {
+    fn fork(&self, seed: &StdUdpSocket, name: &str) -> Result<UdpSocket, Error> {
         seed.try_clone() // Another copy of the socket
             // std → tokio socket conversion
             .and_then(|socket| UdpSocket::from_std(socket, &Handle::default()))
+            .with_context(|_| format!("Failed to fork socket {}/{:?}", name, self))
             .map_err(Error::from)
     }
     fn scaled(&self, name: &str) -> (usize, ValidationResults) {
@@ -580,10 +510,6 @@ extra_cfg_impl! {
     UdpListen<ExtraCfg, ScaleMode>::extra_cfg: ExtraCfg;
 }
 
-delegate_resource_traits! {
-    delegate ExtraCfgCarrier, ResourceConfig to inner on WithListenLimits;
-}
-
 cfg_helpers! {
     impl helpers for TcpListen <ExtraCfg, ScaleMode, TcpStreamConfigure>
     where
@@ -595,8 +521,6 @@ cfg_helpers! {
     where
         ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
         ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static;
-
-    impl helpers for WithListenLimits<Listener> where;
 }
 
 #[cfg(test)]

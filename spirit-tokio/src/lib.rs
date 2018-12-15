@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-tokio/0.3.1/spirit_tokio/",
+    html_root_url = "https://docs.rs/spirit-tokio/0.4.0/spirit_tokio/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -104,6 +104,7 @@
 //! use failure::Error;
 //! use spirit::{Empty, Spirit};
 //! use spirit_tokio::TcpListenWithLimits;
+//! use spirit_tokio::net::limits::LimitedConn;
 //! use tokio::net::TcpStream;
 //! use tokio::prelude::*;
 //!
@@ -127,7 +128,7 @@
 //! fn connection(
 //!     _: &Arc<Spirit<Empty, Config>>,
 //!     _: &Arc<TcpListenWithLimits>,
-//!     conn: TcpStream,
+//!     conn: LimitedConn<TcpStream>,
 //!     _: &str
 //! ) -> impl Future<Item = (), Error = Error> {
 //!     tokio::io::write_all(conn, "Hello\n")
@@ -169,9 +170,11 @@
 //! [`UnixListener`]: ::tokio::net::unix::UnixListener
 //! [`DatagramListen`]: net::unix::DatagramListen
 //! [`UnixDatagram`]: ::tokio::net::unix::UnixDatagram
-//! [`WithListenLimits`]: net::WithListenLimits
+//! [`WithListenLimits`]: net::limits::WithListenLimits
 //! [`UnixListenWithLimits`]: net::unix::UnixListenWithLimits
 
+#[cfg(test)]
+extern crate corona;
 extern crate failure;
 extern crate futures;
 #[macro_use]
