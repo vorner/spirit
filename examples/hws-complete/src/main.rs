@@ -185,6 +185,7 @@ msg = "Hello world"
 ///
 /// This thing handles one request. The plumbing behind the scenes give it access to the relevant
 /// parts of config.
+#[allow(clippy::needless_pass_by_value)] // The server_configured expects this signature
 fn hello(
     spirit: &Arc<Spirit<Opts, Cfg>>,
     cfg: &Arc<Server>,
