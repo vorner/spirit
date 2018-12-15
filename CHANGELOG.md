@@ -1,3 +1,12 @@
+# spirit-hyper-0.4.0
+
+* Ability to specify connection limits.
+
+# spirit-tokio-0.4.0
+
+* New way of handling connection limits (reusable as a transport for eg. hyper).
+* More informative error messages when binding.
+
 # spirit-log-0.1.5
 
 * (Re)enabled log-panics integration. It got lost when splitting of the main
