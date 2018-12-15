@@ -1,3 +1,13 @@
+# spirit-reqwest-0.1.0
+
+* Initial implementation.
+  - Fragment to configure and build the client.
+  - A storage that is kept up to date all the time.
+
+# 0.2.9
+
+* spirit::utils::Hidden to hide sensitive information from logs.
+
 # spirit-hyper-0.4.0
 
 * Ability to specify connection limits.
