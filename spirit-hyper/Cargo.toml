@@ -27,4 +27,4 @@ tokio = "~0.1"
 
 [dev-dependencies]
 env_logger = "~0.6"
-version-sync = "~0.5"
+version-sync = "~0.6"

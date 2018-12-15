@@ -33,4 +33,4 @@ structopt = "~0.2"
 syslog = "~4"
 
 [dev-dependencies]
-version-sync = "~0.5"
+version-sync = "~0.6"

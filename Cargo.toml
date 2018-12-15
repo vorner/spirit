@@ -46,4 +46,4 @@ structopt = "~0.2"
 
 [dev-dependencies]
 lazy_static = "~1"
-version-sync = "~0.5"
+version-sync = "~0.6"

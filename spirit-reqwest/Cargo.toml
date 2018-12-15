@@ -18,4 +18,4 @@ url = "~1.7"
 url_serde = "~0.2"
 
 [dev-dependencies]
-version-sync = "~0.5"
+version-sync = "~0.6"
