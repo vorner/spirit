@@ -1,4 +1,4 @@
-use version_sync::{assert_markdown_deps_updated, assert_html_root_url_updated};
+use version_sync::{assert_html_root_url_updated, assert_markdown_deps_updated};
 
 #[test]
 fn test_readme_deps() {

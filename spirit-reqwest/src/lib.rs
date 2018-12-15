@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::fs::File;
@@ -18,15 +19,14 @@ use failure::{Error, ResultExt};
 use log::{debug, trace};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{
-    Certificate, Client, Identity, IntoUrl, Method, Proxy, RedirectPolicy,
-    RequestBuilder,
+    Certificate, Client, Identity, IntoUrl, Method, Proxy, RedirectPolicy, RequestBuilder,
 };
 use serde::de::DeserializeOwned;
 use serde_derive::Deserialize;
-use spirit::Builder;
 use spirit::helpers::CfgHelper;
 use spirit::utils::Hidden;
 use spirit::validation::Result as ValidationResult;
+use spirit::Builder;
 use structopt::StructOpt;
 use url_serde::SerdeUrl;
 
@@ -235,7 +235,7 @@ impl AtomicClient {
     }
 }
 
-impl<O, C, A: AsRef<AtomicClient>> CfgHelper<O, C, A> for ReqwestClient
+impl<O, C, A: Borrow<AtomicClient>> CfgHelper<O, C, A> for ReqwestClient
 where
     C: DeserializeOwned + Send + Sync + 'static,
     O: Debug + StructOpt + Sync + Send + 'static,
@@ -248,9 +248,9 @@ where
     ) -> Builder<O, C>
     where
         Extractor: FnMut(&C) -> Self + Send + 'static,
-        Name: Clone + Display + Send + Sync + 'static
+        Name: Clone + Display + Send + Sync + 'static,
     {
-        let cl = atomic_client.as_ref().clone();
+        let cl = atomic_client.borrow().clone();
         builder.config_validator(move |_, new_cfg, _| {
             let config = extractor(new_cfg);
             match config.create() {
