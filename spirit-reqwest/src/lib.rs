@@ -9,12 +9,17 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
+use arc_swap::{ArcSwapOption, Lease};
 use failure::{Error, ResultExt};
 use log::{debug, trace};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use reqwest::{Certificate, Client, Identity, Proxy, RedirectPolicy};
+use reqwest::{
+    Certificate, Client, Identity, IntoUrl, Method, Proxy, RedirectPolicy,
+    RequestBuilder,
+};
 use serde_derive::Deserialize;
 use url_serde::SerdeUrl;
 
@@ -166,5 +171,53 @@ impl ReqwestClient {
             .build()
             .context("Failed to finish creating Reqwest HTTP client")
             .map_err(Error::from)
+    }
+}
+
+pub struct AtomicClient(ArcSwapOption<Client>);
+
+macro_rules! method {
+    ($($(#[$attr: meta])* $name: ident();)*) => {
+        $(
+            $(#[$attr])*
+            pub fn $name<U: IntoUrl>(&self, url: U) -> RequestBuilder {
+                let lease = self.0.lease();
+                Lease::get_ref(&lease)
+                    .expect("Accessing Reqwest HTTP client before setting it up")
+                    .$name(url)
+            }
+        )*
+    }
+}
+
+impl AtomicClient {
+    pub fn empty() -> Self {
+        AtomicClient(ArcSwapOption::empty())
+    }
+    pub fn unconfigured() -> Self {
+        AtomicClient(ArcSwapOption::from_pointee(Client::new()))
+    }
+    pub fn replace<C: Into<Arc<Client>>>(&self, by: C) {
+        let client = by.into();
+        self.0.store(Some(client));
+    }
+    pub fn client(&self) -> Arc<Client> {
+        self.0
+            .load()
+            .expect("Accessing Reqwest HTTP client before setting it up")
+    }
+    pub fn request<U: IntoUrl>(&self, method: Method, url: U) -> RequestBuilder {
+        let lease = self.0.lease();
+        Lease::get_ref(&lease)
+            .expect("Accessing Reqwest HTTP client before setting it up")
+            .request(method, url)
+    }
+    method! {
+        get();
+        post();
+        put();
+        patch();
+        delete();
+        head();
     }
 }
