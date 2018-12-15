@@ -15,6 +15,7 @@ members = [
     "spirit-daemonize",
     "spirit-hyper",
     "spirit-log",
+    "spirit-reqwest",
     "spirit-tokio",
     "examples/hws-complete",
 ]

@@ -1,0 +1,20 @@
+[package]
+name = "spirit-reqwest"
+version = "0.1.0"
+authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
+edition = "2018"
+
+[dependencies]
+arc-swap = "~0.3.6"
+failure = "~0.1"
+log = "~0.4"
+reqwest = "~0.9.5"
+serde = "~1"
+serde_derive = "~1"
+serde-humanize-rs = "~0.1"
+spirit = { version = "~0.2.8", path = ".." }
+url = "~1.7"
+url_serde = "~0.2"
+
+[dev-dependencies]
+version-sync = "~0.5"
