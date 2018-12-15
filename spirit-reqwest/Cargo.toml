@@ -13,6 +13,7 @@ serde = "~1"
 serde_derive = "~1"
 serde-humanize-rs = "~0.1"
 spirit = { version = "~0.2.8", path = ".." }
+structopt = "~0.2"
 url = "~1.7"
 url_serde = "~0.2"
 

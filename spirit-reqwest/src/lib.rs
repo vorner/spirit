@@ -6,6 +6,7 @@
 // TODO #![warn(missing_docs)]
 
 use std::collections::HashMap;
+use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -20,7 +21,12 @@ use reqwest::{
     Certificate, Client, Identity, IntoUrl, Method, Proxy, RedirectPolicy,
     RequestBuilder,
 };
+use serde::de::DeserializeOwned;
 use serde_derive::Deserialize;
+use spirit::Builder;
+use spirit::helpers::CfgHelper;
+use spirit::validation::Result as ValidationResult;
+use structopt::StructOpt;
 use url_serde::SerdeUrl;
 
 fn default_timeout() -> Option<Duration> {
@@ -174,7 +180,14 @@ impl ReqwestClient {
     }
 }
 
-pub struct AtomicClient(ArcSwapOption<Client>);
+#[derive(Clone, Debug)]
+pub struct AtomicClient(Arc<ArcSwapOption<Client>>);
+
+impl Default for AtomicClient {
+    fn default() -> Self {
+        Self::unconfigured()
+    }
+}
 
 macro_rules! method {
     ($($(#[$attr: meta])* $name: ident();)*) => {
@@ -192,10 +205,10 @@ macro_rules! method {
 
 impl AtomicClient {
     pub fn empty() -> Self {
-        AtomicClient(ArcSwapOption::empty())
+        AtomicClient(Arc::new(ArcSwapOption::empty()))
     }
     pub fn unconfigured() -> Self {
-        AtomicClient(ArcSwapOption::from_pointee(Client::new()))
+        AtomicClient(Arc::new(ArcSwapOption::from_pointee(Client::new())))
     }
     pub fn replace<C: Into<Arc<Client>>>(&self, by: C) {
         let client = by.into();
@@ -219,5 +232,37 @@ impl AtomicClient {
         patch();
         delete();
         head();
+    }
+}
+
+impl<O, C, A: AsRef<AtomicClient>> CfgHelper<O, C, A> for ReqwestClient
+where
+    C: DeserializeOwned + Send + Sync + 'static,
+    O: Debug + StructOpt + Sync + Send + 'static,
+{
+    fn apply<Extractor, Name>(
+        mut extractor: Extractor,
+        atomic_client: A,
+        name: Name,
+        builder: Builder<O, C>,
+    ) -> Builder<O, C>
+    where
+        Extractor: FnMut(&C) -> Self + Send + 'static,
+        Name: Clone + Display + Send + Sync + 'static
+    {
+        let cl = atomic_client.as_ref().clone();
+        builder.config_validator(move |_, new_cfg, _| {
+            let config = extractor(new_cfg);
+            match config.create() {
+                Ok(client) => {
+                    let cl = cl.clone();
+                    ValidationResult::nothing().on_success(move || cl.replace(Arc::new(client)))
+                }
+                Err(e) => {
+                    let e = e.context(format!("Failed to create HTTP client {}", name));
+                    ValidationResult::from_error(e.into())
+                }
+            }
+        })
     }
 }
