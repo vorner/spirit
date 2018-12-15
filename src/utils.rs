@@ -5,6 +5,8 @@
 
 use std::env;
 use std::ffi::OsStr;
+use std::fmt::{Debug, Formatter, Result as FmtResult};
+use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -112,6 +114,70 @@ where
 /// optionally the backtrace.
 pub fn log_errors<R, F: FnOnce() -> Result<R, Error>>(f: F) -> Result<R, Error> {
     log_errors_named("spirit", f)
+}
+
+/// A wrapper to hide a configuration field from logs.
+///
+/// This acts in as much transparent way as possible towards the field inside. It only replaces the
+/// [`Debug`] implementation with returning `"******"`.
+///
+/// The idea is if the configuration contains passwords, they shouldn't leak into the logs.
+/// Therefore, wrap them in this, eg:
+///
+/// ```rust
+/// # extern crate spirit;
+/// #
+/// use std::io::Write;
+/// use std::str;
+///
+/// use spirit::utils::Hidden;
+///
+/// #[derive(Debug)]
+/// struct Cfg {
+///     username: String,
+///     password: Hidden<String>,
+/// }
+///
+/// # fn main() -> Result<(), Box<std::error::Error>> {
+/// let cfg = Cfg {
+///     username: "me".to_owned(),
+///     password: "secret".to_owned().into(),
+/// };
+///
+/// let mut buffer: Vec<u8> = Vec::new();
+/// write!(&mut buffer, "{:?}", cfg)?;
+/// assert_eq!(r#"Cfg { username: "me", password: "******" }"#, str::from_utf8(&buffer)?);
+/// # Ok(())
+/// # }
+/// ```
+#[derive(Clone, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
+#[repr(transparent)]
+#[serde(transparent)]
+pub struct Hidden<T>(pub T);
+
+impl<T> From<T> for Hidden<T> {
+    fn from(val: T) -> Self {
+        Hidden(val)
+    }
+}
+
+impl<T> Deref for Hidden<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for Hidden<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
+impl<T> Debug for Hidden<T> {
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
+        write!(fmt, "\"******\"")
+    }
 }
 
 #[cfg(test)]

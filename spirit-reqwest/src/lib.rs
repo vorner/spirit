@@ -1,9 +1,9 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-reqwest/0.4.0/spirit_reqwest/",
+    html_root_url = "https://docs.rs/spirit-reqwest/0.1.0/spirit_reqwest/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
-// TODO #![warn(missing_docs)]
+#![warn(missing_docs)]
 
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
@@ -25,6 +25,7 @@ use serde::de::DeserializeOwned;
 use serde_derive::Deserialize;
 use spirit::Builder;
 use spirit::helpers::CfgHelper;
+use spirit::utils::Hidden;
 use spirit::validation::Result as ValidationResult;
 use structopt::StructOpt;
 use url_serde::SerdeUrl;
@@ -73,8 +74,7 @@ pub struct ReqwestClient {
     tls_extra_root_certs: Vec<PathBuf>,
 
     tls_identity: Option<PathBuf>,
-    // TODO: Hide it from debug
-    tls_identity_password: Option<String>,
+    tls_identity_password: Option<Hidden<String>>,
 
     #[serde(default)]
     tls_accept_invalid_hostnames: bool,
