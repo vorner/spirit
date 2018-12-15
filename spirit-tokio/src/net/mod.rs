@@ -13,7 +13,7 @@ use std::io::Error as IoError;
 use std::net::{IpAddr, TcpListener as StdTcpListener, UdpSocket as StdUdpSocket};
 use std::time::Duration;
 
-use failure::Error;
+use failure::{Error, ResultExt};
 use futures::{Async, Poll, Stream};
 #[cfg(unix)]
 use net2::unix::{UnixTcpBuilderExt, UnixUdpBuilderExt};
@@ -417,14 +417,18 @@ where
 {
     type Seed = StdTcpListener;
     type Resource = ConfiguredStreamListener<TcpListener, TcpConfig>;
-    fn create(&self, _: &str) -> Result<StdTcpListener, Error> {
-        self.listen.create_tcp()
+    fn create(&self, name: &str) -> Result<StdTcpListener, Error> {
+        self.listen
+            .create_tcp()
+            .with_context(|_| format!("Failed to create socket {}/{:?}", name, self))
+            .map_err(Error::from)
     }
-    fn fork(&self, seed: &StdTcpListener, _: &str) -> Result<Self::Resource, Error> {
+    fn fork(&self, seed: &StdTcpListener, name: &str) -> Result<Self::Resource, Error> {
         let config = self.tcp_config.clone();
         seed.try_clone() // Another copy of the listener
             // std → tokio socket conversion
             .and_then(|listener| TcpListener::from_std(listener, &Handle::default()))
+            .with_context(|_| format!("Failed to fork socket {}/{:?}", name, self))
             .map_err(Error::from)
             .map(|listener| ConfiguredStreamListener::new(listener, config))
     }
@@ -480,13 +484,17 @@ where
 {
     type Seed = StdUdpSocket;
     type Resource = UdpSocket;
-    fn create(&self, _: &str) -> Result<StdUdpSocket, Error> {
-        self.listen.create_udp()
+    fn create(&self, name: &str) -> Result<StdUdpSocket, Error> {
+        self.listen
+            .create_udp()
+            .with_context(|_| format!("Failed to create socket {}/{:?}", name, self))
+            .map_err(Error::from)
     }
-    fn fork(&self, seed: &StdUdpSocket, _: &str) -> Result<UdpSocket, Error> {
+    fn fork(&self, seed: &StdUdpSocket, name: &str) -> Result<UdpSocket, Error> {
         seed.try_clone() // Another copy of the socket
             // std → tokio socket conversion
             .and_then(|socket| UdpSocket::from_std(socket, &Handle::default()))
+            .with_context(|_| format!("Failed to fork socket {}/{:?}", name, self))
             .map_err(Error::from)
     }
     fn scaled(&self, name: &str) -> (usize, ValidationResults) {

@@ -13,7 +13,7 @@ use std::fmt::Debug;
 use std::os::unix::net::{UnixDatagram as StdUnixDatagram, UnixListener as StdUnixListener};
 use std::path::PathBuf;
 
-use failure::Error;
+use failure::{Error, ResultExt};
 use spirit::validation::Results as ValidationResults;
 use spirit::Empty;
 use tokio::net::unix::{Incoming, UnixDatagram, UnixListener, UnixStream};
@@ -113,14 +113,18 @@ where
 {
     type Seed = StdUnixListener;
     type Resource = ConfiguredStreamListener<UnixListener, UnixStreamConfig>;
-    fn create(&self, _: &str) -> Result<StdUnixListener, Error> {
-        self.listen.create_listener()
+    fn create(&self, name: &str) -> Result<StdUnixListener, Error> {
+        self.listen
+            .create_listener()
+            .with_context(|_| format!("Failed to create socket {}/{:?}", name, self))
+            .map_err(Error::from)
     }
-    fn fork(&self, seed: &StdUnixListener, _: &str) -> Result<Self::Resource, Error> {
+    fn fork(&self, seed: &StdUnixListener, name: &str) -> Result<Self::Resource, Error> {
         let config = self.unix_config.clone();
         seed.try_clone() // Another copy of the listener
             // std → tokio socket conversion
             .and_then(|listener| UnixListener::from_std(listener, &Handle::default()))
+            .with_context(|_| format!("Failed to fork socket {}/{:?}", name, self))
             .map_err(Error::from)
             .map(|listener| ConfiguredStreamListener::new(listener, config))
     }
@@ -167,13 +171,17 @@ where
 {
     type Seed = StdUnixDatagram;
     type Resource = UnixDatagram;
-    fn create(&self, _: &str) -> Result<StdUnixDatagram, Error> {
-        self.listen.create_datagram()
+    fn create(&self, name: &str) -> Result<StdUnixDatagram, Error> {
+        self.listen
+            .create_datagram()
+            .with_context(|_| format!("Failed to create socket {}/{:?}", name, self))
+            .map_err(Error::from)
     }
-    fn fork(&self, seed: &StdUnixDatagram, _: &str) -> Result<UnixDatagram, Error> {
+    fn fork(&self, seed: &StdUnixDatagram, name: &str) -> Result<UnixDatagram, Error> {
         seed.try_clone() // Another copy of the socket
             // std → tokio socket conversion
             .and_then(|socket| UnixDatagram::from_std(socket, &Handle::default()))
+            .with_context(|_| format!("Failed to fork socket {}/{:?}", name, self))
             .map_err(Error::from)
     }
     fn scaled(&self, name: &str) -> (usize, ValidationResults) {
