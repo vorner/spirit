@@ -1,3 +1,9 @@
+# spirit-tokio-0.4.1
+
+* Make the `max-conn` connection limit optional. If not present, the number of
+  active connections is not limited (well, but max number of file descriptors,
+  kernel, memory… but not the application itself).
+
 # spirit-hyper-0.4.0
 
 * Ability to specify connection limits.

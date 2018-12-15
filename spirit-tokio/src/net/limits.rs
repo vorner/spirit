@@ -43,6 +43,9 @@ pub trait ListenLimits {
     fn error_sleep(&self) -> Duration;
 
     /// Maximum number of active connections one instance will have.
+    ///
+    /// If you don't want the limit, return some huge number (`usize::max_value() / 2 - 1` is
+    /// recommended maximum).
     fn max_conn(&self) -> usize;
 }
 
@@ -79,10 +82,6 @@ fn default_error_sleep() -> Duration {
     Duration::from_millis(100)
 }
 
-fn default_max_conn() -> usize {
-    1000
-}
-
 /// Wrapper to enrich inner configuration fragment with handling of listen limits.
 ///
 /// When a resource config for a listening socket is wrapped in this, the returned resource will
@@ -103,7 +102,9 @@ fn default_max_conn() -> usize {
 ///
 /// * `error-sleep`: The back-off time when non-fatal error happens, in human readable form.
 ///   Defaults to `100ms` if not present.
-/// * `max-conn`: Maximum number of parallel connections on this listener. Defaults to 1000.
+/// * `max-conn`: Maximum number of parallel connections on this listener. Defaults to no limit
+///   (well, to `usize::max_value() / 2 - 1`, actually, for technical reasons, but that should be
+///   effectively no limit).
 ///
 /// # Notes
 ///
@@ -125,8 +126,7 @@ pub struct WithListenLimits<Listener> {
         with = "serde_humanize_rs"
     )]
     error_sleep: Duration,
-    #[serde(rename = "max-conn", default = "default_max_conn")]
-    max_conn: usize,
+    max_conn: Option<usize>,
 }
 
 impl<Listener: Default> Default for WithListenLimits<Listener> {
@@ -134,7 +134,7 @@ impl<Listener: Default> Default for WithListenLimits<Listener> {
         Self {
             inner: Listener::default(),
             error_sleep: default_error_sleep(),
-            max_conn: default_max_conn(),
+            max_conn: None,
         }
     }
 }
@@ -148,7 +148,7 @@ impl<Listener> ListenLimits for WithListenLimits<Listener> {
         self.error_sleep
     }
     fn max_conn(&self) -> usize {
-        self.max_conn
+        self.max_conn.unwrap_or_else(|| usize::max_value() / 2 - 1)
     }
 }
 
@@ -375,7 +375,7 @@ mod tests {
                         scale: Empty {},
                     },
                     error_sleep: Duration::from_millis(100),
-                    max_conn: 2,
+                    max_conn: Some(2),
                 };
                 let seed =
                     ResourceConfig::<Empty, Empty>::create(&incoming_cfg, "test_listener").unwrap();
