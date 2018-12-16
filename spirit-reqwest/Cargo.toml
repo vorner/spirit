@@ -1,12 +1,13 @@
 [package]
-name = "spirit-hyper"
-version = "0.4.0"
+name = "spirit-reqwest"
+version = "0.1.0"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
-description = "Hyper helpers for Spirit"
+edition = "2018"
+description = "Reqwest helpers for Spirit"
 documentation = "https://docs.rs/spirit-hyper"
 repository = "https://github.com/vorner/spirit"
-keywords = ["http", "hyper", "service", "configuration", "spirit"]
 license = "Apache-2.0/MIT"
+keywords = ["http", "reqwest", "service", "configuration", "spirit"]
 readme = "README.md"
 
 [badges]
@@ -14,18 +15,18 @@ travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-arc-swap = "~0.3"
+arc-swap = "~0.3.6"
 failure = "~0.1"
-futures = "~0.1"
-hyper = "~0.12.16"
 log = "~0.4"
+parking_lot = "~0.7"
+reqwest = "~0.9.5"
 serde = "~1"
 serde_derive = "~1"
-spirit = { path = "..", version = "~0.2" }
-spirit-tokio = { path = "../spirit-tokio", version = "~0.4", default-features = false }
+serde-humanize-rs = "~0.1"
+spirit = { version = "~0.2.9", path = ".." }
 structopt = "~0.2"
-tokio = "~0.1"
+url = "~1.7"
+url_serde = "~0.2"
 
 [dev-dependencies]
-env_logger = "~0.6"
 version-sync = "~0.6"

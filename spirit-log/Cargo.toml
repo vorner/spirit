@@ -6,7 +6,7 @@ description = "Spirit helpers and config fragments for logging"
 documentation = "https://docs.rs/spirit-log"
 repository = "https://github.com/vorner/spirit"
 readme = "README.md"
-keywords = ["log", "spirit"]
+keywords = ["log", "spirit", "service", "configuration"]
 license = "Apache-2.0/MIT"
 
 [badges]
@@ -33,4 +33,4 @@ structopt = "~0.2"
 syslog = "~4"
 
 [dev-dependencies]
-version-sync = "~0.5"
+version-sync = "~0.6"
