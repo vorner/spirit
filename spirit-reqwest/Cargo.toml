@@ -18,6 +18,7 @@ maintenance = { status = "actively-developed" }
 arc-swap = "~0.3.6"
 failure = "~0.1"
 log = "~0.4"
+parking_lot = "~0.7"
 reqwest = "~0.9.5"
 serde = "~1"
 serde_derive = "~1"
