@@ -116,7 +116,7 @@ fn default_error_sleep() -> Duration {
 ///
 /// [`per_connection`]: ::per_connection
 /// [`Scaled`]: ::scaled::Scaled
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, StructDoc)]
 pub struct WithListenLimits<Listener> {
     #[serde(flatten)]
     inner: Listener,

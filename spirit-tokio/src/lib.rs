@@ -186,6 +186,8 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_humanize_rs;
 extern crate spirit;
+#[macro_use]
+extern crate structdoc;
 extern crate structopt;
 extern crate tk_listen;
 extern crate tokio;

@@ -29,6 +29,7 @@ serde = "~1"
 serde_derive = "~1"
 serde_json = "~1"
 spirit = { version = "~0.2", path = "..", default-features = false }
+structdoc = { git = "https://github.com/vorner/structdoc" }
 structopt = "~0.2"
 syslog = "~4"
 

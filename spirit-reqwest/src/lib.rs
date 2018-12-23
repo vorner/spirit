@@ -81,6 +81,7 @@ use spirit::helpers::CfgHelper;
 use spirit::utils::Hidden;
 use spirit::validation::Result as ValidationResult;
 use spirit::Builder;
+use structdoc::StructDoc;
 use structopt::StructOpt;
 use url_serde::SerdeUrl;
 
@@ -150,7 +151,7 @@ fn load_identity(path: &Path, passwd: &str) -> Result<Identity, Error> {
 /// * `https-proxy`: An URL of proxy that servers https requests.
 /// * `redirects`: Number of allowed redirects per one request, `nil` to disable. Defaults to `10`.
 /// * `referer`: Allow automatic setting of the referer header. Defaults to `true`.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, StructDoc)]
 #[serde(rename_all = "kebab-case")]
 pub struct ReqwestClient {
     #[serde(default)]
@@ -174,7 +175,9 @@ pub struct ReqwestClient {
     #[serde(with = "serde_humanize_rs", default = "default_timeout")]
     timeout: Option<Duration>,
 
+    #[structdoc(leaf)]
     http_proxy: Option<SerdeUrl>,
+    #[structdoc(leaf)]
     https_proxy: Option<SerdeUrl>,
 
     #[serde(default = "default_redirects")]

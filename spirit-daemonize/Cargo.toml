@@ -21,6 +21,8 @@ privdrop = "~0.2"
 serde = "~1"
 serde_derive = "~1"
 spirit = { version = "~0.2", path = "..", default-features = false }
+# TODO: Proper versions, feature flag
+structdoc = { git = "https://github.com/vorner/structdoc" }
 structopt = "~0.2"
 
 [dev-dependencies]

@@ -73,6 +73,8 @@ extern crate serde_derive;
 extern crate spirit;
 #[macro_use]
 extern crate spirit_tokio;
+#[macro_use]
+extern crate structdoc;
 extern crate tokio;
 
 use std::error::Error;
@@ -446,7 +448,7 @@ fn default_on() -> bool {
     true
 }
 
-#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, StructDoc)]
 #[serde(rename_all = "kebab-case")]
 enum HttpMode {
     Both,
@@ -462,7 +464,7 @@ impl Default for HttpMode {
     }
 }
 
-#[derive(Copy, Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Copy, Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, StructDoc)]
 #[serde(rename_all = "kebab-case")]
 struct HttpModeWorkaround {
     #[serde(default)]
@@ -491,7 +493,7 @@ struct HttpModeWorkaround {
 /// * `http1-keepalive`: boolean, default true.
 /// * `http1-writev`: boolean, default true.
 /// * `http-mode`: One of `"both"`, `"http1-only"` or `"http2-only"`. Defaults to `"both"`.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, StructDoc)]
 #[serde(rename_all = "kebab-case")]
 pub struct HyperServer<Transport> {
     #[serde(flatten)]

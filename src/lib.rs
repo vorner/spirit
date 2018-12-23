@@ -164,6 +164,8 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate signal_hook;
+#[macro_use]
+extern crate structdoc;
 // For some reason, this produces a warning about unused on nightly… but it is needed on stable
 #[allow(unused_imports)]
 #[macro_use]
@@ -267,6 +269,7 @@ pub struct MissingFile(PathBuf);
 /// nothing or something like that.
 #[derive(
     Copy, Clone, Debug, Default, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd, StructOpt,
+    StructDoc,
 )]
 pub struct Empty {}
 

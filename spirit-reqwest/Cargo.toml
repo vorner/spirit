@@ -24,6 +24,8 @@ serde = "~1"
 serde_derive = "~1"
 serde-humanize-rs = "~0.1"
 spirit = { version = "~0.2.9", path = ".." }
+# TODO: Proper versions, feature flag
+structdoc = { git = "https://github.com/vorner/structdoc" }
 structopt = "~0.2"
 url = "~1.7"
 url_serde = "~0.2"

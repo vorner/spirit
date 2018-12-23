@@ -2,6 +2,7 @@
 name = "hws-complete"
 version = "0.1.0"
 publish = false
+edition = "2018"
 
 [dependencies]
 hyper = "~0.12"
@@ -9,8 +10,10 @@ log = "~0.4"
 serde = "~1"
 serde_derive = "~1"
 spirit = { path = "../../" }
+spirit-cfg-help = { path = "../../spirit-cfg-help" }
 spirit-daemonize = { path = "../../spirit-daemonize" }
 spirit-hyper = { path = "../../spirit-hyper" }
 spirit-log = { path = "../../spirit-log" }
 spirit-tokio = { path = "../../spirit-tokio" }
+structdoc = { git = "https://github.com/vorner/structdoc" }
 structopt = "~0.2"

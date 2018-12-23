@@ -23,6 +23,7 @@ serde = "~1"
 serde_derive = "~1"
 spirit = { path = "..", version = "~0.2" }
 spirit-tokio = { path = "../spirit-tokio", version = "~0.4", default-features = false }
+structdoc = { git = "https://github.com/vorner/structdoc" }
 structopt = "~0.2"
 tokio = "~0.1"
 

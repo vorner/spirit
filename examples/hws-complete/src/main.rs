@@ -9,23 +9,13 @@
 //! It allows reconfiguring everything at runtime ‒ change the config file(s), send SIGHUP to it
 //! and it'll reload it.
 
-extern crate hyper;
-#[macro_use]
-extern crate log;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate spirit;
-extern crate spirit_daemonize;
-extern crate spirit_hyper;
-extern crate spirit_log;
-extern crate spirit_tokio;
-extern crate structopt;
-
 use std::sync::Arc;
 
 use hyper::{Body, Request, Response};
+use log::{debug, trace};
+use serde_derive::Deserialize;
 use spirit::Spirit;
+use spirit_cfg_help::CfgHelp;
 use spirit_daemonize::{Daemon, Opts as DaemonOpts};
 use spirit_hyper::HyperServer;
 use spirit_log::{Cfg as Logging, Opts as LogOpts};
@@ -34,6 +24,7 @@ use spirit_tokio::net::limits::WithListenLimits;
 #[cfg(unix)]
 use spirit_tokio::net::unix::UnixListen;
 use spirit_tokio::{ExtraCfgCarrier, TcpListen};
+use structdoc::StructDoc;
 use structopt::StructOpt;
 
 /// The command line arguments we would like our application to have.
@@ -53,6 +44,10 @@ struct Opts {
     // Adds the `--log` and `--log-module` options.
     #[structopt(flatten)]
     log: LogOpts,
+
+    // Adds the --config-help option
+    #[structopt(flatten)]
+    cfg_help: CfgHelp,
 }
 
 impl Opts {
@@ -62,12 +57,15 @@ impl Opts {
     fn logging(&self) -> LogOpts {
         self.log.clone()
     }
+    fn cfg_help(&self) -> &CfgHelp {
+        &self.cfg_help
+    }
 }
 
 /// An application specific configuration.
 ///
 /// For the Hello World Service, we configure just the message to send.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, StructDoc)]
 struct Ui {
     msg: String,
 }
@@ -75,7 +73,7 @@ struct Ui {
 /// Similarly, each transport we listen on will carry its own signature.
 ///
 /// Well, optional signature. It may be missing.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, StructDoc)]
 struct Signature {
     signature: Option<String>,
 }
@@ -101,7 +99,7 @@ type ListenSocket = WithListenLimits<TcpListen<Signature>>;
 type Server = HyperServer<ListenSocket>;
 
 /// Putting the whole configuration together.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, StructDoc)]
 struct Cfg {
     /// Deamonization stuff
     ///
@@ -226,6 +224,8 @@ fn main() {
         )
         // Similarly with logging.
         .config_helper(Cfg::logging, Opts::logging, "logging")
+        // And with config help
+        .with(CfgHelp::helper(Opts::cfg_help))
         // And with the HTTP servers. We pass the handler of one request, so it knows what to do
         // with it.
         .config_helper(
