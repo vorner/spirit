@@ -150,7 +150,8 @@ pub fn log_errors<R, F: FnOnce() -> Result<R, Error>>(f: F) -> Result<R, Error> 
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, StructDoc)]
+#[derive(Clone, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[repr(transparent)]
 #[serde(transparent)]
 pub struct Hidden<T>(pub T);

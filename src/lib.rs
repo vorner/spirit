@@ -69,6 +69,10 @@
 //! minimum of features they need.
 //!
 //! * `ini`, `json`, `hjson`, `yaml`: support for given configuration formats.
+//! * `cfg-help`: support for adding documentation to the configuration fragmtents that can be used
+//!   by the [`spirit-cfg-helpers`] crate to add the `--config-help` command line option. It is
+//!   implemented by the [`structdoc`] crate behind the scenes. On by default. This feature flag is
+//!   actually available in all the other sub-crates too.
 //!
 //! # Helpers
 //!
@@ -76,11 +80,14 @@
 //! the main crate, to cut down on some more specific boiler-plate code. These are usually provided
 //! by other crates. To list some:
 //!
-//! * `spirit-daemonize`: Configuration and routines to go into background and be a nice daemon.
-//! * `spirit-log`: Configuration of logging.
-//! * `spirit-tokio`: Integrates basic tokio primitives ‒ auto-reconfiguration for TCP and UDP
+//! * [`spirit-cfg-helpers`]: Various helpers to provide `--config-help`, `--dump-config` and
+//!   configuration debug logging.
+//! * [`spirit-daemonize`]: Configuration and routines to go into background and be a nice daemon.
+//! * [`spirit-log`]: Configuration of logging.
+//! * [`spirit-tokio`]: Integrates basic tokio primitives ‒ auto-reconfiguration for TCP and UDP
 //!   sockets and starting the runtime.
-//! * `spirit-hyper`: Integrates the hyper web server.
+//! * [`spirit-reqwest`]: Configuration for the reqwest HTTP [`Client`][reqwest-client].
+//! * [`spirit-hyper`]: Integrates the hyper web server.
 //!
 //! (Others will come over time)
 //!
@@ -149,6 +156,14 @@
 //! # Common patterns
 //!
 //! TODO
+//!
+//! [`spirit-cfg-helpers`]: https://crates.io/crates/spirit-cfg-helpers
+//! [`spirit-daemonize`]: https://crates.io/crates/spirit-daemonize
+//! [`spirit-log`]: https://crates.io/crates/spirit-log
+//! [`spirit-tokio`]: https://crates.io/crates/spirit-tokio
+//! [`spirit-reqwest`]: https://crates.io/crates/spirit-reqwest
+//! [`spirit-hyper`]: https://crates.io/crates/spirit-hyper
+//! [`reqwest-client`]: https://docs.rs/reqwest/~0.9.5/reqwest/struct.Client.html
 
 extern crate arc_swap;
 extern crate config;
@@ -269,8 +284,8 @@ pub struct MissingFile(PathBuf);
 /// nothing or something like that.
 #[derive(
     Copy, Clone, Debug, Default, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd, StructOpt,
-    StructDoc,
 )]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct Empty {}
 
 struct Hooks<O, C> {

@@ -186,6 +186,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_humanize_rs;
 extern crate spirit;
+#[cfg(feature = "cfg-help")]
 #[macro_use]
 extern crate structdoc;
 extern crate structopt;

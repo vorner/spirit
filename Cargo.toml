@@ -12,7 +12,7 @@ license = "Apache-2.0/MIT"
 [workspace]
 members = [
     "./",
-    "spirit-cfg-help",
+    "spirit-cfg-helpers",
     "spirit-daemonize",
     "spirit-hyper",
     "spirit-log",
@@ -26,10 +26,12 @@ travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
 [features]
+default = ["ini", "json", "hjson", "yaml", "cfg-help"]
 ini = ["config/ini"]
 json = ["config/json"]
 hjson = ["config/hjson"]
 yaml = ["config/yaml"]
+cfg-help = ["structdoc"]
 
 [dependencies]
 arc-swap = "~0.3"
@@ -43,7 +45,7 @@ parking_lot = "~0.7"
 serde = "~1"
 serde_derive = "~1"
 signal-hook = "~0.1"
-structdoc = { git = "https://github.com/vorner/structdoc" }
+structdoc = { version = "~0.1", optional = true }
 structopt = "~0.2"
 
 [dev-dependencies]

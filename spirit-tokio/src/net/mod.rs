@@ -90,7 +90,8 @@ fn default_backlog() -> u32 {
 /// * `backlog` (optional, number of waiting connections to be accepted in the OS queue, defaults
 ///   to 128)
 /// * `ttl` (TTL of the listening/UDP socket).
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, StructDoc)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct Listen {
     port: u16,
@@ -257,7 +258,8 @@ impl<'de> Deserialize<'de> for MaybeDuration {
 /// * `tcp-send-buf-size` (similar, but for the send end)
 /// * `tcp-keepalive` (optional, see [`MaybeDuration`])
 /// * `accepted-ttl` (optional, uses OS default if not set)
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, StructDoc)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct TcpConfig {
     #[serde(rename = "tcp-nodelay")]
     nodelay: Option<bool>,
@@ -266,7 +268,7 @@ pub struct TcpConfig {
     #[serde(rename = "tcp-send-buf-size")]
     send_buf_size: Option<usize>,
     #[serde(rename = "tcp-keepalive", default)]
-    #[structdoc(leaf)]
+    #[cfg_attr(feature = "cfg-help", structdoc(leaf))]
     keepalive: MaybeDuration,
     #[serde(rename = "accepted-ttl")]
     accepted_ttl: Option<u32>,
@@ -397,7 +399,8 @@ where
 /// [`IteratedCfgHelper`]: ::spirit::helpers::IteratedCfgHelper
 /// [`ExtraCfgCarrier`]: ::base_traits::ExtraCfgCarrier
 /// [`WithListenLimits`]: limits::WithListenLimits
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, StructDoc)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct TcpListen<ExtraCfg = Empty, ScaleMode = Scale, TcpStreamConfigure = TcpConfig> {
     #[serde(flatten)]
     listen: Listen,
@@ -468,7 +471,8 @@ pub type TcpListenWithLimits<ExtraCfg = Empty, ScaleMode = Scale, TcpStreamConfi
 /// prestent.
 ///
 /// [`ExtraCfgCarrier`]: ::base_traits::ExtraCfgCarrier
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, StructDoc)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct UdpListen<ExtraCfg = Empty, ScaleMode = Scale> {
     #[serde(flatten)]
     listen: Listen,

@@ -5,10 +5,9 @@ use std::str::FromStr;
 use failure::Fail;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use spirit::Builder;
 use spirit::helpers::Helper;
 use spirit::validation::Result as ValidationResult;
-pub use structdoc::StructDoc;
+use spirit::Builder;
 use structopt::StructOpt;
 
 #[derive(Debug, Fail)]
@@ -92,34 +91,45 @@ impl DumpCfg {
     }
 }
 
-#[derive(Clone, Debug, Default, StructOpt)]
-pub struct CfgHelp {
-    /// Provide help about possible configuration options and exit.
-    #[structopt(long = "--config-help")]
-    config_help: bool,
+#[cfg(feature = "cfg-help")]
+mod cfg_help {
+    use super::*;
 
-    // TODO: Once StructDoc implements some finer-grained control, expose it too.
-}
+    use structdoc::StructDoc;
 
-impl CfgHelp {
-    pub fn help<C: StructDoc>(&self) {
-        if self.config_help {
-            println!("{}", C::document());
-            process::exit(0);
+    #[derive(Clone, Debug, Default, StructOpt)]
+    pub struct CfgHelp {
+        /// Provide help about possible configuration options and exit.
+        #[structopt(long = "--config-help")]
+        config_help: bool,
+        // TODO: Once StructDoc implements some finer-grained control, expose it too.
+    }
+
+    impl CfgHelp {
+        pub fn help<C: StructDoc>(&self) {
+            if self.config_help {
+                println!("{}", C::document());
+                process::exit(0);
+            }
+        }
+
+        pub fn helper<O, C, F>(extract: F) -> impl Helper<O, C>
+        where
+            F: FnOnce(&O) -> &Self + Send + 'static,
+            O: Debug + StructOpt + Send + Sync + 'static,
+            C: DeserializeOwned + StructDoc + Send + Sync + 'static,
+        {
+            |builder: Builder<O, C>| {
+                builder.before_config(|opts: &O| {
+                    extract(opts).help::<C>();
+                    Ok(())
+                })
+            }
         }
     }
 
-    pub fn helper<O, C, F>(extract: F) -> impl Helper<O, C>
-    where
-        F: FnOnce(&O) -> &Self + Send + 'static,
-        O: Debug + StructOpt + Send + Sync + 'static,
-        C: DeserializeOwned + StructDoc + Send + Sync + 'static,
-    {
-        |builder: Builder<O, C>| builder.before_config(|opts: &O| {
-            extract(opts).help::<C>();
-            Ok(())
-        })
-    }
+    // TODO: Opts? Like, both together?
 }
 
-// TODO: Opts? Like, both together?
+#[cfg(feature = "cfg-help")]
+pub use crate::cfg_help::CfgHelp;

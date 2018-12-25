@@ -91,9 +91,10 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate spirit;
-// For some reason, this produces a warning about unused on nightly… but it is needed on stable
+#[cfg(feature = "cfg-help")]
 #[macro_use]
 extern crate structdoc;
+// For some reason, this produces a warning about unused on nightly… but it is needed on stable
 #[allow(unused_imports)]
 #[macro_use]
 extern crate structopt;
@@ -119,7 +120,8 @@ use structopt::StructOpt;
 /// Configuration of either user or a group.
 ///
 /// This is used to load the configuration into which user and group to drop privileges.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, StructDoc)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(untagged)]
 pub enum SecId {
     /// Look up based on the name (in `/etc/passwd` or `/etc/group`).
@@ -162,7 +164,8 @@ impl Default for SecId {
 /// If you want to daemonize, but not to switch users (or allow switching users), either because
 /// the daemon needs to keep root privileges or because it is expected to be already started as
 /// ordinary user, use the [`UserDaemon`](struct.UserDaemon.html) instead.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, StructDoc)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct Daemon {
     /// The user to drop privileges to.
@@ -384,7 +387,8 @@ where
 /// assert!(daemon.pid_file.is_none());
 /// assert_eq!(daemon, Daemon::default());
 /// ```
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, StructDoc)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct UserDaemon {
     pid_file: Option<PathBuf>,

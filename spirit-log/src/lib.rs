@@ -127,6 +127,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_json;
 extern crate spirit;
+#[cfg(feature = "cfg-help")]
 #[macro_use]
 extern crate structdoc;
 #[allow(unused_imports)]
@@ -263,7 +264,8 @@ impl<O, C> Extras<O, C> {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, StructDoc)]
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(tag = "type", rename_all = "kebab-case")] // TODO: Make deny-unknown-fields work
 enum LogDestination {
     File {
@@ -315,7 +317,8 @@ where
 #[fail(display = "{}", _0)]
 pub struct SyslogError(String);
 
-#[derive(Clone, Copy, Debug, Deserialize, StructDoc)]
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 enum Clock {
     Local,
@@ -345,7 +348,8 @@ fn cmdline_time_format() -> String {
     "%F %T%.3f".to_owned()
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, StructDoc)]
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 enum Format {
     MessageOnly,
@@ -365,7 +369,8 @@ impl Default for Format {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, StructDoc)]
+#[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")] // TODO: Make deny-unknown-fields work
 struct Logger {
     #[serde(flatten)]
@@ -374,10 +379,10 @@ struct Logger {
         default = "default_level_filter",
         deserialize_with = "deserialize_level_filter"
     )]
-    #[structdoc(leaf)] // TODO: structdoc with = !
+    #[cfg_attr(feature = "cfg-help", structdoc(leaf))] // TODO: structdoc with = !
     level: LevelFilter,
     #[serde(default, deserialize_with = "deserialize_per_module")]
-    #[structdoc(leaf)] // TODO: structdoc with = !
+    #[cfg_attr(feature = "cfg-help", structdoc(leaf))] // TODO: structdoc with = !
     per_module: HashMap<String, LevelFilter>,
     #[serde(default)]
     clock: Clock,
@@ -658,7 +663,8 @@ impl Logger {
 ///
 /// The second parameter can be the [`Extras`](struct.Extras.html) structure, fully customizing the
 /// creation of loggers.
-#[derive(Clone, Debug, Default, Deserialize, StructDoc)]
+#[derive(Clone, Debug, Default, Deserialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct Cfg {
     #[serde(default)]
     logging: Vec<Logger>,

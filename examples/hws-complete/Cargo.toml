@@ -10,10 +10,10 @@ log = "~0.4"
 serde = "~1"
 serde_derive = "~1"
 spirit = { path = "../../" }
-spirit-cfg-help = { path = "../../spirit-cfg-help" }
+spirit-cfg-helpers = { path = "../../spirit-cfg-helpers" }
 spirit-daemonize = { path = "../../spirit-daemonize" }
 spirit-hyper = { path = "../../spirit-hyper" }
 spirit-log = { path = "../../spirit-log" }
 spirit-tokio = { path = "../../spirit-tokio" }
-structdoc = { git = "https://github.com/vorner/structdoc" }
+structdoc = "~0.1"
 structopt = "~0.2"

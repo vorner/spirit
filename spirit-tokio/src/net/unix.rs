@@ -42,7 +42,8 @@ use scaled::{Scale, Scaled};
 ///   - In case it is a dead socket (leftover, but nobody listens on it).
 ///   - It is any socket.
 ///   - Always.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, StructDoc)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct Listen {
     path: PathBuf,
@@ -92,7 +93,8 @@ impl IntoIncoming for UnixListener {
 /// [`TcpListen`]: ::net::TcpListen
 /// [`unix::Listen`]: Listen
 /// [`net::Listen`]: ::net::Listen
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, StructDoc)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct UnixListen<ExtraCfg = Empty, ScaleMode = Scale, UnixStreamConfig = UnixConfig> {
     #[serde(flatten)]
     listen: Listen,
@@ -154,7 +156,8 @@ pub type UnixListenWithLimits<ExtraCfg = Empty, ScaleMode = Scale, UnixStreamCon
 /// [`UdpListen`]: ::UdpListen
 /// [`unix::Listen`]: Listen
 /// [`net::Listen`]: ::net::Listen
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, StructDoc)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct DatagramListen<ExtraCfg = Empty, ScaleMode = Scale> {
     #[serde(flatten)]
     listen: Listen,

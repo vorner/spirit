@@ -145,12 +145,13 @@ use net::IntoIncoming;
 /// [`TcpListen`]: ::TcpListen
 /// [`UnixListen`]: ::net::unix::UnixListen
 /// [`macros`]: ::macros
-#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, StructDoc)]
+#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(untagged)]
 pub enum Either<A, B> {
-    /// The first variant
+    #[allow(missing_docs)]
     A(A),
-    /// The second variant
+    #[allow(missing_docs)]
     B(B),
 }
 

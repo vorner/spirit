@@ -42,7 +42,8 @@ pub trait Scaled {
 /// This contains a single option `scale` (which is embedded inside the relevant configuration
 /// section), specifying the number of parallel instances. If the configuration is not provided,
 /// this contains `1`.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, StructDoc)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct Scale {
     #[serde(default = "default_scale")]
     scale: usize,

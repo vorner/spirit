@@ -14,6 +14,10 @@ readme = "README.md"
 travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
+[features]
+default = ["cfg-help"]
+cfg-help = ["spirit/cfg-help", "structdoc"]
+
 [dependencies]
 arc-swap = "~0.3.6"
 failure = "~0.1"
@@ -23,9 +27,8 @@ reqwest = "~0.9.5"
 serde = "~1"
 serde_derive = "~1"
 serde-humanize-rs = "~0.1"
-spirit = { version = "~0.2.9", path = ".." }
-# TODO: Proper versions, feature flag
-structdoc = { git = "https://github.com/vorner/structdoc" }
+spirit = { version = "~0.2.9", path = "..", default-features = false }
+structdoc = { version = "~0.1", optional = true }
 structopt = "~0.2"
 url = "~1.7"
 url_serde = "~0.2"
