@@ -27,14 +27,22 @@ use spirit_tokio::{ExtraCfgCarrier, TcpListen};
 use structdoc::StructDoc;
 use structopt::StructOpt;
 
-/// The command line arguments we would like our application to have.
+// The command line arguments we would like our application to have.
+//
+// Here we build it from prefabricated fragments provided by the `spirit-*` crates. Of course we
+// could also roll our own.
+//
+// The spirit will add some more options on top of that ‒ it'll be able to accept
+// `--config-override` to override one or more config option on the command line and it'll accept
+// an optional list of config files and config directories.
+//
+// Note that this doc comment gets printed as part of the `--help` message:
+/// A Hello World Service.
 ///
-/// Here we build it from prefabricated fragments provided by the `spirit-*` crates. Of course we
-/// could also roll our own.
+/// Will listen on some HTTP sockets and greet every client that comes with a configured message,
+/// by default „hello world“.
 ///
-/// The spirit will add some more options on top of that ‒ it'll be able to accept
-/// `--config-override` to override one or more config option on the command line and it'll accept
-/// an optional list of config files and config directories.
+/// You can play with the options, configuration, runtime-reloading (by SIGHUP), etc.
 #[derive(Clone, Debug, StructOpt)]
 struct Opts {
     // Adds the `--daemonize` and `--foreground` options.
@@ -67,6 +75,7 @@ impl Opts {
 /// For the Hello World Service, we configure just the message to send.
 #[derive(Clone, Debug, Default, Deserialize, StructDoc)]
 struct Ui {
+    /// The message to send.
     msg: String,
 }
 
@@ -75,6 +84,9 @@ struct Ui {
 /// Well, optional signature. It may be missing.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, StructDoc)]
 struct Signature {
+    /// A signature appended to the message.
+    ///
+    /// May be different on each listening port.
     signature: Option<String>,
 }
 
@@ -99,6 +111,9 @@ type ListenSocket = WithListenLimits<TcpListen<Signature>>;
 type Server = HyperServer<ListenSocket>;
 
 /// Putting the whole configuration together.
+///
+/// Note that here too, the doc comments can become part of the user help ‒ the `--help-config`
+/// this time.
 #[derive(Clone, Debug, Default, Deserialize, StructDoc)]
 struct Cfg {
     /// Deamonization stuff
@@ -114,10 +129,13 @@ struct Cfg {
     #[serde(flatten)]
     log: Logging,
 
-    /// Yes, we allow to listen on multiple ports/interfaces at once.
+    /// Where to listen on.
+    ///
+    /// This allows multiple listening ports at once, both over ordinary TCP and on unix domain
+    /// stream sockets.
     listen: Vec<Server>,
 
-    /// And the message to send.
+    /// The user interface.
     ui: Ui,
 }
 

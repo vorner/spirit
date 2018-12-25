@@ -16,13 +16,20 @@ where
     O: Debug + StructOpt + Send + Sync + 'static,
     C: Debug + DeserializeOwned + Send + Sync + 'static,
 {
-    move |builder: Builder<O, C>| builder.on_config(move |opts, cfg| {
-        if opts_too {
-            log!(level, "Using cmd-line options {:?} and configuration {:?}", opts, cfg);
-        } else {
-            log!(level, "Using configuration {:?}", cfg);
-        }
-    })
+    move |builder: Builder<O, C>| {
+        builder.on_config(move |opts, cfg| {
+            if opts_too {
+                log!(
+                    level,
+                    "Using cmd-line options {:?} and configuration {:?}",
+                    opts,
+                    cfg
+                );
+            } else {
+                log!(level, "Using configuration {:?}", cfg);
+            }
+        })
+    }
 }
 
 #[derive(Debug, Fail)]
@@ -115,7 +122,7 @@ mod cfg_help {
     #[derive(Clone, Debug, Default, StructOpt)]
     pub struct CfgHelp {
         /// Provide help about possible configuration options and exit.
-        #[structopt(long = "--config-help")]
+        #[structopt(long = "--help-config")]
         config_help: bool,
         // TODO: Once StructDoc implements some finer-grained control, expose it too.
     }

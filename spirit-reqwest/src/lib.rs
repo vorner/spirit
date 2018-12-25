@@ -154,35 +154,95 @@ fn load_identity(path: &Path, passwd: &str) -> Result<Identity, Error> {
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct ReqwestClient {
+    /// Additional certificates to add into the TLS trust store.
+    ///
+    /// Certificates in these files will be considered trusted in addition to the system trust
+    /// store.
+    ///
+    /// Accepts PEM and DER formats (autodetected).
     #[serde(default)]
     tls_extra_root_certs: Vec<PathBuf>,
 
+    /// Client identity.
+    ///
+    /// A file with client certificate and private key that'll be used to authenticate against the
+    /// server. This needs to be a PKCS12 format.
+    ///
+    /// If not set, no client identity is used.
     tls_identity: Option<PathBuf>,
+
+    /// A password for the client identity file.
+    ///
+    /// If tls-identity is not set, the value here is ignored. If not set and the tls-identity is
+    /// present, an empty password is attempted.
     tls_identity_password: Option<Hidden<String>>,
 
+    /// When validating the server certificate, accept even invalid or not matching hostnames.
+    ///
+    /// **DANGEROUS**
+    ///
+    /// Do not set unless you are 100% sure you have to and know what you're doing. This bypasses
+    /// part of the protections TLS provides.
+    ///
+    /// Default is `false` (eg. invalid hostnames are not accepted).
     #[serde(default)]
     tls_accept_invalid_hostnames: bool,
 
+    /// When validating the server certificate, accept even invalid or untrusted certificates.
+    ///
+    /// **DANGEROUS**
+    ///
+    /// Do not set unless you are 100% sure you have to and know what you're doing. This bypasses
+    /// part of the protections TLS provides.
+    ///
+    /// Default is `false` (eg. invalid certificates are not accepted).
     #[serde(default)]
     tls_accept_invalid_certs: bool,
 
+    /// Enables gzip transport compression.
+    ///
+    /// Default is on.
     #[serde(default = "default_gzip")]
     enable_gzip: bool,
 
+    /// Headers added to each request.
+    ///
+    /// This can be used for example to add `User-Agent` header.
+    ///
+    /// By default no headers are added.
     #[serde(default)]
     default_headers: HashMap<String, String>,
 
+    /// A whole-request timeout.
+    ///
+    /// If the request doesn't happen during this time, it gives up.
+    ///
+    /// The default is `30s`. Can be turned off by setting to `nil`.
     #[serde(with = "serde_humanize_rs", default = "default_timeout")]
     timeout: Option<Duration>,
 
-    #[structdoc(leaf)]
+    /// An URL for proxy to use on HTTP requests.
+    ///
+    /// No proxy is used if not set.
+    #[structdoc(leaf = "URL")]
     http_proxy: Option<SerdeUrl>,
-    #[structdoc(leaf)]
+
+    /// An URL for proxy to use on HTTPS requests.
+    ///
+    /// No proxy is used if not set.
+    #[structdoc(leaf = "URL")]
     https_proxy: Option<SerdeUrl>,
 
+    /// How many redirects to allow for one request.
+    ///
+    /// The default value is 10. Support for redirects can be completely disabled by setting this
+    /// to `nil`.
     #[serde(default = "default_redirects")]
     redirects: Option<usize>,
 
+    /// Manages automatical setting of the Referer header.
+    ///
+    /// Default is on.
     #[serde(default = "default_referer")]
     referer: bool,
 }

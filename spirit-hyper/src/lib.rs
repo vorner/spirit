@@ -453,9 +453,14 @@ fn default_on() -> bool {
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 enum HttpMode {
+    /// Enable both HTTP1 and HTTP2 protocols.
     Both,
+
+    /// Disable the HTTP2 protocol.
     #[serde(rename = "http1-only")]
     Http1Only,
+
+    /// Disable the HTTP1 protocol.
     #[serde(rename = "http2-only")]
     Http2Only,
 }
@@ -470,6 +475,7 @@ impl Default for HttpMode {
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 struct HttpModeWorkaround {
+    /// What HTTP mode (protocols) to support.
     #[serde(default)]
     http_mode: HttpMode,
 }
@@ -502,10 +508,24 @@ struct HttpModeWorkaround {
 pub struct HyperServer<Transport> {
     #[serde(flatten)]
     transport: Transport,
+
+    /// The HTTP keepalive.
+    ///
+    /// https://en.wikipedia.org/wiki/HTTP_persistent_connection.
+    ///
+    /// Default is on, can be turned off.
     #[serde(default = "default_on")]
     http1_keepalive: bool,
+
+    /// Vectored writes of headers.
+    ///
+    /// This is a low-level optimization setting. Using the vectored writes saves some copying of
+    /// data around, but can be slower on some systems or transports.
+    ///
+    /// Default is on, can be turned off.
     #[serde(default = "default_on")]
     http1_writev: bool,
+
     #[serde(default, flatten)]
     http_mode: HttpModeWorkaround,
 }

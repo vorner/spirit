@@ -46,6 +46,7 @@ use scaled::{Scale, Scaled};
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct Listen {
+    /// The path on the FS where to create the unix domain socket.
     path: PathBuf,
     // TODO: Permissions
     // TODO: Remove

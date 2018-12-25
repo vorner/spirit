@@ -45,6 +45,12 @@ pub trait Scaled {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct Scale {
+    /// Start this many listener instances.
+    ///
+    /// The listeners are internal only, but can be used to boost performance by accepting multiple
+    /// connections in parallel if configured to more than 1.
+    ///
+    /// Defaults to 1.
     #[serde(default = "default_scale")]
     scale: usize,
 }

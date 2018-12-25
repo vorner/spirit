@@ -70,7 +70,7 @@
 //!
 //! * `ini`, `json`, `hjson`, `yaml`: support for given configuration formats.
 //! * `cfg-help`: support for adding documentation to the configuration fragmtents that can be used
-//!   by the [`spirit-cfg-helpers`] crate to add the `--config-help` command line option. It is
+//!   by the [`spirit-cfg-helpers`] crate to add the `--help-config` command line option. It is
 //!   implemented by the [`structdoc`] crate behind the scenes. On by default. This feature flag is
 //!   actually available in all the other sub-crates too.
 //!

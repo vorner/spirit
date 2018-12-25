@@ -268,20 +268,42 @@ impl<O, C> Extras<O, C> {
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(tag = "type", rename_all = "kebab-case")] // TODO: Make deny-unknown-fields work
 enum LogDestination {
+    /// Writes the logs into a file.
     File {
+        /// The path to the file to store the log into.
+        ///
+        /// The file will be appended to or created if it doesn't exist. The directory it resides
+        /// in must already exist.
+        ///
+        /// There is no direct support for log rotation. However, as the log file is reopened on
+        /// `SIGHUP`, the usual external logrotate setup should work.
         filename: PathBuf,
         // TODO: Truncate
     },
+
+    /// Sends the logs to local syslog.
+    ///
+    /// Note that syslog ignores formatting options.
     Syslog {
+        /// Overrides the host value in the log messages.
         host: Option<String>,
         // TODO: Remote syslog
     },
+
+    /// Sends the logs over a TCP connection over the network.
     Network {
+        /// Hostname or IP address of the remote machine.
         host: String,
+
+        /// Port to connect to on the remote machine.
         port: u16,
     },
+
+    /// Writes logs to standard output.
     #[serde(rename = "stdout")]
     StdOut, // TODO: Colors
+
+    /// Writes the logs to error output.
     #[serde(rename = "stderr")]
     StdErr, // TODO: Colors
 }
@@ -290,11 +312,12 @@ fn default_level_filter() -> LevelFilter {
     LevelFilter::Error
 }
 
+const LEVEL_FILTERS: &[&str] = &["OFF", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"];
+
 fn deserialize_level_filter<'de, D: Deserializer<'de>>(d: D) -> Result<LevelFilter, D::Error> {
     let s = String::deserialize(d)?;
-    s.parse().map_err(|_| {
-        D::Error::unknown_variant(&s, &["OFF", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"])
-    })
+    s.parse()
+        .map_err(|_| D::Error::unknown_variant(&s, LEVEL_FILTERS))
 }
 
 fn deserialize_per_module<'de, D>(d: D) -> Result<HashMap<String, LevelFilter>, D::Error>
@@ -352,13 +375,45 @@ fn cmdline_time_format() -> String {
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 enum Format {
+    /// Only the message, without any other fields.
     MessageOnly,
+    /// The time, log level, log target and message in columns.
     Short,
+    /// The time, log level, thread name, log target and message in columns.
     Extended,
+    /// The time, log level, thread name, file name and line, log target and message in columns.
     Full,
+    /// The time, log level, thread name, file name and line, log target and message in columns
+    /// separated by tabs.
+    ///
+    /// This format is simpler to machine-parse (because the columns are separated by a single '\t'
+    /// character and only the last one should ever contain it), but less human-readable because
+    /// the columns don't have to visually align.
     Machine,
+    /// The time, log level, thread name, file name and line, log target and message, formatted as
+    /// json with these field names:
+    ///
+    /// * timestamp
+    /// * level
+    /// * thread_name
+    /// * file
+    /// * line
+    /// * target
+    /// * message
+    ///
+    /// Each message is on a separate line and the JSONs are not pretty-printed (therefore it is
+    /// one JSON per line).
     // TODO: Configurable field names?
     Json,
+    /// Similar to `json`, however with field names that correspond to default configuration of
+    /// logstash.
+    ///
+    /// * @timestamp
+    /// * @version (always set to 1)
+    /// * level
+    /// * thread_name
+    /// * logger_name (corresponds to log target)
+    /// * message
     Logstash,
     // TODO: Custom
 }
@@ -369,25 +424,64 @@ impl Default for Format {
     }
 }
 
+#[cfg(feature = "cfg-help")]
+fn level_filter_doc() -> structdoc::Documentation {
+    use structdoc::{Documentation, Field, Tagging};
+
+    let filters = LEVEL_FILTERS
+        .iter()
+        .map(|name| (*name, Field::new(Documentation::leaf_empty(), "")));
+    Documentation::enum_(filters, Tagging::External)
+}
+
+#[cfg(feature = "cfg-help")]
+fn per_module_doc() -> structdoc::Documentation {
+    use structdoc::{Documentation, StructDoc};
+
+    Documentation::map(String::document(), level_filter_doc())
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")] // TODO: Make deny-unknown-fields work
 struct Logger {
     #[serde(flatten)]
     destination: LogDestination,
+
+    /// The level on which to log messages.
+    ///
+    /// Messages with this level or more severe will be written into this logger.
     #[serde(
         default = "default_level_filter",
         deserialize_with = "deserialize_level_filter"
     )]
-    #[cfg_attr(feature = "cfg-help", structdoc(leaf))] // TODO: structdoc with = !
+    #[cfg_attr(feature = "cfg-help", structdoc(leaf))]
+    #[structdoc(with = "level_filter_doc")]
     level: LevelFilter,
+
+    /// Overrides of log level per each module.
+    ///
+    /// The map allows for overriding log levels of each separate module (log target) separately.
+    /// This allows silencing a verbose one or getting more info out of misbehaving one.
     #[serde(default, deserialize_with = "deserialize_per_module")]
     #[cfg_attr(feature = "cfg-help", structdoc(leaf))] // TODO: structdoc with = !
+    #[structdoc(with = "per_module_doc")]
     per_module: HashMap<String, LevelFilter>,
+
     #[serde(default)]
     clock: Clock,
+
+    /// The format of timestamp.
+    ///
+    /// This is strftime-like time format string, fully specified here:
+    ///
+    /// https://docs.rs/chrono/~0.4/chrono/format/strftime/index.html
+    ///
+    /// The default is %+, which corresponds to ISO 8601 / RFC 3339 date & time format.
     #[serde(default = "default_time_format")]
     time_format: String,
+
+    /// Format of log messages.
     #[serde(default)]
     format: Format,
 }

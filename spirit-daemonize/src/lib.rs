@@ -124,9 +124,9 @@ use structopt::StructOpt;
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(untagged)]
 pub enum SecId {
-    /// Look up based on the name (in `/etc/passwd` or `/etc/group`).
+    /// Look up based on the name.
     Name(String),
-    /// Don't look up, use this as either uid or gid directly.
+    /// Use the numerical value directly.
     Id(u32),
     /// Don't drop privileges.
     ///
@@ -169,10 +169,14 @@ impl Default for SecId {
 #[serde(rename_all = "kebab-case")]
 pub struct Daemon {
     /// The user to drop privileges to.
+    ///
+    /// The user is not changed if not provided.
     #[serde(default)]
     pub user: SecId,
 
     /// The group to drop privileges to.
+    ///
+    /// The group is not changed if not provided.
     #[serde(default)]
     pub group: SecId,
 
@@ -186,11 +190,12 @@ pub struct Daemon {
     /// If not set, working directory is not switched.
     pub workdir: Option<PathBuf>,
 
+    // This is overwritten by [`Opts::transform`](struct.Opts.html#method.transform).
+    //
     /// Enable the daemonization.
     ///
-    /// Even if this is false, some activity (changing users, setting PID file, etc) is still done.
-    ///
-    /// This is overwritten by [`Opts::transform`](struct.Opts.html#method.transform).
+    /// Even if this is false, some activity (changing users, setting PID file, etc) is still done,
+    /// but it doesn't go to background.
     #[serde(default)]
     pub daemonize: bool,
 
@@ -391,8 +396,22 @@ where
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct UserDaemon {
+    /// Where to store a PID file.
+    ///
+    /// If not set, no PID file is created.
     pid_file: Option<PathBuf>,
+
+    /// Switch to this working directory at startup.
+    ///
+    /// If not set, working directory is not switched.
     workdir: Option<PathBuf>,
+
+    // This is overwritten by [`Opts::transform`](struct.Opts.html#method.transform).
+    //
+    /// Enable the daemonization.
+    ///
+    /// Even if this is false, some activity (setting PID file, etc) is still done,
+    /// but it doesn't go to background.
     #[serde(default)]
     daemonize: bool,
 }

@@ -121,12 +121,29 @@ fn default_error_sleep() -> Duration {
 pub struct WithListenLimits<Listener> {
     #[serde(flatten)]
     inner: Listener,
+
+    /// How long to wait before trying again after an error.
+    ///
+    /// Some errors when accepting are simply ignored (eg. the connection was closed by the other
+    /// side before we had time to accept it). Some others (eg. too many open files) put the
+    /// acceptor into a sleep before it tries again, in the hope the situation will improve until
+    /// then.
+    ///
+    /// Defaults to `100ms` if not set.
     #[serde(
         rename = "error-sleep",
         default = "default_error_sleep",
         with = "serde_humanize_rs"
     )]
     error_sleep: Duration,
+
+    /// Maximum number of connections per one listener.
+    ///
+    /// If it is reached, more connections will not be accepted until some of the old ones are
+    /// terminated.
+    ///
+    /// Default to implementation limits if not set (2^31 - 1 on 32bit systems, 2^63 - 1 on 64bit
+    /// systems), which is likely higher than what the OS can effectively handle.
     max_conn: Option<usize>,
 }
 

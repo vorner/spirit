@@ -94,14 +94,62 @@ fn default_backlog() -> u32 {
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct Listen {
+    /// The port to bind to.
     port: u16,
+
+    /// The interface to bind to.
+    ///
+    /// Defaults to `::` (IPv6 any).
     #[serde(default = "default_host")]
     host: IpAddr,
+
+    /// The SO_REUSEADDR socket option.
+    ///
+    /// Usually, the OS reserves the host-port pair for a short time after it has been released, so
+    /// leftovers of old connections don't confuse the new application. The SO_REUSEADDR option
+    /// asks the OS not to do this reservation.
+    ///
+    /// If not set, it is left on the OS default (which is likely off).
     reuse_addr: Option<bool>,
+
+    /// The SO_REUSEPORT socket option.
+    ///
+    /// Setting this to true allows multiple applications to *simultaneously* bind to the same
+    /// port.
+    ///
+    /// If not set, it is left on the OS default (which is likely off).
+    ///
+    /// This option is not available on Windows and has no effect there.
     reuse_port: Option<bool>,
+
+    /// The IP_V6ONLY option.
+    ///
+    /// This has no effect on IPv4 sockets.
+    ///
+    /// On IPv6 sockets, this restricts the socket to sending and receiving only IPv6 packets. This
+    /// allows another socket to bind the same port on IPv4. If it is set to false, the socket can
+    /// communicate with both IPv6 and IPv4 endpoints under some circumstances.
+    ///
+    /// Due to platform differences, the generally accepted best practice is to bind IPv4 and IPv6
+    /// as two separate sockets, the IPv6 one with setting IP_V6ONLY explicitly to true.
+    ///
+    /// If not set, it is left on the OS default (which differs from OS to OS).
     only_v6: Option<bool>,
+
+    /// The accepting backlog.
+    ///
+    /// Has no effect for UDP sockets.
+    ///
+    /// This specifies how many connections can wait in the kernel before being accepted. If more
+    /// than this limit are queued, the kernel starts refusing them with connection reset packets.
+    ///
+    /// The default is 128.
     #[serde(default = "default_backlog")]
     backlog: u32,
+
+    /// The TTL field of IP packets sent from this socket.
+    ///
+    /// If not set, it defaults to the OS value.
     ttl: Option<u32>,
 }
 
@@ -261,15 +309,44 @@ impl<'de> Deserialize<'de> for MaybeDuration {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct TcpConfig {
+    /// The TCP_NODELAY option.
+    ///
+    /// If set to true, packets are sent as soon as there are some data queued by the application.
+    /// This is faster, but may create more (undersized) packets in some circumstances.
+    ///
+    /// Setting this to false sends the first undersized packet, but then it waits to either
+    /// receive ACK from the other side or for enough data to fill a whole packet before sending
+    /// another.
+    ///
+    /// Left to OS default if not set.
     #[serde(rename = "tcp-nodelay")]
     nodelay: Option<bool>,
+
+    /// The receive buffer size of the connection, in bytes.
+    ///
+    /// Left to OS default if not set.
     #[serde(rename = "tcp-recv-buf-size")]
     recv_buf_size: Option<usize>,
+
+    /// The send buffer size of the connection, in bytes.
+    ///
+    /// Left to the OS default if not set.
     #[serde(rename = "tcp-send-buf-size")]
     send_buf_size: Option<usize>,
+
+    /// The TCP keepalive time.
+    ///
+    /// If set to interval (for example `5m` or `30s`), a TCP keepalive packet will be sent every
+    /// this often. If set to `false`, TCP keepalive will be turned off.
+    ///
+    /// Left to the OS default if not set.
     #[serde(rename = "tcp-keepalive", default)]
-    #[cfg_attr(feature = "cfg-help", structdoc(leaf))]
+    #[cfg_attr(feature = "cfg-help", structdoc(leaf = "Time interval/false"))]
     keepalive: MaybeDuration,
+
+    /// The IP TTL field of packets sent through an accepted connection.
+    ///
+    /// Left to the OS default if not set.
     #[serde(rename = "accepted-ttl")]
     accepted_ttl: Option<u32>,
 }
