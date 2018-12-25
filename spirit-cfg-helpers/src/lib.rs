@@ -3,12 +3,27 @@ use std::process;
 use std::str::FromStr;
 
 use failure::Fail;
+use log::{log, Level};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use spirit::helpers::Helper;
 use spirit::validation::Result as ValidationResult;
 use spirit::Builder;
 use structopt::StructOpt;
+
+pub fn config_logging<O, C>(level: Level, opts_too: bool) -> impl Helper<O, C>
+where
+    O: Debug + StructOpt + Send + Sync + 'static,
+    C: Debug + DeserializeOwned + Send + Sync + 'static,
+{
+    move |builder: Builder<O, C>| builder.on_config(move |opts, cfg| {
+        if opts_too {
+            log!(level, "Using cmd-line options {:?} and configuration {:?}", opts, cfg);
+        } else {
+            log!(level, "Using configuration {:?}", cfg);
+        }
+    })
+}
 
 #[derive(Debug, Fail)]
 #[fail(display = "Invalid config format {}", _0)]
