@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-reqwest/0.1.0/spirit_reqwest/",
+    html_root_url = "https://docs.rs/spirit-reqwest/0.1.1/spirit_reqwest/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -75,8 +75,10 @@ use reqwest::{
     Certificate, Client, ClientBuilder, Identity, IntoUrl, Method, Proxy, RedirectPolicy,
     RequestBuilder,
 };
-use serde::de::DeserializeOwned;
-use serde_derive::Deserialize;
+use serde::de::{Deserialize, DeserializeOwned, Deserializer};
+use serde::ser::{Serialize, Serializer};
+use serde_derive::{Deserialize, Serialize};
+use serde_humantime::De;
 use spirit::helpers::CfgHelper;
 use spirit::utils::Hidden;
 use spirit::validation::Result as ValidationResult;
@@ -123,6 +125,22 @@ fn load_identity(path: &Path, passwd: &str) -> Result<Identity, Error> {
     Ok(Identity::from_pkcs12_der(&identity, passwd)?)
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+fn serialize_opt_dur<S: Serializer>(opt: &Option<Duration>, s: S) -> Result<S::Ok, S::Error> {
+    opt.as_ref()
+        .map(|d| humantime::format_duration(*d).to_string())
+        .serialize(s)
+}
+
+fn deserialize_opt_dur<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Duration>, D::Error> {
+    let dur = De::<Option<Duration>>::deserialize(d)?;
+    Ok(dur.into_inner())
+}
+
 /// A configuration fragment to configure the reqwest [`Client`]
 ///
 /// This carries configuration used to build a reqwest [`Client`]. An empty configuration
@@ -150,36 +168,107 @@ fn load_identity(path: &Path, passwd: &str) -> Result<Identity, Error> {
 /// * `https-proxy`: An URL of proxy that servers https requests.
 /// * `redirects`: Number of allowed redirects per one request, `nil` to disable. Defaults to `10`.
 /// * `referer`: Allow automatic setting of the referer header. Defaults to `true`.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct ReqwestClient {
-    #[serde(default)]
+    /// Additional certificates to add into the TLS trust store.
+    ///
+    /// Certificates in these files will be considered trusted in addition to the system trust
+    /// store.
+    ///
+    /// Accepts PEM and DER formats (autodetected).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     tls_extra_root_certs: Vec<PathBuf>,
 
+    /// Client identity.
+    ///
+    /// A file with client certificate and private key that'll be used to authenticate against the
+    /// server. This needs to be a PKCS12 format.
+    ///
+    /// If not set, no client identity is used.
+    #[serde(skip_serializing_if = "Option::is_none")]
     tls_identity: Option<PathBuf>,
+
+    /// A password for the client identity file.
+    ///
+    /// If tls-identity is not set, the value here is ignored. If not set and the tls-identity is
+    /// present, an empty password is attempted.
+    #[serde(skip_serializing_if = "Option::is_none")]
     tls_identity_password: Option<Hidden<String>>,
 
-    #[serde(default)]
+    /// When validating the server certificate, accept even invalid or not matching hostnames.
+    ///
+    /// **DANGEROUS**
+    ///
+    /// Do not set unless you are 100% sure you have to and know what you're doing. This bypasses
+    /// part of the protections TLS provides.
+    ///
+    /// Default is `false` (eg. invalid hostnames are not accepted).
+    #[serde(default, skip_serializing_if = "is_false")]
     tls_accept_invalid_hostnames: bool,
 
-    #[serde(default)]
+    /// When validating the server certificate, accept even invalid or untrusted certificates.
+    ///
+    /// **DANGEROUS**
+    ///
+    /// Do not set unless you are 100% sure you have to and know what you're doing. This bypasses
+    /// part of the protections TLS provides.
+    ///
+    /// Default is `false` (eg. invalid certificates are not accepted).
+    #[serde(default, skip_serializing_if = "is_false")]
     tls_accept_invalid_certs: bool,
 
+    /// Enables gzip transport compression.
+    ///
+    /// Default is on.
     #[serde(default = "default_gzip")]
     enable_gzip: bool,
 
-    #[serde(default)]
+    /// Headers added to each request.
+    ///
+    /// This can be used for example to add `User-Agent` header.
+    ///
+    /// By default no headers are added.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     default_headers: HashMap<String, String>,
 
-    #[serde(with = "serde_humanize_rs", default = "default_timeout")]
+    /// A whole-request timeout.
+    ///
+    /// If the request doesn't happen during this time, it gives up.
+    ///
+    /// The default is `30s`. Can be turned off by setting to `nil`.
+    #[serde(
+        deserialize_with = "deserialize_opt_dur",
+        default = "default_timeout",
+        serialize_with = "serialize_opt_dur"
+    )]
     timeout: Option<Duration>,
 
+    /// An URL for proxy to use on HTTP requests.
+    ///
+    /// No proxy is used if not set.
+    #[structdoc(leaf = "URL")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     http_proxy: Option<SerdeUrl>,
+
+    /// An URL for proxy to use on HTTPS requests.
+    ///
+    /// No proxy is used if not set.
+    #[structdoc(leaf = "URL")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     https_proxy: Option<SerdeUrl>,
 
+    /// How many redirects to allow for one request.
+    ///
+    /// The default value is 10. Support for redirects can be completely disabled by setting this
+    /// to `nil`.
     #[serde(default = "default_redirects")]
     redirects: Option<usize>,
 
+    /// Manages automatical setting of the Referer header.
+    ///
+    /// Default is on.
     #[serde(default = "default_referer")]
     referer: bool,
 }

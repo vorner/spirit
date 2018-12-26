@@ -42,8 +42,15 @@ pub trait Scaled {
 /// This contains a single option `scale` (which is embedded inside the relevant configuration
 /// section), specifying the number of parallel instances. If the configuration is not provided,
 /// this contains `1`.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct Scale {
+    /// Start this many listener instances.
+    ///
+    /// The listeners are internal only, but can be used to boost performance by accepting multiple
+    /// connections in parallel if configured to more than 1.
+    ///
+    /// Defaults to 1.
     #[serde(default = "default_scale")]
     scale: usize,
 }

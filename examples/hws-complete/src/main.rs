@@ -9,23 +9,13 @@
 //! It allows reconfiguring everything at runtime ‒ change the config file(s), send SIGHUP to it
 //! and it'll reload it.
 
-extern crate hyper;
-#[macro_use]
-extern crate log;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate spirit;
-extern crate spirit_daemonize;
-extern crate spirit_hyper;
-extern crate spirit_log;
-extern crate spirit_tokio;
-extern crate structopt;
-
 use std::sync::Arc;
 
 use hyper::{Body, Request, Response};
+use log::{debug, trace};
+use serde_derive::{Deserialize, Serialize};
 use spirit::Spirit;
+use spirit_cfg_helpers::Opts as CfgOpts;
 use spirit_daemonize::{Daemon, Opts as DaemonOpts};
 use spirit_hyper::HyperServer;
 use spirit_log::{Cfg as Logging, Opts as LogOpts};
@@ -34,16 +24,25 @@ use spirit_tokio::net::limits::WithListenLimits;
 #[cfg(unix)]
 use spirit_tokio::net::unix::UnixListen;
 use spirit_tokio::{ExtraCfgCarrier, TcpListen};
+use structdoc::StructDoc;
 use structopt::StructOpt;
 
-/// The command line arguments we would like our application to have.
+// The command line arguments we would like our application to have.
+//
+// Here we build it from prefabricated fragments provided by the `spirit-*` crates. Of course we
+// could also roll our own.
+//
+// The spirit will add some more options on top of that ‒ it'll be able to accept
+// `--config-override` to override one or more config option on the command line and it'll accept
+// an optional list of config files and config directories.
+//
+// Note that this doc comment gets printed as part of the `--help` message:
+/// A Hello World Service.
 ///
-/// Here we build it from prefabricated fragments provided by the `spirit-*` crates. Of course we
-/// could also roll our own.
+/// Will listen on some HTTP sockets and greet every client that comes with a configured message,
+/// by default „hello world“.
 ///
-/// The spirit will add some more options on top of that ‒ it'll be able to accept
-/// `--config-override` to override one or more config option on the command line and it'll accept
-/// an optional list of config files and config directories.
+/// You can play with the options, configuration, runtime-reloading (by SIGHUP), etc.
 #[derive(Clone, Debug, StructOpt)]
 struct Opts {
     // Adds the `--daemonize` and `--foreground` options.
@@ -53,6 +52,10 @@ struct Opts {
     // Adds the `--log` and `--log-module` options.
     #[structopt(flatten)]
     log: LogOpts,
+
+    // Adds the --help-config and --dump-config options
+    #[structopt(flatten)]
+    cfg_opts: CfgOpts,
 }
 
 impl Opts {
@@ -62,21 +65,29 @@ impl Opts {
     fn logging(&self) -> LogOpts {
         self.log.clone()
     }
+    fn cfg_opts(&self) -> &CfgOpts {
+        &self.cfg_opts
+    }
 }
 
 /// An application specific configuration.
 ///
 /// For the Hello World Service, we configure just the message to send.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, StructDoc, Serialize)]
 struct Ui {
+    /// The message to send.
     msg: String,
 }
 
 /// Similarly, each transport we listen on will carry its own signature.
 ///
 /// Well, optional signature. It may be missing.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, StructDoc, Serialize)]
 struct Signature {
+    /// A signature appended to the message.
+    ///
+    /// May be different on each listening port.
+    #[serde(skip_serializing_if = "Option::is_none")]
     signature: Option<String>,
 }
 
@@ -101,7 +112,10 @@ type ListenSocket = WithListenLimits<TcpListen<Signature>>;
 type Server = HyperServer<ListenSocket>;
 
 /// Putting the whole configuration together.
-#[derive(Clone, Debug, Default, Deserialize)]
+///
+/// Note that here too, the doc comments can become part of the user help ‒ the `--help-config`
+/// this time.
+#[derive(Clone, Debug, Default, Deserialize, StructDoc, Serialize)]
 struct Cfg {
     /// Deamonization stuff
     ///
@@ -116,10 +130,13 @@ struct Cfg {
     #[serde(flatten)]
     log: Logging,
 
-    /// Yes, we allow to listen on multiple ports/interfaces at once.
+    /// Where to listen on.
+    ///
+    /// This allows multiple listening ports at once, both over ordinary TCP and on unix domain
+    /// stream sockets.
     listen: Vec<Server>,
 
-    /// And the message to send.
+    /// The user interface.
     ui: Ui,
 }
 
@@ -226,6 +243,8 @@ fn main() {
         )
         // Similarly with logging.
         .config_helper(Cfg::logging, Opts::logging, "logging")
+        // And with config help
+        .with(CfgOpts::helper(Opts::cfg_opts))
         // And with the HTTP servers. We pass the handler of one request, so it knows what to do
         // with it.
         .config_helper(

@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-daemonize/0.1.2/spirit_daemonize/",
+    html_root_url = "https://docs.rs/spirit-daemonize/0.1.3/spirit_daemonize/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -91,6 +91,9 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate spirit;
+#[cfg(feature = "cfg-help")]
+#[macro_use]
+extern crate structdoc;
 // For some reason, this produces a warning about unused on nightly… but it is needed on stable
 #[allow(unused_imports)]
 #[macro_use]
@@ -117,12 +120,13 @@ use structopt::StructOpt;
 /// Configuration of either user or a group.
 ///
 /// This is used to load the configuration into which user and group to drop privileges.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(untagged)]
 pub enum SecId {
-    /// Look up based on the name (in `/etc/passwd` or `/etc/group`).
+    /// Look up based on the name.
     Name(String),
-    /// Don't look up, use this as either uid or gid directly.
+    /// Use the numerical value directly.
     Id(u32),
     /// Don't drop privileges.
     ///
@@ -130,6 +134,12 @@ pub enum SecId {
     /// listed in configuration.
     #[serde(skip)]
     Nothing,
+}
+
+impl SecId {
+    fn is_nothing(&self) -> bool {
+        self == &SecId::Nothing
+    }
 }
 
 impl Default for SecId {
@@ -160,32 +170,40 @@ impl Default for SecId {
 /// If you want to daemonize, but not to switch users (or allow switching users), either because
 /// the daemon needs to keep root privileges or because it is expected to be already started as
 /// ordinary user, use the [`UserDaemon`](struct.UserDaemon.html) instead.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct Daemon {
     /// The user to drop privileges to.
-    #[serde(default)]
+    ///
+    /// The user is not changed if not provided.
+    #[serde(default, skip_serializing_if = "SecId::is_nothing")]
     pub user: SecId,
 
     /// The group to drop privileges to.
-    #[serde(default)]
+    ///
+    /// The group is not changed if not provided.
+    #[serde(default, skip_serializing_if = "SecId::is_nothing")]
     pub group: SecId,
 
     /// Where to store a PID file.
     ///
     /// If not set, no PID file is created.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pid_file: Option<PathBuf>,
 
     /// Switch to this working directory at startup.
     ///
     /// If not set, working directory is not switched.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub workdir: Option<PathBuf>,
 
+    // This is overwritten by [`Opts::transform`](struct.Opts.html#method.transform).
+    //
     /// Enable the daemonization.
     ///
-    /// Even if this is false, some activity (changing users, setting PID file, etc) is still done.
-    ///
-    /// This is overwritten by [`Opts::transform`](struct.Opts.html#method.transform).
+    /// Even if this is false, some activity (changing users, setting PID file, etc) is still done,
+    /// but it doesn't go to background.
     #[serde(default)]
     pub daemonize: bool,
 
@@ -382,11 +400,28 @@ where
 /// assert!(daemon.pid_file.is_none());
 /// assert_eq!(daemon, Daemon::default());
 /// ```
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct UserDaemon {
+    /// Where to store a PID file.
+    ///
+    /// If not set, no PID file is created.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pid_file: Option<PathBuf>,
+
+    /// Switch to this working directory at startup.
+    ///
+    /// If not set, working directory is not switched.
+    #[serde(skip_serializing_if = "Option::is_none")]
     workdir: Option<PathBuf>,
+
+    // This is overwritten by [`Opts::transform`](struct.Opts.html#method.transform).
+    //
+    /// Enable the daemonization.
+    ///
+    /// Even if this is false, some activity (setting PID file, etc) is still done,
+    /// but it doesn't go to background.
     #[serde(default)]
     daemonize: bool,
 }

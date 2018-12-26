@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit/0.2.9/spirit/",
+    html_root_url = "https://docs.rs/spirit/0.2.10/spirit/",
     test(attr(deny(warnings)))
 )]
 #![allow(clippy::type_complexity)]
@@ -69,6 +69,10 @@
 //! minimum of features they need.
 //!
 //! * `ini`, `json`, `hjson`, `yaml`: support for given configuration formats.
+//! * `cfg-help`: support for adding documentation to the configuration fragmtents that can be used
+//!   by the [`spirit-cfg-helpers`] crate to add the `--help-config` command line option. It is
+//!   implemented by the [`structdoc`] crate behind the scenes. On by default. This feature flag is
+//!   actually available in all the other sub-crates too.
 //!
 //! # Helpers
 //!
@@ -76,11 +80,14 @@
 //! the main crate, to cut down on some more specific boiler-plate code. These are usually provided
 //! by other crates. To list some:
 //!
-//! * `spirit-daemonize`: Configuration and routines to go into background and be a nice daemon.
-//! * `spirit-log`: Configuration of logging.
-//! * `spirit-tokio`: Integrates basic tokio primitives ‒ auto-reconfiguration for TCP and UDP
+//! * [`spirit-cfg-helpers`]: Various helpers to provide `--config-help`, `--dump-config` and
+//!   configuration debug logging.
+//! * [`spirit-daemonize`]: Configuration and routines to go into background and be a nice daemon.
+//! * [`spirit-log`]: Configuration of logging.
+//! * [`spirit-tokio`]: Integrates basic tokio primitives ‒ auto-reconfiguration for TCP and UDP
 //!   sockets and starting the runtime.
-//! * `spirit-hyper`: Integrates the hyper web server.
+//! * [`spirit-reqwest`]: Configuration for the reqwest HTTP [`Client`][reqwest-client].
+//! * [`spirit-hyper`]: Integrates the hyper web server.
 //!
 //! (Others will come over time)
 //!
@@ -149,6 +156,14 @@
 //! # Common patterns
 //!
 //! TODO
+//!
+//! [`spirit-cfg-helpers`]: https://crates.io/crates/spirit-cfg-helpers
+//! [`spirit-daemonize`]: https://crates.io/crates/spirit-daemonize
+//! [`spirit-log`]: https://crates.io/crates/spirit-log
+//! [`spirit-tokio`]: https://crates.io/crates/spirit-tokio
+//! [`spirit-reqwest`]: https://crates.io/crates/spirit-reqwest
+//! [`spirit-hyper`]: https://crates.io/crates/spirit-hyper
+//! [`reqwest-client`]: https://docs.rs/reqwest/~0.9.5/reqwest/struct.Client.html
 
 extern crate arc_swap;
 extern crate config;
@@ -164,6 +179,8 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate signal_hook;
+#[macro_use]
+extern crate structdoc;
 // For some reason, this produces a warning about unused on nightly… but it is needed on stable
 #[allow(unused_imports)]
 #[macro_use]
@@ -266,8 +283,20 @@ pub struct MissingFile(PathBuf);
 /// Other places (eg. around helpers) may use this to plug a type parameter that isn't needed, do
 /// nothing or something like that.
 #[derive(
-    Copy, Clone, Debug, Default, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd, StructOpt,
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    Deserialize,
+    Eq,
+    PartialEq,
+    Hash,
+    Ord,
+    PartialOrd,
+    StructOpt,
+    Serialize,
 )]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct Empty {}
 
 struct Hooks<O, C> {
@@ -350,7 +379,7 @@ where
     /// Before the application successfully loads the first config, there still needs to be
     /// something (passed, for example, to validation callbacks) This puts the default value in
     /// there.
-    #[allow(unknown_lints, new_ret_no_self)]
+    #[allow(clippy::new_ret_no_self)]
     pub fn new() -> Builder<O, C> {
         Spirit::with_initial_config(C::default())
     }

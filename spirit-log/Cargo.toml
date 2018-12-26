@@ -1,6 +1,6 @@
 [package]
 name = "spirit-log"
-version = "0.1.5"
+version = "0.1.6"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Spirit helpers and config fragments for logging"
 documentation = "https://docs.rs/spirit-log"
@@ -14,8 +14,9 @@ travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
 [features]
-default = ["with-backtrace"]
+default = ["with-backtrace", "cfg-help"]
 with-backtrace = ["log-panics/with-backtrace"]
+cfg-help = ["spirit/cfg-help", "structdoc"]
 
 [dependencies]
 chrono = "~0.4"
@@ -29,6 +30,7 @@ serde = "~1"
 serde_derive = "~1"
 serde_json = "~1"
 spirit = { version = "~0.2", path = "..", default-features = false }
+structdoc = { version = "~0.1", optional = true }
 structopt = "~0.2"
 syslog = "~4"
 

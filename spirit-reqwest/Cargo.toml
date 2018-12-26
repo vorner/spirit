@@ -1,10 +1,10 @@
 [package]
 name = "spirit-reqwest"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 edition = "2018"
 description = "Reqwest helpers for Spirit"
-documentation = "https://docs.rs/spirit-hyper"
+documentation = "https://docs.rs/spirit-reqwest"
 repository = "https://github.com/vorner/spirit"
 license = "Apache-2.0/MIT"
 keywords = ["http", "reqwest", "service", "configuration", "spirit"]
@@ -14,16 +14,22 @@ readme = "README.md"
 travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
+[features]
+default = ["cfg-help"]
+cfg-help = ["spirit/cfg-help", "structdoc"]
+
 [dependencies]
 arc-swap = "~0.3.6"
 failure = "~0.1"
+humantime = "~1"
 log = "~0.4"
 parking_lot = "~0.7"
 reqwest = "~0.9.5"
 serde = "~1"
 serde_derive = "~1"
-serde-humanize-rs = "~0.1"
-spirit = { version = "~0.2.9", path = ".." }
+serde-humantime = "~0.1"
+spirit = { version = "~0.2.10", path = "..", default-features = false }
+structdoc = { version = "~0.1", optional = true }
 structopt = "~0.2"
 url = "~1.7"
 url_serde = "~0.2"

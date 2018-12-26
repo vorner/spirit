@@ -1,6 +1,6 @@
 [package]
 name = "spirit-daemonize"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Spirit helpers and config fragments to daemonize"
 documentation = "https://docs.rs/spirit-daemonize"
@@ -13,6 +13,10 @@ license = "Apache-2.0/MIT"
 travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
+[features]
+default = ["cfg-help"]
+cfg-help = ["spirit/cfg-help", "structdoc"]
+
 [dependencies]
 failure = "~0.1"
 log = "~0.4"
@@ -21,6 +25,8 @@ privdrop = "~0.2"
 serde = "~1"
 serde_derive = "~1"
 spirit = { version = "~0.2", path = "..", default-features = false }
+# TODO: Proper versions, feature flag
+structdoc = { version = "~0.1", optional = true }
 structopt = "~0.2"
 
 [dev-dependencies]

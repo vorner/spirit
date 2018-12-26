@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-log/0.1.5/spirit_log/",
+    html_root_url = "https://docs.rs/spirit-log/0.1.6/spirit_log/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -127,6 +127,9 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_json;
 extern crate spirit;
+#[cfg(feature = "cfg-help")]
+#[macro_use]
+extern crate structdoc;
 #[allow(unused_imports)]
 #[macro_use]
 extern crate structopt;
@@ -149,6 +152,7 @@ use fern::Dispatch;
 use itertools::Itertools;
 use log::{LevelFilter, Log, Metadata, Record};
 use serde::de::{Deserialize, DeserializeOwned, Deserializer, Error as DeError};
+use serde::ser::{Serialize, Serializer};
 use spirit::helpers::CfgHelper;
 use spirit::validation::{Result as ValidationResult, Results as ValidationResults};
 use spirit::Builder;
@@ -196,9 +200,13 @@ pub struct Opts {
 impl Opts {
     fn logger_cfg(&self) -> Option<Logger> {
         self.log.map(|level| Logger {
-            level,
+            level: LevelFilterSerde(level),
             destination: LogDestination::StdErr,
-            per_module: self.log_modules.iter().cloned().collect(),
+            per_module: self
+                .log_modules
+                .iter()
+                .map(|(module, lf)| (module.clone(), LevelFilterSerde(*lf)))
+                .collect(),
             clock: Clock::Local,
             time_format: cmdline_time_format(),
             format: Format::Short,
@@ -261,51 +269,88 @@ impl<O, C> Extras<O, C> {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(tag = "type", rename_all = "kebab-case")] // TODO: Make deny-unknown-fields work
 enum LogDestination {
+    /// Writes the logs into a file.
     File {
+        /// The path to the file to store the log into.
+        ///
+        /// The file will be appended to or created if it doesn't exist. The directory it resides
+        /// in must already exist.
+        ///
+        /// There is no direct support for log rotation. However, as the log file is reopened on
+        /// `SIGHUP`, the usual external logrotate setup should work.
         filename: PathBuf,
         // TODO: Truncate
     },
+
+    /// Sends the logs to local syslog.
+    ///
+    /// Note that syslog ignores formatting options.
     Syslog {
+        /// Overrides the host value in the log messages.
+        #[serde(skip_serializing_if = "Option::is_none")]
         host: Option<String>,
         // TODO: Remote syslog
     },
+
+    /// Sends the logs over a TCP connection over the network.
     Network {
+        /// Hostname or IP address of the remote machine.
         host: String,
+
+        /// Port to connect to on the remote machine.
         port: u16,
     },
+
+    /// Writes logs to standard output.
     #[serde(rename = "stdout")]
     StdOut, // TODO: Colors
+
+    /// Writes the logs to error output.
     #[serde(rename = "stderr")]
     StdErr, // TODO: Colors
 }
 
-fn default_level_filter() -> LevelFilter {
-    LevelFilter::Error
+const LEVEL_FILTERS: &[&str] = &["OFF", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"];
+
+// A newtype to help us with serde, structdoc, default... more convenient inside maps and such.
+#[derive(Copy, Clone, Debug)]
+struct LevelFilterSerde(LevelFilter);
+
+impl Default for LevelFilterSerde {
+    fn default() -> LevelFilterSerde {
+        LevelFilterSerde(LevelFilter::Error)
+    }
 }
 
-fn deserialize_level_filter<'de, D: Deserializer<'de>>(d: D) -> Result<LevelFilter, D::Error> {
-    let s = String::deserialize(d)?;
-    s.parse().map_err(|_| {
-        D::Error::unknown_variant(&s, &["OFF", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"])
-    })
+impl<'de> Deserialize<'de> for LevelFilterSerde {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<LevelFilterSerde, D::Error> {
+        let s = String::deserialize(d)?;
+        s.parse()
+            .map(LevelFilterSerde)
+            .map_err(|_| D::Error::unknown_variant(&s, LEVEL_FILTERS))
+    }
 }
 
-fn deserialize_per_module<'de, D>(d: D) -> Result<HashMap<String, LevelFilter>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    HashMap::<String, String>::deserialize(d)?
-        .into_iter()
-        .map(|(k, v)| {
-            let parsed = v.parse().map_err(|_| {
-                D::Error::unknown_variant(&v, &["OFF", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"])
-            })?;
-            Ok((k, parsed))
-        })
-        .collect()
+impl Serialize for LevelFilterSerde {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&format!("{:?}", self.0).to_uppercase())
+    }
+}
+
+#[cfg(feature = "cfg-help")]
+impl structdoc::StructDoc for LevelFilterSerde {
+    fn document() -> structdoc::Documentation {
+        use structdoc::{Documentation, Field, Tagging};
+
+        let filters = LEVEL_FILTERS
+            .iter()
+            .map(|name| (*name, Field::new(Documentation::leaf_empty(), "")));
+        Documentation::enum_(filters, Tagging::External)
+    }
 }
 
 /// This error can be returned when initialization of logging to syslog fails.
@@ -313,7 +358,8 @@ where
 #[fail(display = "{}", _0)]
 pub struct SyslogError(String);
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 enum Clock {
     Local,
@@ -343,16 +389,49 @@ fn cmdline_time_format() -> String {
     "%F %T%.3f".to_owned()
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 enum Format {
+    /// Only the message, without any other fields.
     MessageOnly,
+    /// The time, log level, log target and message in columns.
     Short,
+    /// The time, log level, thread name, log target and message in columns.
     Extended,
+    /// The time, log level, thread name, file name and line, log target and message in columns.
     Full,
+    /// The time, log level, thread name, file name and line, log target and message in columns
+    /// separated by tabs.
+    ///
+    /// This format is simpler to machine-parse (because the columns are separated by a single '\t'
+    /// character and only the last one should ever contain it), but less human-readable because
+    /// the columns don't have to visually align.
     Machine,
+    /// The time, log level, thread name, file name and line, log target and message, formatted as
+    /// json with these field names:
+    ///
+    /// * timestamp
+    /// * level
+    /// * thread_name
+    /// * file
+    /// * line
+    /// * target
+    /// * message
+    ///
+    /// Each message is on a separate line and the JSONs are not pretty-printed (therefore it is
+    /// one JSON per line).
     // TODO: Configurable field names?
     Json,
+    /// Similar to `json`, however with field names that correspond to default configuration of
+    /// logstash.
+    ///
+    /// * @timestamp
+    /// * @version (always set to 1)
+    /// * level
+    /// * thread_name
+    /// * logger_name (corresponds to log target)
+    /// * message
     Logstash,
     // TODO: Custom
 }
@@ -363,35 +442,53 @@ impl Default for Format {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")] // TODO: Make deny-unknown-fields work
 struct Logger {
     #[serde(flatten)]
     destination: LogDestination,
-    #[serde(
-        default = "default_level_filter",
-        deserialize_with = "deserialize_level_filter"
-    )]
-    level: LevelFilter,
-    #[serde(default, deserialize_with = "deserialize_per_module")]
-    per_module: HashMap<String, LevelFilter>,
+
     #[serde(default)]
     clock: Clock,
+
+    /// The format of timestamp.
+    ///
+    /// This is strftime-like time format string, fully specified here:
+    ///
+    /// https://docs.rs/chrono/~0.4/chrono/format/strftime/index.html
+    ///
+    /// The default is %+, which corresponds to ISO 8601 / RFC 3339 date & time format.
     #[serde(default = "default_time_format")]
     time_format: String,
+
+    /// Format of log messages.
     #[serde(default)]
     format: Format,
+
+    /// The level on which to log messages.
+    ///
+    /// Messages with this level or more severe will be written into this logger.
+    #[serde(default)]
+    level: LevelFilterSerde,
+
+    /// Overrides of log level per each module.
+    ///
+    /// The map allows for overriding log levels of each separate module (log target) separately.
+    /// This allows silencing a verbose one or getting more info out of misbehaving one.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    per_module: HashMap<String, LevelFilterSerde>,
 }
 
 impl Logger {
     fn create(&self) -> Result<Dispatch, Error> {
         trace!("Creating logger for {:?}", self);
-        let mut logger = Dispatch::new().level(self.level);
+        let mut logger = Dispatch::new().level(self.level.0);
         logger = self
             .per_module
             .iter()
             .fold(logger, |logger, (module, level)| {
-                logger.level_for(module.clone(), *level)
+                logger.level_for(module.clone(), level.0)
             });
         let clock = self.clock;
         let time_format = self.time_format.clone();
@@ -654,9 +751,10 @@ impl Logger {
 ///
 /// The second parameter can be the [`Extras`](struct.Extras.html) structure, fully customizing the
 /// creation of loggers.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct Cfg {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     logging: Vec<Logger>,
 }
 
@@ -751,7 +849,7 @@ where
             log_panics::init();
             let logger = Logger {
                 destination: LogDestination::StdErr,
-                level: LevelFilter::Warn,
+                level: LevelFilterSerde(LevelFilter::Warn),
                 per_module: HashMap::new(),
                 clock: Clock::Local,
                 time_format: cmdline_time_format(),

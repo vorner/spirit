@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-tokio/0.4.1/spirit_tokio/",
+    html_root_url = "https://docs.rs/spirit-tokio/0.4.2/spirit_tokio/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -177,6 +177,7 @@
 extern crate corona;
 extern crate failure;
 extern crate futures;
+extern crate humantime;
 #[macro_use]
 extern crate log;
 extern crate net2;
@@ -184,8 +185,11 @@ extern crate parking_lot;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate serde_humanize_rs;
+extern crate serde_humantime;
 extern crate spirit;
+#[cfg(feature = "cfg-help")]
+#[macro_use]
+extern crate structdoc;
 extern crate structopt;
 extern crate tk_listen;
 extern crate tokio;

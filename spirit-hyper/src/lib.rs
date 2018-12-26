@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-hyper/0.4.0/spirit_hyper/",
+    html_root_url = "https://docs.rs/spirit-hyper/0.4.1/spirit_hyper/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -73,6 +73,9 @@ extern crate serde_derive;
 extern crate spirit;
 #[macro_use]
 extern crate spirit_tokio;
+#[cfg(feature = "cfg-help")]
+#[macro_use]
+extern crate structdoc;
 extern crate tokio;
 
 use std::error::Error;
@@ -446,12 +449,18 @@ fn default_on() -> bool {
     true
 }
 
-#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 enum HttpMode {
+    /// Enable both HTTP1 and HTTP2 protocols.
     Both,
+
+    /// Disable the HTTP2 protocol.
     #[serde(rename = "http1-only")]
     Http1Only,
+
+    /// Disable the HTTP1 protocol.
     #[serde(rename = "http2-only")]
     Http2Only,
 }
@@ -462,9 +471,13 @@ impl Default for HttpMode {
     }
 }
 
-#[derive(Copy, Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(
+    Copy, Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize,
+)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 struct HttpModeWorkaround {
+    /// What HTTP mode (protocols) to support.
     #[serde(default)]
     http_mode: HttpMode,
 }
@@ -491,15 +504,30 @@ struct HttpModeWorkaround {
 /// * `http1-keepalive`: boolean, default true.
 /// * `http1-writev`: boolean, default true.
 /// * `http-mode`: One of `"both"`, `"http1-only"` or `"http2-only"`. Defaults to `"both"`.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct HyperServer<Transport> {
     #[serde(flatten)]
     transport: Transport,
+
+    /// The HTTP keepalive.
+    ///
+    /// https://en.wikipedia.org/wiki/HTTP_persistent_connection.
+    ///
+    /// Default is on, can be turned off.
     #[serde(default = "default_on")]
     http1_keepalive: bool,
+
+    /// Vectored writes of headers.
+    ///
+    /// This is a low-level optimization setting. Using the vectored writes saves some copying of
+    /// data around, but can be slower on some systems or transports.
+    ///
+    /// Default is on, can be turned off.
     #[serde(default = "default_on")]
     http1_writev: bool,
+
     #[serde(default, flatten)]
     http_mode: HttpModeWorkaround,
 }

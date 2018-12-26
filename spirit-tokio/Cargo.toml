@@ -1,6 +1,6 @@
 [package]
 name = "spirit-tokio"
-version = "0.4.1"
+version = "0.4.2"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Tokio helpers for Spirit"
 documentation = "https://docs.rs/spirit-tokio"
@@ -10,6 +10,8 @@ readme = "README.md"
 keywords = ["async", "tokio", "service", "configuration", "spirit"]
 
 [features]
+default = ["cfg-help"]
+cfg-help = ["spirit/cfg-help", "structdoc"]
 
 [badges]
 travis-ci = { repository = "vorner/spirit" }
@@ -19,13 +21,15 @@ maintenance = { status = "actively-developed" }
 either = { version = "~1", optional = true }
 failure = "~0.1"
 futures = "~0.1"
+humantime = "~1"
 log = "~0.4"
 net2 = "~0.2"
 parking_lot = "~0.7"
 serde = "~1"
 serde_derive = "~1"
-serde-humanize-rs = "~0.1"
+serde-humantime = "~0.1"
 spirit = { version = "~0.2", path = "..", default-features = false }
+structdoc = { version = "~0.1", optional = true }
 structopt = "~0.2"
 tk-listen = "~0.2"
 tokio = "~0.1.8"

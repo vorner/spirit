@@ -1,6 +1,6 @@
 [package]
 name = "spirit"
-version = "0.2.9"
+version = "0.2.10"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Helper to create well behaved daemons with runtime-reconfiguration support"
 documentation = "https://docs.rs/spirit"
@@ -12,6 +12,7 @@ license = "Apache-2.0/MIT"
 [workspace]
 members = [
     "./",
+    "spirit-cfg-helpers",
     "spirit-daemonize",
     "spirit-hyper",
     "spirit-log",
@@ -25,10 +26,12 @@ travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
 [features]
+default = ["ini", "json", "hjson", "yaml", "cfg-help"]
 ini = ["config/ini"]
 json = ["config/json"]
 hjson = ["config/hjson"]
 yaml = ["config/yaml"]
+cfg-help = ["structdoc"]
 
 [dependencies]
 arc-swap = "~0.3"
@@ -42,6 +45,7 @@ parking_lot = "~0.7"
 serde = "~1"
 serde_derive = "~1"
 signal-hook = "~0.1"
+structdoc = { version = "~0.1", optional = true }
 structopt = "~0.2"
 
 [dev-dependencies]
