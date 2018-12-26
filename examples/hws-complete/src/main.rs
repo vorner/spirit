@@ -15,7 +15,7 @@ use hyper::{Body, Request, Response};
 use log::{debug, trace};
 use serde_derive::{Deserialize, Serialize};
 use spirit::Spirit;
-use spirit_cfg_helpers::{CfgDump, CfgHelp};
+use spirit_cfg_helpers::Opts as CfgOpts;
 use spirit_daemonize::{Daemon, Opts as DaemonOpts};
 use spirit_hyper::HyperServer;
 use spirit_log::{Cfg as Logging, Opts as LogOpts};
@@ -53,12 +53,9 @@ struct Opts {
     #[structopt(flatten)]
     log: LogOpts,
 
-    // Adds the --help-config option
+    // Adds the --help-config and --dump-config options
     #[structopt(flatten)]
-    cfg_help: CfgHelp,
-
-    #[structopt(flatten)]
-    cfg_dump: CfgDump,
+    cfg_opts: CfgOpts,
 }
 
 impl Opts {
@@ -68,11 +65,8 @@ impl Opts {
     fn logging(&self) -> LogOpts {
         self.log.clone()
     }
-    fn cfg_help(&self) -> &CfgHelp {
-        &self.cfg_help
-    }
-    fn cfg_dump(&self) -> &CfgDump {
-        &self.cfg_dump
+    fn cfg_opts(&self) -> &CfgOpts {
+        &self.cfg_opts
     }
 }
 
@@ -250,8 +244,7 @@ fn main() {
         // Similarly with logging.
         .config_helper(Cfg::logging, Opts::logging, "logging")
         // And with config help
-        .with(CfgHelp::helper(Opts::cfg_help))
-        .with(CfgDump::helper(Opts::cfg_dump))
+        .with(CfgOpts::helper(Opts::cfg_opts))
         // And with the HTTP servers. We pass the handler of one request, so it knows what to do
         // with it.
         .config_helper(

@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::process;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use failure::Fail;
 use log::{log, Level};
@@ -160,8 +161,32 @@ mod cfg_help {
         }
     }
 
-    // TODO: Opts? Like, both together?
+    #[derive(Clone, Debug, Default, StructOpt)]
+    pub struct Opts {
+        #[structopt(flatten)]
+        config_dump: CfgDump,
+
+        #[structopt(flatten)]
+        config_help: CfgHelp,
+    }
+
+    impl Opts {
+        pub fn helper<O, C, F>(extract: F) -> impl Helper<O, C>
+        where
+            F: Fn(&O) -> &Self + Send + Sync + 'static,
+            O: Debug + StructOpt + Send + Sync + 'static,
+            C: DeserializeOwned + Serialize + StructDoc + Send + Sync + 'static,
+        {
+            let extract_dump = Arc::new(extract);
+            let extract_help = Arc::clone(&extract_dump);
+            |builder: Builder<O, C>| {
+                builder
+                    .with(CfgDump::helper(move |opts| &extract_dump(opts).config_dump))
+                    .with(CfgHelp::helper(move |opts| &extract_help(opts).config_help))
+            }
+        }
+    }
 }
 
 #[cfg(feature = "cfg-help")]
-pub use crate::cfg_help::CfgHelp;
+pub use crate::cfg_help::{CfgHelp, Opts};
