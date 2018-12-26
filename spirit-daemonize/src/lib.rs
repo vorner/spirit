@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-daemonize/0.1.2/spirit_daemonize/",
+    html_root_url = "https://docs.rs/spirit-daemonize/0.1.3/spirit_daemonize/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]

@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit/0.2.9/spirit/",
+    html_root_url = "https://docs.rs/spirit/0.2.10/spirit/",
     test(attr(deny(warnings)))
 )]
 #![allow(clippy::type_complexity)]
@@ -379,7 +379,7 @@ where
     /// Before the application successfully loads the first config, there still needs to be
     /// something (passed, for example, to validation callbacks) This puts the default value in
     /// there.
-    #[allow(unknown_lints, new_ret_no_self)]
+    #[allow(clippy::new_ret_no_self)]
     pub fn new() -> Builder<O, C> {
         Spirit::with_initial_config(C::default())
     }

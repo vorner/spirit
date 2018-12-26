@@ -1,3 +1,18 @@
+# 0.2.10
+# spirit-daemonize-0.1.3
+# spirit-log-0.1.6
+# spirit-hyper-0.4.1
+# spirit-tokio-0.4.2
+
+* Configuration fragments now implement `Serialize` and `StructDoc` to support
+  the `CfgDump` and `CfgHelp` helpers.
+
+# spirit-cfg-helpers-0.1.0
+
+* Initial implementation.
+  - `CfgDump` and `CfgHelp` command line options.
+  - `config_logging` to log configuration changes.
+
 # spirit-reqwest-0.1.0
 
 * Initial implementation.
