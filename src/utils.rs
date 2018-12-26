@@ -12,6 +12,7 @@ use std::str::FromStr;
 
 use failure::{Error, Fail};
 use log::Level;
+use serde::ser::{Serialize, Serializer};
 
 /// Tries to read an absolute path from the given OS string.
 ///
@@ -150,7 +151,7 @@ pub fn log_errors<R, F: FnOnce() -> Result<R, Error>>(f: F) -> Result<R, Error> 
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
+#[derive(Clone, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[repr(transparent)]
 #[serde(transparent)]
@@ -178,6 +179,12 @@ impl<T> DerefMut for Hidden<T> {
 impl<T> Debug for Hidden<T> {
     fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
         write!(fmt, "\"******\"")
+    }
+}
+
+impl<T> Serialize for Hidden<T> {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str("******")
     }
 }
 

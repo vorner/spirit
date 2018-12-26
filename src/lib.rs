@@ -283,7 +283,18 @@ pub struct MissingFile(PathBuf);
 /// Other places (eg. around helpers) may use this to plug a type parameter that isn't needed, do
 /// nothing or something like that.
 #[derive(
-    Copy, Clone, Debug, Default, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd, StructOpt,
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    Deserialize,
+    Eq,
+    PartialEq,
+    Hash,
+    Ord,
+    PartialOrd,
+    StructOpt,
+    Serialize,
 )]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct Empty {}

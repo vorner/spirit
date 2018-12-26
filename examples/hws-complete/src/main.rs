@@ -13,9 +13,9 @@ use std::sync::Arc;
 
 use hyper::{Body, Request, Response};
 use log::{debug, trace};
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use spirit::Spirit;
-use spirit_cfg_helpers::CfgHelp;
+use spirit_cfg_helpers::{CfgDump, CfgHelp};
 use spirit_daemonize::{Daemon, Opts as DaemonOpts};
 use spirit_hyper::HyperServer;
 use spirit_log::{Cfg as Logging, Opts as LogOpts};
@@ -53,9 +53,12 @@ struct Opts {
     #[structopt(flatten)]
     log: LogOpts,
 
-    // Adds the --config-help option
+    // Adds the --help-config option
     #[structopt(flatten)]
     cfg_help: CfgHelp,
+
+    #[structopt(flatten)]
+    cfg_dump: CfgDump,
 }
 
 impl Opts {
@@ -68,12 +71,15 @@ impl Opts {
     fn cfg_help(&self) -> &CfgHelp {
         &self.cfg_help
     }
+    fn cfg_dump(&self) -> &CfgDump {
+        &self.cfg_dump
+    }
 }
 
 /// An application specific configuration.
 ///
 /// For the Hello World Service, we configure just the message to send.
-#[derive(Clone, Debug, Default, Deserialize, StructDoc)]
+#[derive(Clone, Debug, Default, Deserialize, StructDoc, Serialize)]
 struct Ui {
     /// The message to send.
     msg: String,
@@ -82,11 +88,12 @@ struct Ui {
 /// Similarly, each transport we listen on will carry its own signature.
 ///
 /// Well, optional signature. It may be missing.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, StructDoc)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, StructDoc, Serialize)]
 struct Signature {
     /// A signature appended to the message.
     ///
     /// May be different on each listening port.
+    #[serde(skip_serializing_if = "Option::is_none")]
     signature: Option<String>,
 }
 
@@ -114,7 +121,7 @@ type Server = HyperServer<ListenSocket>;
 ///
 /// Note that here too, the doc comments can become part of the user help ‒ the `--help-config`
 /// this time.
-#[derive(Clone, Debug, Default, Deserialize, StructDoc)]
+#[derive(Clone, Debug, Default, Deserialize, StructDoc, Serialize)]
 struct Cfg {
     /// Deamonization stuff
     ///
@@ -244,6 +251,7 @@ fn main() {
         .config_helper(Cfg::logging, Opts::logging, "logging")
         // And with config help
         .with(CfgHelp::helper(Opts::cfg_help))
+        .with(CfgDump::helper(Opts::cfg_dump))
         // And with the HTTP servers. We pass the handler of one request, so it knows what to do
         // with it.
         .config_helper(

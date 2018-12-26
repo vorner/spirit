@@ -17,6 +17,7 @@ use std::time::Duration;
 use failure::Error;
 use futures::task::AtomicTask;
 use futures::{Async, Poll, Stream};
+use serde::ser::Serializer;
 use spirit::validation::Results as ValidationResults;
 use spirit::Builder;
 use tk_listen::{ListenExt, SleepOnError};
@@ -82,6 +83,10 @@ fn default_error_sleep() -> Duration {
     Duration::from_millis(100)
 }
 
+fn serialize_duration<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&::humantime::format_duration(*d).to_string())
+}
+
 /// Wrapper to enrich inner configuration fragment with handling of listen limits.
 ///
 /// When a resource config for a listening socket is wrapped in this, the returned resource will
@@ -116,7 +121,7 @@ fn default_error_sleep() -> Duration {
 ///
 /// [`per_connection`]: ::per_connection
 /// [`Scaled`]: ::scaled::Scaled
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct WithListenLimits<Listener> {
     #[serde(flatten)]
@@ -133,7 +138,8 @@ pub struct WithListenLimits<Listener> {
     #[serde(
         rename = "error-sleep",
         default = "default_error_sleep",
-        with = "serde_humanize_rs"
+        deserialize_with = "::serde_humantime::deserialize",
+        serialize_with = "serialize_duration"
     )]
     error_sleep: Duration,
 
@@ -144,6 +150,7 @@ pub struct WithListenLimits<Listener> {
     ///
     /// Default to implementation limits if not set (2^31 - 1 on 32bit systems, 2^63 - 1 on 64bit
     /// systems), which is likely higher than what the OS can effectively handle.
+    #[serde(skip_serializing_if = "Option::is_none")]
     max_conn: Option<usize>,
 }
 

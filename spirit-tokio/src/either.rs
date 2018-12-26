@@ -145,7 +145,7 @@ use net::IntoIncoming;
 /// [`TcpListen`]: ::TcpListen
 /// [`UnixListen`]: ::net::unix::UnixListen
 /// [`macros`]: ::macros
-#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(untagged)]
 pub enum Either<A, B> {

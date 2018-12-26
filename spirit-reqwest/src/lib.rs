@@ -75,8 +75,10 @@ use reqwest::{
     Certificate, Client, ClientBuilder, Identity, IntoUrl, Method, Proxy, RedirectPolicy,
     RequestBuilder,
 };
-use serde::de::DeserializeOwned;
-use serde_derive::Deserialize;
+use serde::de::{Deserialize, DeserializeOwned, Deserializer};
+use serde::ser::{Serialize, Serializer};
+use serde_derive::{Deserialize, Serialize};
+use serde_humantime::De;
 use spirit::helpers::CfgHelper;
 use spirit::utils::Hidden;
 use spirit::validation::Result as ValidationResult;
@@ -123,6 +125,22 @@ fn load_identity(path: &Path, passwd: &str) -> Result<Identity, Error> {
     Ok(Identity::from_pkcs12_der(&identity, passwd)?)
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+fn serialize_opt_dur<S: Serializer>(opt: &Option<Duration>, s: S) -> Result<S::Ok, S::Error> {
+    opt.as_ref()
+        .map(|d| humantime::format_duration(*d).to_string())
+        .serialize(s)
+}
+
+fn deserialize_opt_dur<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Duration>, D::Error> {
+    let dur = De::<Option<Duration>>::deserialize(d)?;
+    Ok(dur.into_inner())
+}
+
 /// A configuration fragment to configure the reqwest [`Client`]
 ///
 /// This carries configuration used to build a reqwest [`Client`]. An empty configuration
@@ -150,7 +168,7 @@ fn load_identity(path: &Path, passwd: &str) -> Result<Identity, Error> {
 /// * `https-proxy`: An URL of proxy that servers https requests.
 /// * `redirects`: Number of allowed redirects per one request, `nil` to disable. Defaults to `10`.
 /// * `referer`: Allow automatic setting of the referer header. Defaults to `true`.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct ReqwestClient {
@@ -160,7 +178,7 @@ pub struct ReqwestClient {
     /// store.
     ///
     /// Accepts PEM and DER formats (autodetected).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     tls_extra_root_certs: Vec<PathBuf>,
 
     /// Client identity.
@@ -169,12 +187,14 @@ pub struct ReqwestClient {
     /// server. This needs to be a PKCS12 format.
     ///
     /// If not set, no client identity is used.
+    #[serde(skip_serializing_if = "Option::is_none")]
     tls_identity: Option<PathBuf>,
 
     /// A password for the client identity file.
     ///
     /// If tls-identity is not set, the value here is ignored. If not set and the tls-identity is
     /// present, an empty password is attempted.
+    #[serde(skip_serializing_if = "Option::is_none")]
     tls_identity_password: Option<Hidden<String>>,
 
     /// When validating the server certificate, accept even invalid or not matching hostnames.
@@ -185,7 +205,7 @@ pub struct ReqwestClient {
     /// part of the protections TLS provides.
     ///
     /// Default is `false` (eg. invalid hostnames are not accepted).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     tls_accept_invalid_hostnames: bool,
 
     /// When validating the server certificate, accept even invalid or untrusted certificates.
@@ -196,7 +216,7 @@ pub struct ReqwestClient {
     /// part of the protections TLS provides.
     ///
     /// Default is `false` (eg. invalid certificates are not accepted).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     tls_accept_invalid_certs: bool,
 
     /// Enables gzip transport compression.
@@ -210,7 +230,7 @@ pub struct ReqwestClient {
     /// This can be used for example to add `User-Agent` header.
     ///
     /// By default no headers are added.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     default_headers: HashMap<String, String>,
 
     /// A whole-request timeout.
@@ -218,19 +238,25 @@ pub struct ReqwestClient {
     /// If the request doesn't happen during this time, it gives up.
     ///
     /// The default is `30s`. Can be turned off by setting to `nil`.
-    #[serde(with = "serde_humanize_rs", default = "default_timeout")]
+    #[serde(
+        deserialize_with = "deserialize_opt_dur",
+        default = "default_timeout",
+        serialize_with = "serialize_opt_dur"
+    )]
     timeout: Option<Duration>,
 
     /// An URL for proxy to use on HTTP requests.
     ///
     /// No proxy is used if not set.
     #[structdoc(leaf = "URL")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     http_proxy: Option<SerdeUrl>,
 
     /// An URL for proxy to use on HTTPS requests.
     ///
     /// No proxy is used if not set.
     #[structdoc(leaf = "URL")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     https_proxy: Option<SerdeUrl>,
 
     /// How many redirects to allow for one request.

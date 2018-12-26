@@ -152,6 +152,7 @@ use fern::Dispatch;
 use itertools::Itertools;
 use log::{LevelFilter, Log, Metadata, Record};
 use serde::de::{Deserialize, DeserializeOwned, Deserializer, Error as DeError};
+use serde::ser::{Serialize, Serializer};
 use spirit::helpers::CfgHelper;
 use spirit::validation::{Result as ValidationResult, Results as ValidationResults};
 use spirit::Builder;
@@ -199,9 +200,13 @@ pub struct Opts {
 impl Opts {
     fn logger_cfg(&self) -> Option<Logger> {
         self.log.map(|level| Logger {
-            level,
+            level: LevelFilterSerde(level),
             destination: LogDestination::StdErr,
-            per_module: self.log_modules.iter().cloned().collect(),
+            per_module: self
+                .log_modules
+                .iter()
+                .map(|(module, lf)| (module.clone(), LevelFilterSerde(*lf)))
+                .collect(),
             clock: Clock::Local,
             time_format: cmdline_time_format(),
             format: Format::Short,
@@ -264,7 +269,7 @@ impl<O, C> Extras<O, C> {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(tag = "type", rename_all = "kebab-case")] // TODO: Make deny-unknown-fields work
 enum LogDestination {
@@ -286,6 +291,7 @@ enum LogDestination {
     /// Note that syslog ignores formatting options.
     Syslog {
         /// Overrides the host value in the log messages.
+        #[serde(skip_serializing_if = "Option::is_none")]
         host: Option<String>,
         // TODO: Remote syslog
     },
@@ -308,31 +314,43 @@ enum LogDestination {
     StdErr, // TODO: Colors
 }
 
-fn default_level_filter() -> LevelFilter {
-    LevelFilter::Error
-}
-
 const LEVEL_FILTERS: &[&str] = &["OFF", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"];
 
-fn deserialize_level_filter<'de, D: Deserializer<'de>>(d: D) -> Result<LevelFilter, D::Error> {
-    let s = String::deserialize(d)?;
-    s.parse()
-        .map_err(|_| D::Error::unknown_variant(&s, LEVEL_FILTERS))
+// A newtype to help us with serde, structdoc, default... more convenient inside maps and such.
+#[derive(Copy, Clone, Debug)]
+struct LevelFilterSerde(LevelFilter);
+
+impl Default for LevelFilterSerde {
+    fn default() -> LevelFilterSerde {
+        LevelFilterSerde(LevelFilter::Error)
+    }
 }
 
-fn deserialize_per_module<'de, D>(d: D) -> Result<HashMap<String, LevelFilter>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    HashMap::<String, String>::deserialize(d)?
-        .into_iter()
-        .map(|(k, v)| {
-            let parsed = v.parse().map_err(|_| {
-                D::Error::unknown_variant(&v, &["OFF", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"])
-            })?;
-            Ok((k, parsed))
-        })
-        .collect()
+impl<'de> Deserialize<'de> for LevelFilterSerde {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<LevelFilterSerde, D::Error> {
+        let s = String::deserialize(d)?;
+        s.parse()
+            .map(LevelFilterSerde)
+            .map_err(|_| D::Error::unknown_variant(&s, LEVEL_FILTERS))
+    }
+}
+
+impl Serialize for LevelFilterSerde {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&format!("{:?}", self.0).to_uppercase())
+    }
+}
+
+#[cfg(feature = "cfg-help")]
+impl structdoc::StructDoc for LevelFilterSerde {
+    fn document() -> structdoc::Documentation {
+        use structdoc::{Documentation, Field, Tagging};
+
+        let filters = LEVEL_FILTERS
+            .iter()
+            .map(|name| (*name, Field::new(Documentation::leaf_empty(), "")));
+        Documentation::enum_(filters, Tagging::External)
+    }
 }
 
 /// This error can be returned when initialization of logging to syslog fails.
@@ -340,7 +358,7 @@ where
 #[fail(display = "{}", _0)]
 pub struct SyslogError(String);
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 enum Clock {
@@ -371,7 +389,7 @@ fn cmdline_time_format() -> String {
     "%F %T%.3f".to_owned()
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 enum Format {
@@ -424,49 +442,12 @@ impl Default for Format {
     }
 }
 
-#[cfg(feature = "cfg-help")]
-fn level_filter_doc() -> structdoc::Documentation {
-    use structdoc::{Documentation, Field, Tagging};
-
-    let filters = LEVEL_FILTERS
-        .iter()
-        .map(|name| (*name, Field::new(Documentation::leaf_empty(), "")));
-    Documentation::enum_(filters, Tagging::External)
-}
-
-#[cfg(feature = "cfg-help")]
-fn per_module_doc() -> structdoc::Documentation {
-    use structdoc::{Documentation, StructDoc};
-
-    Documentation::map(String::document(), level_filter_doc())
-}
-
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")] // TODO: Make deny-unknown-fields work
 struct Logger {
     #[serde(flatten)]
     destination: LogDestination,
-
-    /// The level on which to log messages.
-    ///
-    /// Messages with this level or more severe will be written into this logger.
-    #[serde(
-        default = "default_level_filter",
-        deserialize_with = "deserialize_level_filter"
-    )]
-    #[cfg_attr(feature = "cfg-help", structdoc(leaf))]
-    #[structdoc(with = "level_filter_doc")]
-    level: LevelFilter,
-
-    /// Overrides of log level per each module.
-    ///
-    /// The map allows for overriding log levels of each separate module (log target) separately.
-    /// This allows silencing a verbose one or getting more info out of misbehaving one.
-    #[serde(default, deserialize_with = "deserialize_per_module")]
-    #[cfg_attr(feature = "cfg-help", structdoc(leaf))] // TODO: structdoc with = !
-    #[structdoc(with = "per_module_doc")]
-    per_module: HashMap<String, LevelFilter>,
 
     #[serde(default)]
     clock: Clock,
@@ -484,17 +465,30 @@ struct Logger {
     /// Format of log messages.
     #[serde(default)]
     format: Format,
+
+    /// The level on which to log messages.
+    ///
+    /// Messages with this level or more severe will be written into this logger.
+    #[serde(default)]
+    level: LevelFilterSerde,
+
+    /// Overrides of log level per each module.
+    ///
+    /// The map allows for overriding log levels of each separate module (log target) separately.
+    /// This allows silencing a verbose one or getting more info out of misbehaving one.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    per_module: HashMap<String, LevelFilterSerde>,
 }
 
 impl Logger {
     fn create(&self) -> Result<Dispatch, Error> {
         trace!("Creating logger for {:?}", self);
-        let mut logger = Dispatch::new().level(self.level);
+        let mut logger = Dispatch::new().level(self.level.0);
         logger = self
             .per_module
             .iter()
             .fold(logger, |logger, (module, level)| {
-                logger.level_for(module.clone(), *level)
+                logger.level_for(module.clone(), level.0)
             });
         let clock = self.clock;
         let time_format = self.time_format.clone();
@@ -757,10 +751,10 @@ impl Logger {
 ///
 /// The second parameter can be the [`Extras`](struct.Extras.html) structure, fully customizing the
 /// creation of loggers.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct Cfg {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     logging: Vec<Logger>,
 }
 
@@ -855,7 +849,7 @@ where
             log_panics::init();
             let logger = Logger {
                 destination: LogDestination::StdErr,
-                level: LevelFilter::Warn,
+                level: LevelFilterSerde(LevelFilter::Warn),
                 per_module: HashMap::new(),
                 clock: Clock::Local,
                 time_format: cmdline_time_format(),

@@ -177,6 +177,7 @@
 extern crate corona;
 extern crate failure;
 extern crate futures;
+extern crate humantime;
 #[macro_use]
 extern crate log;
 extern crate net2;
@@ -184,7 +185,7 @@ extern crate parking_lot;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate serde_humanize_rs;
+extern crate serde_humantime;
 extern crate spirit;
 #[cfg(feature = "cfg-help")]
 #[macro_use]

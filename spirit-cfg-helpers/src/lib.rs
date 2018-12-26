@@ -74,7 +74,7 @@ impl FromStr for DumpFormat {
 }
 
 #[derive(Clone, Debug, Default, StructOpt)]
-pub struct DumpCfg {
+pub struct CfgDump {
     /// Dump the parsed configuration and exit.
     #[structopt(long = "--dump-config")]
     dump_config: bool,
@@ -83,7 +83,7 @@ pub struct DumpCfg {
     dump_config_as: Option<DumpFormat>,
 }
 
-impl DumpCfg {
+impl CfgDump {
     pub fn dump<C: Serialize>(&self, cfg: &C) {
         if let Some(format) = self.dump_config_as {
             format.dump(cfg);

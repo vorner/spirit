@@ -19,7 +19,8 @@ use futures::{Async, Poll, Stream};
 use net2::unix::{UnixTcpBuilderExt, UnixUdpBuilderExt};
 use net2::{TcpBuilder, UdpBuilder};
 use serde::de::{Deserialize, Deserializer, Error as DeError, Unexpected};
-use serde_humanize_rs;
+use serde::ser::{Serialize, Serializer};
+use serde_humantime;
 use spirit::validation::Results as ValidationResults;
 use spirit::Empty;
 use tokio::net::tcp::Incoming;
@@ -90,7 +91,7 @@ fn default_backlog() -> u32 {
 /// * `backlog` (optional, number of waiting connections to be accepted in the OS queue, defaults
 ///   to 128)
 /// * `ttl` (TTL of the listening/UDP socket).
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct Listen {
@@ -110,6 +111,7 @@ pub struct Listen {
     /// asks the OS not to do this reservation.
     ///
     /// If not set, it is left on the OS default (which is likely off).
+    #[serde(skip_serializing_if = "Option::is_none")]
     reuse_addr: Option<bool>,
 
     /// The SO_REUSEPORT socket option.
@@ -120,6 +122,7 @@ pub struct Listen {
     /// If not set, it is left on the OS default (which is likely off).
     ///
     /// This option is not available on Windows and has no effect there.
+    #[serde(skip_serializing_if = "Option::is_none")]
     reuse_port: Option<bool>,
 
     /// The IP_V6ONLY option.
@@ -134,6 +137,7 @@ pub struct Listen {
     /// as two separate sockets, the IPv6 one with setting IP_V6ONLY explicitly to true.
     ///
     /// If not set, it is left on the OS default (which differs from OS to OS).
+    #[serde(skip_serializing_if = "Option::is_none")]
     only_v6: Option<bool>,
 
     /// The accepting backlog.
@@ -150,6 +154,7 @@ pub struct Listen {
     /// The TTL field of IP packets sent from this socket.
     ///
     /// If not set, it defaults to the OS value.
+    #[serde(skip_serializing_if = "Option::is_none")]
     ttl: Option<u32>,
 }
 
@@ -246,6 +251,12 @@ impl<S> StreamConfig<S> for Empty {
 /// Some network configuration options can be either turned off or set to a certain duration. We
 /// add the ability to leave them on the OS default (which is done if the field is not present in
 /// the configuration).
+///
+/// # Panics
+///
+/// If using on your own and using `Serialize`, make sure that you use
+/// `#[serde(skip_serializing_if = "MaybeDuration::is_unset")]`, or you'll get a panic during
+/// serialization.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum MaybeDuration {
     /// Leaves the option at the OS default.
@@ -264,6 +275,12 @@ pub enum MaybeDuration {
     Duration(Duration),
 }
 
+impl MaybeDuration {
+    fn is_unset(&self) -> bool {
+        *self == MaybeDuration::Unset
+    }
+}
+
 impl Default for MaybeDuration {
     fn default() -> Self {
         MaybeDuration::Unset
@@ -275,7 +292,7 @@ impl<'de> Deserialize<'de> for MaybeDuration {
         #[derive(Deserialize)]
         #[serde(untagged)]
         enum Raw {
-            Duration(#[serde(with = "serde_humanize_rs")] Duration),
+            Duration(#[serde(with = "serde_humantime")] Duration),
             Off(bool),
         }
 
@@ -287,6 +304,18 @@ impl<'de> Deserialize<'de> for MaybeDuration {
                 Unexpected::Bool(true),
                 &"false or duration string",
             )),
+        }
+    }
+}
+
+impl Serialize for MaybeDuration {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            MaybeDuration::Unset => unreachable!("Unset must be filtered with skip_serializing_if"),
+            MaybeDuration::Off => s.serialize_bool(false),
+            MaybeDuration::Duration(d) => {
+                s.serialize_str(&::humantime::format_duration(*d).to_string())
+            }
         }
     }
 }
@@ -306,7 +335,7 @@ impl<'de> Deserialize<'de> for MaybeDuration {
 /// * `tcp-send-buf-size` (similar, but for the send end)
 /// * `tcp-keepalive` (optional, see [`MaybeDuration`])
 /// * `accepted-ttl` (optional, uses OS default if not set)
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct TcpConfig {
     /// The TCP_NODELAY option.
@@ -319,19 +348,19 @@ pub struct TcpConfig {
     /// another.
     ///
     /// Left to OS default if not set.
-    #[serde(rename = "tcp-nodelay")]
+    #[serde(rename = "tcp-nodelay", skip_serializing_if = "Option::is_none")]
     nodelay: Option<bool>,
 
     /// The receive buffer size of the connection, in bytes.
     ///
     /// Left to OS default if not set.
-    #[serde(rename = "tcp-recv-buf-size")]
+    #[serde(rename = "tcp-recv-buf-size", skip_serializing_if = "Option::is_none")]
     recv_buf_size: Option<usize>,
 
     /// The send buffer size of the connection, in bytes.
     ///
     /// Left to the OS default if not set.
-    #[serde(rename = "tcp-send-buf-size")]
+    #[serde(rename = "tcp-send-buf-size", skip_serializing_if = "Option::is_none")]
     send_buf_size: Option<usize>,
 
     /// The TCP keepalive time.
@@ -340,14 +369,18 @@ pub struct TcpConfig {
     /// this often. If set to `false`, TCP keepalive will be turned off.
     ///
     /// Left to the OS default if not set.
-    #[serde(rename = "tcp-keepalive", default)]
+    #[serde(
+        rename = "tcp-keepalive",
+        default,
+        skip_serializing_if = "MaybeDuration::is_unset"
+    )]
     #[cfg_attr(feature = "cfg-help", structdoc(leaf = "Time interval/false"))]
     keepalive: MaybeDuration,
 
     /// The IP TTL field of packets sent through an accepted connection.
     ///
     /// Left to the OS default if not set.
-    #[serde(rename = "accepted-ttl")]
+    #[serde(rename = "accepted-ttl", skip_serializing_if = "Option::is_none")]
     accepted_ttl: Option<u32>,
 }
 
@@ -476,7 +509,7 @@ where
 /// [`IteratedCfgHelper`]: ::spirit::helpers::IteratedCfgHelper
 /// [`ExtraCfgCarrier`]: ::base_traits::ExtraCfgCarrier
 /// [`WithListenLimits`]: limits::WithListenLimits
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct TcpListen<ExtraCfg = Empty, ScaleMode = Scale, TcpStreamConfigure = TcpConfig> {
     #[serde(flatten)]
@@ -548,7 +581,7 @@ pub type TcpListenWithLimits<ExtraCfg = Empty, ScaleMode = Scale, TcpStreamConfi
 /// prestent.
 ///
 /// [`ExtraCfgCarrier`]: ::base_traits::ExtraCfgCarrier
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct UdpListen<ExtraCfg = Empty, ScaleMode = Scale> {
     #[serde(flatten)]
