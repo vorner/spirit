@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-cfg-helpers/0.1.0/spirit_cfg_helpers/",
+    html_root_url = "https://docs.rs/spirit-cfg-helpers/0.1.1/spirit_cfg_helpers/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -101,8 +101,10 @@ impl DumpFormat {
     fn dump<C: Serialize>(self, cfg: &C) {
         let dump = match self {
             DumpFormat::Toml => {
-                let value = toml::Value::try_from(cfg)
-                    .expect("Dirty stuff in config, can't manipulate");
+                // The toml serializer doesn't like if a scalar value comes after a table :-(. The
+                // `Value` type doesn't mind and reorders the output, so we go indirectly.
+                let value =
+                    toml::Value::try_from(cfg).expect("Dirty stuff in config, can't manipulate");
                 toml::to_string_pretty(&value).expect("Dirty stuff in config, can't dump")
             }
             #[cfg(feature = "json")]
@@ -417,3 +419,29 @@ mod cfg_help {
 
 #[cfg(feature = "cfg-help")]
 pub use crate::cfg_help::{CfgHelp, Opts};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use serde_derive::Serialize;
+
+    #[test]
+    fn toml_out_of_order() {
+        #[derive(Default, Serialize)]
+        struct A {
+            x: i32,
+            y: i32,
+        }
+
+        #[derive(Default, Serialize)]
+        struct B {
+            a: A,
+            z: i32,
+        }
+
+        let b = B::default();
+
+        DumpFormat::Toml.dump(&b);
+    }
+}

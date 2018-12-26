@@ -1,3 +1,7 @@
+# spirit-cfg-helpers-0.1.1
+
+* Fix panic when the config can't be serialized to toml due to order of values.
+
 # 0.2.10
 # spirit-daemonize-0.1.3
 # spirit-log-0.1.6
