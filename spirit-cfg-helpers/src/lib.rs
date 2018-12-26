@@ -101,7 +101,9 @@ impl DumpFormat {
     fn dump<C: Serialize>(self, cfg: &C) {
         let dump = match self {
             DumpFormat::Toml => {
-                toml::to_string_pretty(cfg).expect("Dirty stuff in config, can't dump")
+                let value = toml::Value::try_from(cfg)
+                    .expect("Dirty stuff in config, can't manipulate");
+                toml::to_string_pretty(&value).expect("Dirty stuff in config, can't dump")
             }
             #[cfg(feature = "json")]
             DumpFormat::Json => {
