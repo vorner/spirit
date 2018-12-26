@@ -3,6 +3,12 @@ name = "spirit-cfg-helpers"
 version = "0.1.0"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 edition = "2018"
+description = "Helpers for spirit to make interacting with configuration more smooth for the user"
+documentation = "https://docs.rs/spirit-cfg-helpers"
+repository = "https://github.com/vorner/spirit"
+license = "Apache-2.0/MIT"
+keywords = ["configuration", "spirit", "ux"]
+readme = "README.md"
 
 [features]
 default = ["cfg-help", "json", "yaml"]
@@ -20,3 +26,7 @@ spirit = { path = "..", version = "~0.2.9", default-features = false }
 structdoc = { version = "~0.1", default-features = false, optional = true }
 structopt = { version = "~0.2", default-features = false }
 toml = "~0.4"
+
+[dev-dependencies]
+serde_derive = "~1"
+version-sync = "~0.6"
