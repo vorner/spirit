@@ -36,11 +36,12 @@ where
 #[fail(display = "Invalid config format {}", _0)]
 pub struct DumpFormatParseError(String);
 
-// TODO: Make some of them feature-gated? Or maybe the whole dump-as thing?
 #[derive(Copy, Clone, Debug)]
 enum DumpFormat {
     Toml,
+    #[cfg(feature = "json")]
     Json,
+    #[cfg(feature = "yaml")]
     Yaml,
 }
 
@@ -50,9 +51,11 @@ impl DumpFormat {
             DumpFormat::Toml => {
                 toml::to_string_pretty(cfg).expect("Dirty stuff in config, can't dump")
             }
+            #[cfg(feature = "json")]
             DumpFormat::Json => {
                 serde_json::to_string_pretty(cfg).expect("Dirty stuff in config, can't dump")
             }
+            #[cfg(feature = "yaml")]
             DumpFormat::Yaml => {
                 serde_yaml::to_string(cfg).expect("Dirty stuff in config, can't dump")
             }
@@ -66,7 +69,9 @@ impl FromStr for DumpFormat {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "toml" => Ok(DumpFormat::Toml),
+            #[cfg(feature = "json")]
             "json" => Ok(DumpFormat::Json),
+            #[cfg(feature = "yaml")]
             "yaml" => Ok(DumpFormat::Yaml),
             s => Err(DumpFormatParseError(s.to_owned())),
         }
@@ -79,6 +84,11 @@ pub struct CfgDump {
     #[structopt(long = "--dump-config")]
     dump_config: bool,
 
+    /// Dump the parsed configuration and exit.
+    ///
+    /// Allows choosing the format to dump in: toml
+    #[cfg_attr(feature = "json", doc = "json")]
+    #[cfg_attr(feature = "yaml", doc = "yaml")]
     #[structopt(long = "--dump-config-as")]
     dump_config_as: Option<DumpFormat>,
 }
