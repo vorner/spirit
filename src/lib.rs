@@ -96,15 +96,11 @@
 //! # Examples
 //!
 //! ```rust
-//! #[macro_use]
-//! extern crate log;
-//! #[macro_use]
-//! extern crate serde_derive;
-//! extern crate spirit;
-//!
 //! use std::time::Duration;
 //! use std::thread;
 //!
+//! use log::{debug, info};
+//! use serde::Deserialize;
 //! use spirit::{Empty, Spirit};
 //!
 //! #[derive(Debug, Default, Deserialize)]
@@ -165,27 +161,7 @@
 //! [`spirit-hyper`]: https://crates.io/crates/spirit-hyper
 //! [`reqwest-client`]: https://docs.rs/reqwest/~0.9.5/reqwest/struct.Client.html
 
-extern crate arc_swap;
-extern crate config;
-#[macro_use]
-extern crate failure;
-extern crate fallible_iterator;
-extern crate itertools;
-extern crate libc;
-#[macro_use]
-extern crate log;
-extern crate parking_lot;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate signal_hook;
-#[macro_use]
-extern crate structdoc;
-// For some reason, this produces a warning about unused on nightly… but it is needed on stable
-#[allow(unused_imports)]
-#[macro_use]
-extern crate structopt;
-
+pub mod cfg_loader;
 pub mod helpers;
 pub mod utils;
 pub mod validation;
@@ -205,21 +181,22 @@ use std::time::Duration;
 
 pub use arc_swap::ArcSwap;
 use arc_swap::Lease;
-use config::{Config, Environment, File, FileFormat};
 use failure::{Error, Fail, ResultExt};
-use fallible_iterator::FallibleIterator;
+use log::{debug, error, info, warn};
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use signal_hook::iterator::Signals;
 use structopt::clap::App;
 use structopt::StructOpt;
 
-use validation::{
+use crate::cfg_loader::{Builder as CfgBuilder, Loader as CfgLoader};
+use crate::validation::{
     Error as ValidationError, Level as ValidationLevel, Results as ValidationResults,
 };
 
-#[deprecated = "Moved to spirit::utils"]
-pub use utils::{key_val, log_error, log_errors, log_errors_named, MissingEquals};
+#[deprecated(note = "Moved to spirit::utils")]
+pub use crate::utils::{key_val, log_error, log_errors, log_errors_named, MissingEquals};
 
 #[derive(Debug, StructOpt)]
 struct CommonOpts {
@@ -296,12 +273,12 @@ pub struct MissingFile(PathBuf);
     StructOpt,
     Serialize,
 )]
-#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
+#[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 pub struct Empty {}
 
 struct Hooks<O, C> {
-    config_filter: Box<FnMut(&Path) -> bool + Send>,
     config: Vec<Box<FnMut(&O, &Arc<C>) + Send>>,
+    config_loader: CfgLoader,
     config_validators: Vec<Box<FnMut(&Arc<C>, &mut C, &O) -> ValidationResults + Send>>,
     sigs: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
     terminate: Vec<Box<FnMut() + Send>>,
@@ -309,10 +286,9 @@ struct Hooks<O, C> {
 
 impl<O, C> Default for Hooks<O, C> {
     fn default() -> Self {
-        let no_filter = Box::new(|_: &_| false);
         Hooks {
-            config_filter: no_filter,
             config: Vec::new(),
+            config_loader: CfgBuilder::new().build_no_opts(),
             config_validators: Vec::new(),
             sigs: HashMap::new(),
             terminate: Vec::new(),
@@ -361,10 +337,6 @@ pub struct Spirit<O = Empty, C = Empty> {
     config: ArcSwap<C>,
     hooks: Mutex<Hooks<O, C>>,
     // TODO: Mode selection for directories
-    config_files: Vec<PathBuf>,
-    config_defaults: Option<String>,
-    config_env: Option<String>,
-    config_overrides: HashMap<String, String>,
     opts: O,
     terminate: AtomicBool,
 }
@@ -397,11 +369,8 @@ where
             before_config: Vec::new(),
             body_wrappers: Vec::new(),
             config,
-            config_default_paths: Vec::new(),
-            config_defaults: None,
-            config_env: None,
+            config_loader: CfgBuilder::new(),
             config_hooks: Vec::new(),
-            config_filter: Box::new(|_| false),
             config_validators: Vec::new(),
             opts: PhantomData,
             sig_hooks: HashMap::new(),
@@ -430,9 +399,6 @@ where
     /// # Examples
     ///
     /// ```rust
-    /// extern crate arc_swap;
-    /// extern crate spirit;
-    ///
     /// use arc_swap::Lease;
     /// use spirit::{Empty, Spirit};
     ///
@@ -621,77 +587,12 @@ where
     }
 
     fn load_config(&self) -> Result<C, Error> {
-        debug!("Loading configuration");
-        let mut config = Config::new();
-        // To avoid problems with trying to parse without any configuration present (it would
-        // complain that it found unit and whatever the config was is expected instead).
-        config.merge(File::from_str("", FileFormat::Toml))?;
-        if let Some(ref defaults) = self.config_defaults {
-            trace!("Loading config defaults");
-            config
-                .merge(File::from_str(defaults, FileFormat::Toml))
-                .context("Failed to read defaults")?;
-        }
-        for path in &self.config_files {
-            if path.is_file() {
-                trace!("Loading config file {:?}", path);
-                config
-                    .merge(File::from(path as &Path))
-                    .with_context(|_| format!("Failed to load config file {:?}", path))?;
-            } else if path.is_dir() {
-                trace!("Scanning directory {:?}", path);
-                let mut lock = self.hooks.lock();
-                let mut filter = &mut lock.config_filter;
-                // Take all the file entries passing the config file filter, handling errors on the
-                // way.
-                let mut files = fallible_iterator::convert(path.read_dir()?)
-                    .and_then(|entry| -> Result<Option<PathBuf>, std::io::Error> {
-                        let path = entry.path();
-                        let meta = path.symlink_metadata()?;
-                        if meta.is_file() && (filter)(&path) {
-                            Ok(Some(path))
-                        } else {
-                            trace!("Skipping {:?}", path);
-                            Ok(None)
-                        }
-                    })
-                    .filter_map(|path| path)
-                    .collect::<Vec<_>>()?;
-                // Traverse them sorted.
-                files.sort();
-                for file in files {
-                    trace!("Loading config file {:?}", file);
-                    config
-                        .merge(File::from(&file as &Path))
-                        .with_context(|_| format!("Failed to load config file {:?}", file))?;
-                }
-            } else if path.exists() {
-                bail!(InvalidFileType(path.to_owned()));
-            } else {
-                bail!(MissingFile(path.to_owned()));
-            }
-        }
-        if let Some(env_prefix) = self.config_env.as_ref() {
-            trace!("Loading config from environment {}", env_prefix);
-            config
-                .merge(Environment::with_prefix(env_prefix).separator("_"))
-                .context("Failed to include environment in config")?;
-        }
-        for (ref key, ref value) in &self.config_overrides {
-            trace!("Config override {} => {}", key, value);
-            config.set(*key, *value as &str).with_context(|_| {
-                format!("Failed to push override {}={} into config", key, value)
-            })?;
-        }
-        let result = config
-            .try_into()
-            .context("Failed to decode configuration")?;
-        Ok(result)
+        self.hooks.lock().config_loader.load()
     }
 }
 
 trait Body<Param>: Send {
-    fn run(&mut self, Param) -> Result<(), Error>;
+    fn run(&mut self, param: Param) -> Result<(), Error>;
 }
 
 impl<F: FnOnce(Param) -> Result<(), Error> + Send, Param> Body<Param> for Option<F> {
@@ -745,11 +646,8 @@ pub struct Builder<O = Empty, C = Empty> {
     before_config: Vec<Box<FnMut(&O) -> Result<(), Error> + Send>>,
     body_wrappers: Vec<Wrapper<O, C>>,
     config: C,
-    config_default_paths: Vec<PathBuf>,
-    config_defaults: Option<String>,
-    config_env: Option<String>,
+    config_loader: CfgBuilder,
     config_hooks: Vec<Box<FnMut(&O, &Arc<C>) + Send>>,
-    config_filter: Box<FnMut(&Path) -> bool + Send>,
     config_validators: Vec<Box<FnMut(&Arc<C>, &mut C, &O) -> ValidationResults + Send>>,
     opts: PhantomData<O>,
     sig_hooks: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
@@ -861,9 +759,8 @@ where
         I: IntoIterator<Item = P>,
         P: Into<PathBuf>,
     {
-        let paths = paths.into_iter().map(Into::into).collect();
         Self {
-            config_default_paths: paths,
+            config_loader: self.config_loader.default_paths(paths),
             ..self
         }
     }
@@ -874,7 +771,7 @@ where
     /// format is TOML.
     pub fn config_defaults<D: Into<String>>(self, config: D) -> Self {
         Self {
-            config_defaults: Some(config.into()),
+            config_loader: self.config_loader.defaults(config),
             ..self
         }
     }
@@ -887,12 +784,8 @@ where
     /// # Examples
     ///
     /// ```rust
-    /// extern crate failure;
-    /// #[macro_use]
-    /// extern crate serde_derive;
-    /// extern crate spirit;
-    ///
     /// use failure::Error;
+    /// use serde::Deserialize;
     /// use spirit::{Empty, Spirit};
     ///
     /// #[derive(Default, Deserialize)]
@@ -923,7 +816,7 @@ where
     /// ```
     pub fn config_env<E: Into<String>>(self, env: E) -> Self {
         Self {
-            config_env: Some(env.into()),
+            config_loader: self.config_loader.env(env),
             ..self
         }
     }
@@ -933,9 +826,8 @@ where
     /// Sets the config directory filter (see [`config_filter`](#method.config_filter)) to one
     /// matching this single extension.
     pub fn config_ext<E: Into<OsString>>(self, ext: E) -> Self {
-        let ext = ext.into();
         Self {
-            config_filter: Box::new(move |path| path.extension() == Some(&ext)),
+            config_loader: self.config_loader.ext(ext),
             ..self
         }
     }
@@ -949,13 +841,8 @@ where
         I: IntoIterator<Item = E>,
         E: Into<OsString>,
     {
-        let exts = exts.into_iter().map(Into::into).collect::<HashSet<_>>();
         Self {
-            config_filter: Box::new(move |path| {
-                path.extension()
-                    .map(|ext| exts.contains(ext))
-                    .unwrap_or(false)
-            }),
+            config_loader: self.config_loader.exts(exts),
             ..self
         }
     }
@@ -977,7 +864,18 @@ where
     /// [`config_exts`](#method.config_exts).
     pub fn config_filter<F: FnMut(&Path) -> bool + Send + 'static>(self, filter: F) -> Self {
         Self {
-            config_filter: Box::new(filter),
+            config_loader: self.config_loader.filter(filter),
+            ..self
+        }
+    }
+
+    /// Sets the inner config loader.
+    ///
+    /// Instead of configuring the configuration loading on the spirit [`Builder`], the inner
+    /// config loader [`Builder`][crate::cfg_loader::Builder] can be set directly.
+    pub fn config_loader(self, loader: CfgBuilder) -> Self {
+        Self {
+            config_loader: loader,
             ..self
         }
     }
@@ -1125,15 +1023,10 @@ where
         background_thread: bool,
     ) -> Result<(Arc<Spirit<O, C>>, InnerBody, WrapBody), Error> {
         debug!("Building the spirit");
-        let opts = OptWrapper::<O>::from_args();
+        let (opts, loader) = self.config_loader.build::<O>();
         for before_config in &mut self.before_config {
-            before_config(&opts.other).context("The before-config phase failed")?;
+            before_config(&opts).context("The before-config phase failed")?;
         }
-        let config_files = if opts.common.configs.is_empty() {
-            self.config_default_paths
-        } else {
-            opts.common.configs
-        };
         let interesting_signals = self
             .sig_hooks
             .keys()
@@ -1143,18 +1036,14 @@ where
         let config = ArcSwap::from(Arc::from(self.config));
         let spirit = Spirit {
             config,
-            config_files,
-            config_defaults: self.config_defaults,
-            config_env: self.config_env,
-            config_overrides: opts.common.config_overrides.into_iter().collect(),
             hooks: Mutex::new(Hooks {
                 config: self.config_hooks,
-                config_filter: self.config_filter,
+                config_loader: loader,
                 config_validators: self.config_validators,
                 sigs: self.sig_hooks,
                 terminate: self.terminate_hooks,
             }),
-            opts: opts.other,
+            opts,
             terminate: AtomicBool::new(false),
         };
         spirit

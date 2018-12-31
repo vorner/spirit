@@ -10,23 +10,16 @@
 //! and see the changes to the logging and the message take effect without restarting the
 //! application.
 
-#[macro_use]
-extern crate failure;
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate serde_derive;
-extern crate spirit;
-
 use std::collections::HashSet;
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::sync::{mpsc, Arc};
 use std::thread;
 
-use failure::Error;
+use failure::{ensure, Error};
+use lazy_static::lazy_static;
+use log::{debug, error, info, warn};
+use serde::Deserialize;
 use spirit::helpers;
 use spirit::validation::Result as ValidationResult;
 use spirit::{ArcSwap, Spirit};

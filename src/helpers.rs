@@ -12,6 +12,7 @@ use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use log::{trace, warn};
 use serde::de::DeserializeOwned;
 use structopt::StructOpt;
 
@@ -242,10 +243,7 @@ where
 /// # Examples
 ///
 /// ```
-/// #[macro_use]
-/// extern crate serde_derive;
-/// extern crate spirit;
-///
+/// use serde::Deserialize;
 /// use spirit::{Empty, Spirit};
 /// use spirit::helpers;
 ///
@@ -305,10 +303,7 @@ where
 /// # Examples
 ///
 /// ```
-/// #[macro_use]
-/// extern crate serde_derive;
-/// extern crate spirit;
-///
+/// use serde::Deserialize;
 /// use spirit::{Empty, Spirit};
 /// use spirit::helpers;
 ///

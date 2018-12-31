@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use hyper::{Body, Request, Response};
 use log::{debug, trace};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use spirit::Spirit;
 use spirit_cfg_helpers::Opts as CfgOpts;
 use spirit_daemonize::{Daemon, Opts as DaemonOpts};

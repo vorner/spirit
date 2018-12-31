@@ -11,8 +11,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use failure::{Error, Fail};
-use log::Level;
-use serde::ser::{Serialize, Serializer};
+use log::{debug, error, log_enabled, warn, Level};
+use serde::ser::Serializer;
+use serde::{Deserialize, Serialize};
 
 /// Tries to read an absolute path from the given OS string.
 ///
@@ -30,11 +31,9 @@ use serde::ser::{Serialize, Serializer};
 /// # Examples
 ///
 /// ```rust
-/// extern crate spirit;
-/// #[macro_use]
-/// extern crate structopt;
-///
 /// use std::path::PathBuf;
+///
+/// use structopt::StructOpt;
 ///
 /// #[derive(Debug, StructOpt)]
 /// struct MyOpts {
@@ -126,8 +125,6 @@ pub fn log_errors<R, F: FnOnce() -> Result<R, Error>>(f: F) -> Result<R, Error> 
 /// Therefore, wrap them in this, eg:
 ///
 /// ```rust
-/// # extern crate spirit;
-/// #
 /// use std::io::Write;
 /// use std::str;
 ///
@@ -152,7 +149,7 @@ pub fn log_errors<R, F: FnOnce() -> Result<R, Error>>(f: F) -> Result<R, Error> 
 /// # }
 /// ```
 #[derive(Clone, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
+#[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 #[repr(transparent)]
 #[serde(transparent)]
 pub struct Hidden<T>(pub T);
