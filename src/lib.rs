@@ -181,13 +181,12 @@ use std::time::Duration;
 
 pub use arc_swap::ArcSwap;
 use arc_swap::Lease;
-use failure::{Error, Fail, ResultExt};
+use failure::{Error, ResultExt};
 use log::{debug, error, info, warn};
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use signal_hook::iterator::Signals;
-use structopt::clap::App;
 use structopt::StructOpt;
 
 use crate::cfg_loader::{Builder as CfgBuilder, Loader as CfgLoader};
@@ -197,59 +196,6 @@ use crate::validation::{
 
 #[deprecated(note = "Moved to spirit::utils")]
 pub use crate::utils::{key_val, log_error, log_errors, log_errors_named, MissingEquals};
-
-#[derive(Debug, StructOpt)]
-struct CommonOpts {
-    /// Override specific config values.
-    #[structopt(
-        short = "C",
-        long = "config-override",
-        parse(try_from_str = "utils::key_val"),
-        raw(number_of_values = "1")
-    )]
-    config_overrides: Vec<(String, String)>,
-
-    /// Configuration files or directories to load.
-    #[structopt(parse(from_os_str = "utils::absolute_from_os_str"))]
-    configs: Vec<PathBuf>,
-}
-
-#[derive(Debug)]
-struct OptWrapper<O> {
-    common: CommonOpts,
-    other: O,
-}
-
-// Unfortunately, StructOpt doesn't like flatten with type parameter
-// (https://github.com/TeXitoi/structopt/issues/128). It is not even trivial to do, since some of
-// the very important functions are *not* part of the trait. So we do it manually ‒ we take the
-// type parameter's clap definition and add our own into it.
-impl<O> StructOpt for OptWrapper<O>
-where
-    O: Debug + StructOpt,
-{
-    fn clap<'a, 'b>() -> App<'a, 'b> {
-        CommonOpts::augment_clap(O::clap())
-    }
-
-    fn from_clap(matches: &::structopt::clap::ArgMatches) -> Self {
-        OptWrapper {
-            common: StructOpt::from_clap(matches),
-            other: StructOpt::from_clap(matches),
-        }
-    }
-}
-
-/// An error returned whenever the user passes something not a file nor a directory as
-/// configuration.
-#[derive(Debug, Fail)]
-#[fail(display = "Configuration path {:?} is not a file nor a directory", _0)]
-pub struct InvalidFileType(PathBuf);
-
-/// Returned if configuration path is missing.
-#[derive(Debug, Fail)]
-#[fail(display = "Configuration path {:?} does not exist", _0)]
-pub struct MissingFile(PathBuf);
 
 /// A struct that may be used when either configuration or command line options are not needed.
 ///
