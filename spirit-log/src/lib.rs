@@ -153,7 +153,7 @@ use itertools::Itertools;
 use log::{LevelFilter, Log, Metadata, Record};
 use serde::de::{Deserialize, DeserializeOwned, Deserializer, Error as DeError};
 use serde::ser::{Serialize, Serializer};
-use spirit::helpers::CfgHelper;
+use spirit::extension::CfgHelper;
 use spirit::validation::{Result as ValidationResult, Results as ValidationResults};
 use spirit::Builder;
 use structopt::StructOpt;

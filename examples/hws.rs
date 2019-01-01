@@ -20,9 +20,10 @@ use failure::{ensure, Error};
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
 use serde::Deserialize;
-use spirit::helpers;
+use spirit::extension;
+use spirit::prelude::*;
 use spirit::validation::Result as ValidationResult;
-use spirit::{ArcSwap, Spirit};
+use spirit::ArcSwap;
 
 // In this part, we define how our configuration looks like. Just like with the `config` crate
 // (which is actually used internally), the configuration is loaded using the serde's Deserialize.
@@ -117,7 +118,7 @@ fn main() -> Result<(), Error> {
     let mut initial = true;
     let _spirit = Spirit::<spirit::Empty, Config>::new()
         // Keep the current config accessible through a global variable
-        .with(helpers::cfg_store(&*CONFIG))
+        .with(extension::cfg_store(&*CONFIG))
         // Set the default config values. This is very similar to passing the first file on command
         // line, except that nobody can lose this one as it is baked into the application. Any
         // files passed by the user can override the values.
@@ -143,7 +144,7 @@ fn main() -> Result<(), Error> {
             }
             initial = false;
             results
-        })
+        })?
         .on_terminate(move || {
             // This unfortunately cuts all the listening threads right away.
             term_send.send(()).unwrap();

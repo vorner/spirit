@@ -16,7 +16,7 @@ pub use failure::Error;
 #[doc(hidden)]
 pub use serde::de::DeserializeOwned;
 #[doc(hidden)]
-pub use spirit::helpers::{CfgHelper, IteratedCfgHelper};
+pub use spirit::extension::{CfgHelper, IteratedCfgHelper};
 #[doc(hidden)]
 pub use spirit::validation::Results as ValidationResults;
 #[doc(hidden)]
@@ -69,8 +69,8 @@ macro_rules! extra_cfg_impl {
 /// Given a type that already implements the [`ResourceConfig`], this adds the above two traits by
 /// delegating the implementation to them.
 ///
-/// [`CfgHelper`]: ::spirit::helpers::CfgHelper
-/// [`IteratedCfgHelper`]: ::spirit::helpers::IteratedCfgHelper
+/// [`CfgHelper`]: ::spirit::extension::CfgHelper
+/// [`IteratedCfgHelper`]: ::spirit::extension::IteratedCfgHelper
 #[macro_export]
 macro_rules! cfg_helpers {
     (

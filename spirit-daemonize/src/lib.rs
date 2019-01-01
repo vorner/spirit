@@ -112,7 +112,7 @@ use failure::{Error, ResultExt};
 use nix::sys::stat::{self, Mode};
 use nix::unistd::{self, ForkResult, Gid, Uid};
 use serde::de::DeserializeOwned;
-use spirit::helpers::CfgHelper;
+use spirit::extension::CfgHelper;
 use spirit::validation::Result as ValidationResult;
 use spirit::Builder;
 use structopt::StructOpt;

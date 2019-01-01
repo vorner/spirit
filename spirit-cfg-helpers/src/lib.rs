@@ -32,7 +32,7 @@ use failure::Fail;
 use log::{log, Level};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use spirit::helpers::Helper;
+use spirit::extension::{Configurable, Extension};
 use spirit::validation::Result as ValidationResult;
 use spirit::Builder;
 use structopt::StructOpt;
@@ -63,13 +63,12 @@ use structopt::StructOpt;
 ///         .run(|_| Ok(()));
 /// }
 /// ```
-pub fn config_logging<O, C>(level: Level, opts_too: bool) -> impl Helper<O, C>
+pub fn config_logging<C>(level: Level, opts_too: bool) -> impl Extension<C>
 where
-    O: Debug + StructOpt + Send + Sync + 'static,
-    C: Debug + DeserializeOwned + Send + Sync + 'static,
+    C: Configurable,
 {
-    move |builder: Builder<O, C>| {
-        builder.on_config(move |opts, cfg| {
+    move |cfg: C| {
+        Ok(cfg.on_config(move |opts, cfg| {
             if opts_too {
                 log!(
                     level,
@@ -80,7 +79,7 @@ where
             } else {
                 log!(level, "Using configuration {:?}", cfg);
             }
-        })
+        }))
     }
 }
 

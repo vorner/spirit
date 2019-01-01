@@ -9,7 +9,7 @@ use serde::de::DeserializeOwned;
 use structopt::StructOpt;
 use tokio::runtime;
 
-use spirit::helpers::Helper;
+use spirit::extension::{Configurable, Extension};
 use spirit::Builder;
 
 /// A body run on tokio runtime.
@@ -131,14 +131,13 @@ impl Default for Runtime {
     }
 }
 
-impl<O, C> Helper<O, C> for Runtime
+impl<C> Extension<C> for Runtime
 where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
+    C: Configurable,
 {
-    fn apply(self, builder: Builder<O, C>) -> Builder<O, C> {
+    fn apply(self, cfg: C) -> Result<C, Error> {
         trace!("Wrapping in tokio runtime");
-        builder.body_wrapper(|spirit, inner| {
+        Ok(cfg.body_wrapper(|spirit, inner| {
             let spirit = Arc::clone(spirit);
             let fut = future::lazy(move || {
                 inner.run().map_err(move |e| {
@@ -164,6 +163,6 @@ where
                 Runtime::Custom(mut callback) => callback(Box::new(fut)),
                 Runtime::__NonExhaustive__ => unreachable!(),
             }
-        })
+        }))
     }
 }

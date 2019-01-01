@@ -9,7 +9,7 @@ use futures::sync::{mpsc, oneshot};
 use futures::Stream;
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
-use spirit::helpers::Helper;
+use spirit::extension::Extension;
 use spirit::validation::{Result as ValidationResult, Results as ValidationResults};
 use spirit::{Builder, Spirit};
 use structopt::StructOpt;

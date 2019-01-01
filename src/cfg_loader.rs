@@ -103,6 +103,131 @@ pub struct InvalidFileType(PathBuf);
 #[fail(display = "Configuration path {:?} does not exist", _0)]
 pub struct MissingFile(PathBuf);
 
+pub trait ConfigBuilder: Sized {
+    /// Sets the configuration paths in case the user doesn't provide any.
+    ///
+    /// This replaces any previously set default paths. If none are specified and the user doesn't
+    /// specify any either, no config is loaded (but it is not an error, simply the defaults will
+    /// be used, if available).
+    fn config_default_paths<P, I>(self, paths: I) -> Self
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>;
+
+    /// Specifies the default configuration.
+    ///
+    /// This „loads“ the lowest layer of the configuration from the passed string. The expected
+    /// format is TOML.
+    fn config_defaults<D: Into<String>>(self, config: D) -> Self;
+
+    /// Enables loading configuration from environment variables.
+    ///
+    /// If this is used, after loading the normal configuration files, the environment of the
+    /// process is examined. Variables with the provided prefix are merged into the configuration.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use failure::Error;
+    /// use serde::Deserialize;
+    /// use spirit::cfg_loader::{Builder, ConfigBuilder};
+    /// use spirit::Empty;
+    ///
+    /// #[derive(Default, Deserialize)]
+    /// struct Cfg {
+    ///     message: String,
+    /// }
+    ///
+    /// const DEFAULT_CFG: &str = r#"
+    /// message = "Hello"
+    /// "#;
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let (_, mut loader) = Builder::new()
+    ///         .config_defaults(DEFAULT_CFG)
+    ///         .config_env("HELLO")
+    ///         .build::<Empty>();
+    ///     let cfg: Cfg = loader.load()?;
+    ///     println!("{}", cfg.message);
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// If run like this, it'll print `Hi`. The environment takes precedence ‒ even if there was
+    /// configuration file and it set the `message`, the `Hi` here would win.
+    ///
+    /// ```sh
+    /// HELLO_MESSAGE="Hi" ./hello
+    /// ```
+    fn config_env<E: Into<String>>(self, env: E) -> Self;
+
+    /// Configures a config dir filter for a single extension.
+    ///
+    /// Sets the config directory filter (see [`config_filter`](#method.config_filter)) to one
+    /// matching this single extension.
+    fn config_ext<E: Into<OsString>>(self, ext: E) -> Self
+    {
+        let ext = ext.into();
+        self.config_filter(move |path| path.extension() == Some(&ext))
+    }
+
+    /// Configures a config dir filter for multiple extensions.
+    ///
+    /// Sets the config directory filter (see [`config_filter`](#method.config_filter)) to one
+    /// matching files with any of the provided extensions.
+    fn config_exts<I, E>(self, exts: I) -> Self
+    where
+        I: IntoIterator<Item = E>,
+        E: Into<OsString>,
+    {
+        let exts = exts.into_iter().map(Into::into).collect::<HashSet<_>>();
+        self.config_filter(move |path| {
+            path.extension()
+                .map(|ext| exts.contains(ext))
+                .unwrap_or(false)
+        })
+    }
+
+    /// Sets a configuration dir filter.
+    ///
+    /// If the user passes a directory path instead of a file path, the directory is traversed
+    /// (every time the configuration is reloaded, so if files are added or removed, it is
+    /// reflected) and files passing this filter are merged into the configuration, in the
+    /// lexicographical order of their file names.
+    ///
+    /// There's ever only one filter and the default one passes no files (therefore, directories
+    /// are ignored by default).
+    ///
+    /// The filter has no effect on files, only on loading directories. Only files directly in the
+    /// directory are loaded ‒ subdirectories are not traversed.
+    ///
+    /// For more convenient ways to set the filter, see [`config_ext`](#method.config_ext) and
+    /// [`config_exts`](#method.config_exts).
+    fn config_filter<F: FnMut(&Path) -> bool + Send + 'static>(self, filter: F) -> Self;
+}
+
+impl<C: ConfigBuilder, Error> ConfigBuilder for Result<C, Error> {
+    fn config_default_paths<P, I>(self, paths: I) -> Self
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>
+    {
+        self.map(|c| c.config_default_paths(paths))
+    }
+
+    fn config_defaults<D: Into<String>>(self, config: D) -> Self {
+        self.map(|c| c.config_defaults(config))
+    }
+
+    fn config_env<E: Into<String>>(self, env: E) -> Self {
+        self.map(|c| c.config_env(env))
+    }
+
+    fn config_filter<F: FnMut(&Path) -> bool + Send + 'static>(self, filter: F) -> Self {
+        self.map(|c| c.config_filter(filter))
+    }
+}
+
 /// A builder for [`Loader`].
 ///
 /// See the [module documentation](index.html) for details about the use.
@@ -127,134 +252,6 @@ impl Builder {
             defaults: None,
             env: None,
             filter: Box::new(|_| false),
-        }
-    }
-
-    /// Sets the configuration paths in case the user doesn't provide any.
-    ///
-    /// This replaces any previously set default paths. If none are specified and the user doesn't
-    /// specify any either, no config is loaded (but it is not an error, simply the defaults will
-    /// be used, if available).
-    pub fn default_paths<P, I>(self, paths: I) -> Self
-    where
-        I: IntoIterator<Item = P>,
-        P: Into<PathBuf>,
-    {
-        let paths = paths.into_iter().map(Into::into).collect();
-        Self {
-            default_paths: paths,
-            ..self
-        }
-    }
-
-    /// Specifies the default configuration.
-    ///
-    /// This „loads“ the lowest layer of the configuration from the passed string. The expected
-    /// format is TOML.
-    pub fn defaults<D: Into<String>>(self, config: D) -> Self {
-        Self {
-            defaults: Some(config.into()),
-            ..self
-        }
-    }
-
-    /// Enables loading configuration from environment variables.
-    ///
-    /// If this is used, after loading the normal configuration files, the environment of the
-    /// process is examined. Variables with the provided prefix are merged into the configuration.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use failure::Error;
-    /// use serde::Deserialize;
-    /// use spirit::cfg_loader::Builder;
-    /// use spirit::Empty;
-    ///
-    /// #[derive(Default, Deserialize)]
-    /// struct Cfg {
-    ///     message: String,
-    /// }
-    ///
-    /// const DEFAULT_CFG: &str = r#"
-    /// message = "Hello"
-    /// "#;
-    ///
-    /// fn main() -> Result<(), Error> {
-    ///     let (_, mut loader) = Builder::new()
-    ///         .defaults(DEFAULT_CFG)
-    ///         .env("HELLO")
-    ///         .build::<Empty>();
-    ///     let cfg: Cfg = loader.load()?;
-    ///     println!("{}", cfg.message);
-    ///     Ok(())
-    /// }
-    /// ```
-    ///
-    /// If run like this, it'll print `Hi`. The environment takes precedence ‒ even if there was
-    /// configuration file and it set the `message`, the `Hi` here would win.
-    ///
-    /// ```sh
-    /// HELLO_MESSAGE="Hi" ./hello
-    /// ```
-    pub fn env<E: Into<String>>(self, env: E) -> Self {
-        Self {
-            env: Some(env.into()),
-            ..self
-        }
-    }
-
-    /// Configures a config dir filter for a single extension.
-    ///
-    /// Sets the config directory filter (see [`config_filter`](#method.config_filter)) to one
-    /// matching this single extension.
-    pub fn ext<E: Into<OsString>>(self, ext: E) -> Self {
-        let ext = ext.into();
-        Self {
-            filter: Box::new(move |path| path.extension() == Some(&ext)),
-            ..self
-        }
-    }
-
-    /// Configures a config dir filter for multiple extensions.
-    ///
-    /// Sets the config directory filter (see [`config_filter`](#method.config_filter)) to one
-    /// matching files with any of the provided extensions.
-    pub fn exts<I, E>(self, exts: I) -> Self
-    where
-        I: IntoIterator<Item = E>,
-        E: Into<OsString>,
-    {
-        let exts = exts.into_iter().map(Into::into).collect::<HashSet<_>>();
-        Self {
-            filter: Box::new(move |path| {
-                path.extension()
-                    .map(|ext| exts.contains(ext))
-                    .unwrap_or(false)
-            }),
-            ..self
-        }
-    }
-
-    /// Sets a configuration dir filter.
-    ///
-    /// If the user passes a directory path instead of a file path, the directory is traversed
-    /// (every time the configuration is reloaded, so if files are added or removed, it is
-    /// reflected) and files passing this filter are merged into the configuration, in the
-    /// lexicographical order of their file names.
-    ///
-    /// There's ever only one filter and the default one passes no files (therefore, directories
-    /// are ignored by default).
-    ///
-    /// The filter has no effect on files, only on loading directories. Only files directly in the
-    /// directory are loaded ‒ subdirectories are not traversed.
-    ///
-    /// For more convenient ways to set the filter, see [`config_ext`](#method.config_ext) and
-    /// [`config_exts`](#method.config_exts).
-    pub fn filter<F: FnMut(&Path) -> bool + Send + 'static>(self, filter: F) -> Self {
-        Self {
-            filter: Box::new(filter),
-            ..self
         }
     }
 
@@ -299,6 +296,41 @@ impl Builder {
             env: self.env,
             filter: self.filter,
             overrides: HashMap::new(),
+        }
+    }
+}
+
+impl ConfigBuilder for Builder {
+    fn config_defaults<D: Into<String>>(self, config: D) -> Self {
+        Self {
+            defaults: Some(config.into()),
+            ..self
+        }
+    }
+
+    fn config_default_paths<P, I>(self, paths: I) -> Self
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        let paths = paths.into_iter().map(Into::into).collect();
+        Self {
+            default_paths: paths,
+            ..self
+        }
+    }
+
+    fn config_env<E: Into<String>>(self, env: E) -> Self {
+        Self {
+            env: Some(env.into()),
+            ..self
+        }
+    }
+
+    fn config_filter<F: FnMut(&Path) -> bool + Send + 'static>(self, filter: F) -> Self {
+        Self {
+            filter: Box::new(filter),
+            ..self
         }
     }
 }
