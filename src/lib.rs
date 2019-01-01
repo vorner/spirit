@@ -285,6 +285,7 @@ pub struct Spirit<O = Empty, C = Empty> {
     // TODO: Mode selection for directories
     opts: O,
     terminate: AtomicBool,
+    signals: Signals,
 }
 
 impl<O, C> Spirit<O, C>
@@ -534,6 +535,39 @@ where
 
     fn load_config(&self) -> Result<C, Error> {
         self.hooks.lock().config_loader.load()
+    }
+
+    pub fn config_validator<R, F>(&self, mut f: F)
+    where
+        F: FnMut(&Arc<C>, &mut C, &O) -> R + Send + 'static,
+        R: Into<ValidationResults>,
+    {
+        let wrapper = move |old: &Arc<C>, new: &mut C, opts: &O| f(old, new, opts).into();
+        self.hooks
+            .lock()
+            .config_validators
+            .push(Box::new(wrapper));
+    }
+
+    pub fn on_config<F: FnMut(&O, &Arc<C>) + Send + 'static>(&self, hook: F) {
+        self.hooks.lock().config.push(Box::new(hook));
+    }
+
+    pub fn on_signal<F: FnMut() + Send + 'static>(&self, signal: libc::c_int, hook: F)
+        -> Result<(), Error>
+    {
+        self.signals.add_signal(signal)?;
+        self.hooks
+            .lock()
+            .sigs
+            .entry(signal)
+            .or_insert_with(Vec::new)
+            .push(Box::new(hook));
+        Ok(())
+    }
+
+    pub fn on_terminate<F: FnMut() + Send + 'static>(&self, hook: F) {
+        self.hooks.lock().terminate.push(Box::new(hook));
     }
 }
 
@@ -980,6 +1014,8 @@ where
             .cloned()
             .collect::<HashSet<_>>(); // Eliminate duplicates
         let config = ArcSwap::from(Arc::from(self.config));
+        let signals = Signals::new(interesting_signals)?;
+        let signals_spirit = signals.clone();
         let spirit = Spirit {
             config,
             hooks: Mutex::new(Hooks {
@@ -991,13 +1027,13 @@ where
             }),
             opts,
             terminate: AtomicBool::new(false),
+            signals: signals_spirit,
         };
         spirit
             .config_reload()
             .context("Problem loading the initial configuration")?;
         let spirit = Arc::new(spirit);
         if background_thread {
-            let signals = Signals::new(interesting_signals)?;
             let spirit_bg = Arc::clone(&spirit);
             thread::Builder::new()
                 .name("spirit".to_owned())
