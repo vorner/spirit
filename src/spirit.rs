@@ -364,14 +364,12 @@ where
         F: FnMut(&Arc<C>, &mut C, &O) -> R + Send + 'static,
         R: Into<ValidationResults>,
     {
-        // TODO: Run the new validator?
         let wrapper = move |old: &Arc<C>, new: &mut C, opts: &O| f(old, new, opts).into();
         self.hooks.lock().config_validators.push(Box::new(wrapper));
         Ok(self)
     }
 
     fn on_config<F: FnMut(&O, &Arc<C>) + Send + 'static>(self, hook: F) -> Self {
-        // TODO: Run the new callback?
         self.hooks.lock().config.push(Box::new(hook));
         self
     }
@@ -439,9 +437,6 @@ where
     }
 }
 
-// TODO: Implement for Result<Builder, Error> because of chaining errors. Plus some ext something,
-// to know how to print the error.
-//
 // TODO: Implement for non-ref Arc
 //
 // TODO: Document some of the quirks of specific implementations.
@@ -861,5 +856,20 @@ where
         if result.is_err() {
             process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Note: this is not run, we only test if it compiles
+    fn _nonref_spirit_extensible() {
+        let app = Spirit::<Empty, Empty>::new().build(false).unwrap();
+        // We test the trait actually works even when we have owned value, not reference only.
+        let spirit = Arc::clone(app.spirit());
+        spirit
+            .on_terminate(|| ())
+            .on_config(|_opts, _cfg| ());
     }
 }
