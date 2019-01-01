@@ -17,6 +17,7 @@ use serde::de::DeserializeOwned;
 use signal_hook::iterator::Signals;
 use structopt::StructOpt;
 
+use crate::app::App;
 use crate::bodies::{InnerBody, SpiritBody, WrapBody, Wrapper};
 use crate::cfg_loader::{Builder as CfgBuilder, ConfigBuilder, Loader as CfgLoader};
 use crate::empty::Empty;
@@ -155,9 +156,11 @@ where
     /// use arc_swap::Lease;
     /// use spirit::prelude::*;
     ///
-    /// let (spirit, _, _) = Spirit::<Empty, Empty>::new()
+    /// let app = Spirit::<Empty, Empty>::new()
     ///     .build(false)
     ///     .unwrap();
+    ///
+    /// let spirit = app.spirit();
     ///
     /// let old_config = Lease::upgrade(&spirit.config());
     /// # drop(old_config);
@@ -269,9 +272,11 @@ where
     ///
     /// use spirit::prelude::*;
     ///
-    /// let (spirit, _, _) = Spirit::<Empty, Empty>::new()
+    /// let app = Spirit::<Empty, Empty>::new()
     ///     .build(false)
     ///     .unwrap();
+    ///
+    /// let spirit = app.spirit();
     ///
     /// while !spirit.is_terminated() {
     ///     thread::sleep(Duration::from_millis(100));
@@ -713,8 +718,7 @@ pub trait SpiritBuilder: ConfigBuilder + Extensible {
     /// Therefore, start any threads after you call `build` (or from within [`run`](#method.run)),
     /// or you'll lose them ‒ only the thread doing fork is preserved across it.
     // TODO: The new return value
-    fn build(self, background_thread: bool)
-        -> Result<(Arc<Spirit<Self::Opts, Self::Config>>, InnerBody, WrapBody), Error>;
+    fn build(self, background_thread: bool) -> Result<App<Self::Opts, Self::Config>, Error>;
 
     /// Build the spirit and run the application, handling all relevant errors.
     ///
@@ -758,7 +762,7 @@ where
     fn build(
         mut self,
         background_thread: bool,
-    ) -> Result<(Arc<Spirit<Self::Opts, Self::Config>>, InnerBody, WrapBody), Error> {
+    ) -> Result<App<O, C>, Error> {
         debug!("Building the spirit");
         let (opts, loader) = self.config_loader.build::<Self::Opts>();
         for before_config in &mut self.before_config {
@@ -835,7 +839,7 @@ where
             let applied = move |inner: InnerBody| wrapper.run((&spirit, inner));
             wrapped = WrapBody(Box::new(Some(applied)));
         }
-        Ok((spirit, inner, wrapped))
+        Ok(App::new(spirit, inner, wrapped))
     }
 
     fn run<B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), Error> + Send + 'static>(self, body: B) {
@@ -849,16 +853,17 @@ where
     Self::Opts: StructOpt + Sync + Send + 'static,
 {
     fn build(self, background_thread: bool)
-        -> Result<(Arc<Spirit<Self::Opts, Self::Config>>, InnerBody, WrapBody), Error>
+        -> Result<App<O, C>, Error>
     {
         self.and_then(|b| b.build(background_thread))
     }
     fn run<B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), Error> + Send + 'static>(self, body: B) {
         let result = utils::log_errors_named("top-level", || {
             let me = self?;
-            let (_spirit, inner, wrapped) = me.run_before(body)?.build(true)?;
-            debug!("Running bodies");
-            wrapped.run(inner)
+            let app = me.build(true)?;
+            let spirit = Arc::clone(app.spirit());
+            let body = move || body(&spirit);
+            app.run(body)
         });
         if result.is_err() {
             process::exit(1);

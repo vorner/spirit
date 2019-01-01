@@ -161,6 +161,7 @@
 //! [`spirit-hyper`]: https://crates.io/crates/spirit-hyper
 //! [`reqwest-client`]: https://docs.rs/reqwest/~0.9.5/reqwest/struct.Client.html
 
+pub mod app;
 mod bodies;
 pub mod cfg_loader;
 mod empty;
