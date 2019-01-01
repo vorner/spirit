@@ -25,4 +25,3 @@ use structopt::StructOpt;
 )]
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 pub struct Empty {}
-

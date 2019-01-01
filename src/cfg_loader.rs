@@ -165,8 +165,7 @@ pub trait ConfigBuilder: Sized {
     ///
     /// Sets the config directory filter (see [`config_filter`](#method.config_filter)) to one
     /// matching this single extension.
-    fn config_ext<E: Into<OsString>>(self, ext: E) -> Self
-    {
+    fn config_ext<E: Into<OsString>>(self, ext: E) -> Self {
         let ext = ext.into();
         self.config_filter(move |path| path.extension() == Some(&ext))
     }
@@ -210,7 +209,7 @@ impl<C: ConfigBuilder, Error> ConfigBuilder for Result<C, Error> {
     fn config_default_paths<P, I>(self, paths: I) -> Self
     where
         I: IntoIterator<Item = P>,
-        P: Into<PathBuf>
+        P: Into<PathBuf>,
     {
         self.map(|c| c.config_default_paths(paths))
     }

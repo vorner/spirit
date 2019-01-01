@@ -1,13 +1,13 @@
 use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 use arc_swap::{ArcSwap, Lease};
 use failure::{Error, ResultExt};
@@ -24,7 +24,7 @@ use crate::empty::Empty;
 use crate::extension::{Extensible, Extension};
 use crate::utils;
 use crate::validation::{
-    Error as ValidationError, Level as ValidationLevel, Results as ValidationResults
+    Error as ValidationError, Level as ValidationLevel, Results as ValidationResults,
 };
 
 struct Hooks<O, C> {
@@ -366,10 +366,7 @@ where
     {
         // TODO: Run the new validator?
         let wrapper = move |old: &Arc<C>, new: &mut C, opts: &O| f(old, new, opts).into();
-        self.hooks
-            .lock()
-            .config_validators
-            .push(Box::new(wrapper));
+        self.hooks.lock().config_validators.push(Box::new(wrapper));
         Ok(self)
     }
 
@@ -381,7 +378,7 @@ where
 
     fn on_signal<F>(self, signal: libc::c_int, hook: F) -> Result<Self, Error>
     where
-        F: FnMut() + Send + 'static
+        F: FnMut() + Send + 'static,
     {
         self.signals.add_signal(signal)?;
         self.hooks
@@ -416,22 +413,23 @@ where
 
     fn run_before<B>(self, body: B) -> Result<Self, Error>
     where
-        B: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>) -> Result<(), Error> + Send + 'static
+        B: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>) -> Result<(), Error> + Send + 'static,
     {
         body(self).map(|()| self)
     }
 
     fn run_around<W>(self, _wrapper: W) -> Result<Self, Error>
     where
-        W: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>, InnerBody)
-            -> Result<(), Error> + Send + 'static
+        W: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>, InnerBody) -> Result<(), Error>
+            + Send
+            + 'static,
     {
         panic!("Wrapping body while already running is not possible, move this to the builder");
     }
 
     fn with_singleton<T>(mut self, singleton: T) -> Result<Self, Error>
     where
-        T: Extension<Self::Ok> + 'static
+        T: Extension<Self::Ok> + 'static,
     {
         if self.singleton::<T>() {
             self.with(singleton)
@@ -676,7 +674,7 @@ impl<O, C> Extensible for Builder<O, C> {
 
     fn with_singleton<T>(mut self, singleton: T) -> Result<Self, Error>
     where
-        T: Extension<Self::Ok> + 'static
+        T: Extension<Self::Ok> + 'static,
     {
         if self.singleton::<T>() {
             self.with(singleton)
@@ -759,10 +757,7 @@ where
     Self::Config: DeserializeOwned + Send + Sync + 'static,
     Self::Opts: StructOpt + Sync + Send + 'static,
 {
-    fn build(
-        mut self,
-        background_thread: bool,
-    ) -> Result<App<O, C>, Error> {
+    fn build(mut self, background_thread: bool) -> Result<App<O, C>, Error> {
         debug!("Building the spirit");
         let (opts, loader) = self.config_loader.build::<Self::Opts>();
         for before_config in &mut self.before_config {
@@ -852,9 +847,7 @@ where
     Self::Config: DeserializeOwned + Send + Sync + 'static,
     Self::Opts: StructOpt + Sync + Send + 'static,
 {
-    fn build(self, background_thread: bool)
-        -> Result<App<O, C>, Error>
-    {
+    fn build(self, background_thread: bool) -> Result<App<O, C>, Error> {
         self.and_then(|b| b.build(background_thread))
     }
     fn run<B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), Error> + Send + 'static>(self, body: B) {

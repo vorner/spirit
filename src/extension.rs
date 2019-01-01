@@ -187,8 +187,9 @@ pub trait Extensible: Sized {
     /// ```
     fn run_around<W>(self, wrapper: W) -> Result<Self::Ok, Error>
     where
-        W: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>, InnerBody)
-            -> Result<(), Error> + Send + 'static;
+        W: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>, InnerBody) -> Result<(), Error>
+            + Send
+            + 'static;
 
     /// Apply an [`Extension`].
     fn with<E>(self, ext: E) -> Result<Self::Ok, Error>
@@ -249,43 +250,44 @@ where
     fn config_validator<R, F>(self, f: F) -> Result<Self::Ok, Error>
     where
         F: FnMut(&Arc<Self::Config>, &mut Self::Config, &Self::Opts) -> R + Send + 'static,
-        R: Into<ValidationResults>
+        R: Into<ValidationResults>,
     {
         self.and_then(|c| c.config_validator(f))
     }
 
     fn on_config<F>(self, hook: F) -> Self
     where
-        F: FnMut(&Self::Opts, &Arc<Self::Config>) + Send + 'static
+        F: FnMut(&Self::Opts, &Arc<Self::Config>) + Send + 'static,
     {
         self.map(|c| c.on_config(hook))
     }
 
     fn on_signal<F>(self, signal: libc::c_int, hook: F) -> Result<Self::Ok, Error>
     where
-        F: FnMut() + Send + 'static
+        F: FnMut() + Send + 'static,
     {
         self.and_then(|c| c.on_signal(signal, hook))
     }
 
     fn on_terminate<F>(self, hook: F) -> Self
     where
-        F: FnMut() + Send + 'static
+        F: FnMut() + Send + 'static,
     {
         self.map(|c| c.on_terminate(hook))
     }
 
     fn run_before<B>(self, body: B) -> Result<Self::Ok, Error>
     where
-        B: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>) -> Result<(), Error> + Send + 'static
+        B: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>) -> Result<(), Error> + Send + 'static,
     {
         self.and_then(|c| c.run_before(body))
     }
 
     fn run_around<W>(self, wrapper: W) -> Result<Self::Ok, Error>
     where
-        W: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>, InnerBody)
-            -> Result<(), Error> + Send + 'static
+        W: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>, InnerBody) -> Result<(), Error>
+            + Send
+            + 'static,
     {
         self.and_then(|c| c.run_around(wrapper))
     }
@@ -300,12 +302,14 @@ where
     fn singleton<T: 'static>(&mut self) -> bool {
         // If we are errored out, this doesn't really matter, but usually false means less work to
         // do.
-        self.as_mut().map(|c| c.singleton::<T>()).unwrap_or_default()
+        self.as_mut()
+            .map(|c| c.singleton::<T>())
+            .unwrap_or_default()
     }
 
     fn with_singleton<T>(self, singleton: T) -> Result<Self::Ok, Error>
     where
-        T: Extension<Self::Ok> + 'static
+        T: Extension<Self::Ok> + 'static,
     {
         self.and_then(|c| c.with_singleton(singleton))
     }
@@ -519,11 +523,7 @@ where
     E: Extensible,
     S: Borrow<ArcSwap<E::Config>> + Send + Sync + 'static,
 {
-    |ext: E| {
-        ext.on_config(move |_o: &_, c: &Arc<E::Config>| {
-            storage.borrow().store(Arc::clone(c))
-        })
-    }
+    |ext: E| ext.on_config(move |_o: &_, c: &Arc<E::Config>| storage.borrow().store(Arc::clone(c)))
 }
 
 /// A helper for one-time initial configuration.

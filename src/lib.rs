@@ -166,8 +166,8 @@ mod bodies;
 pub mod cfg_loader;
 mod empty;
 pub mod extension;
-pub mod utils;
 mod spirit;
+pub mod utils;
 pub mod validation;
 
 pub use arc_swap::ArcSwap;
@@ -176,9 +176,9 @@ pub use crate::bodies::{InnerBody, WrapBody};
 pub use crate::cfg_loader::ConfigBuilder;
 pub use crate::empty::Empty;
 pub use crate::extension::Extensible;
+pub use crate::spirit::{Builder, Spirit, SpiritBuilder};
 #[deprecated(note = "Moved to spirit::utils")]
 pub use crate::utils::{key_val, log_error, log_errors, log_errors_named, MissingEquals};
-pub use crate::spirit::{Builder, Spirit, SpiritBuilder};
 
 pub mod prelude {
     pub use super::{ConfigBuilder, Empty, Extensible, Spirit, SpiritBuilder};
