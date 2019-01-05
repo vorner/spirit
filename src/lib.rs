@@ -166,6 +166,7 @@ mod bodies;
 pub mod cfg_loader;
 mod empty;
 pub mod extension;
+pub mod fragment;
 mod spirit;
 pub mod utils;
 pub mod validation;
