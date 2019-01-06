@@ -32,7 +32,7 @@ use failure::Fail;
 use log::{log, Level};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use spirit::extension::{Configurable, Extension};
+use spirit::extension::{Extensible, Extension};
 use spirit::validation::Result as ValidationResult;
 use spirit::Builder;
 use structopt::StructOpt;
@@ -63,24 +63,24 @@ use structopt::StructOpt;
 ///         .run(|_| Ok(()));
 /// }
 /// ```
-pub fn config_logging<C>(level: Level, opts_too: bool) -> impl Extension<C>
+pub fn config_logging<E>(level: Level, opts_too: bool) -> impl Extension<E>
 where
-    C: Configurable,
+    E: Extensible,
+    E::Opts: Debug,
+    E::Config: Debug,
 {
-    move |cfg: C| {
-        Ok(cfg.on_config(move |opts, cfg| {
-            if opts_too {
-                log!(
-                    level,
-                    "Using cmd-line options {:?} and configuration {:?}",
-                    opts,
-                    cfg
-                );
-            } else {
-                log!(level, "Using configuration {:?}", cfg);
-            }
-        }))
-    }
+    move |ext: E| ext.on_config(move |opts, cfg| {
+        if opts_too {
+            log!(
+                level,
+                "Using cmd-line options {:?} and configuration {:?}",
+                opts,
+                cfg
+            );
+        } else {
+            log!(level, "Using configuration {:?}", cfg);
+        }
+    })
 }
 
 #[derive(Debug, Fail)]
@@ -230,21 +230,21 @@ impl CfgDump {
     /// Also, as this exits if the dumping is requested, it makes some sense to register it sooner
     /// than later. It registers itself as a [`config_validator`][Builder::config_validator] and it
     /// is not needed to validate parts of the configuration only to throw it out on the exit.
-    pub fn helper<O, C, F>(extract: F) -> impl Helper<O, C>
+    pub fn extension<E, F>(extract: F) -> impl Extension<E>
     where
-        F: FnOnce(&O) -> &Self + Send + 'static,
-        O: Debug + StructOpt + Send + Sync + 'static,
-        C: DeserializeOwned + Serialize + Send + Sync + 'static,
+        E: Extensible<Ok = E>,
+        F: FnOnce(&E::Opts) -> &Self + Send + 'static,
+        E::Config: Serialize,
     {
         let mut extract = Some(extract);
-        let validator = move |_: &_, cfg: &mut C, opts: &O| {
+        let validator = move |_: &_, cfg: &mut _, opts: &_| {
             if let Some(extract) = extract.take() {
                 let me = extract(opts);
                 me.dump(cfg);
             }
             ValidationResult::nothing()
         };
-        |builder: Builder<O, C>| builder.config_validator(validator)
+        |ext: E| ext.config_validator(validator)
     }
 }
 
@@ -363,7 +363,7 @@ mod cfg_help {
         ///
         /// The extractor should take the whole command line options structure and provide
         /// reference to just the [`CfgHelp`] instance.
-        pub fn helper<O, C, F>(extract: F) -> impl Helper<O, C>
+        pub fn extension<O, C, F>(extract: F) -> impl Extension<Builder<O, C>>
         where
             F: FnOnce(&O) -> &Self + Send + 'static,
             O: Debug + StructOpt + Send + Sync + 'static,
@@ -399,7 +399,7 @@ mod cfg_help {
 
     impl Opts {
         /// The helper to be registered within a [`Builder`][Builder::with].
-        pub fn helper<O, C, F>(extract: F) -> impl Helper<O, C>
+        pub fn extension<O, C, F>(extract: F) -> impl Extension<Builder<O, C>>
         where
             F: Fn(&O) -> &Self + Send + Sync + 'static,
             O: Debug + StructOpt + Send + Sync + 'static,
@@ -409,8 +409,8 @@ mod cfg_help {
             let extract_help = Arc::clone(&extract_dump);
             |builder: Builder<O, C>| {
                 builder
-                    .with(CfgDump::helper(move |opts| &extract_dump(opts).config_dump))
-                    .with(CfgHelp::helper(move |opts| &extract_help(opts).config_help))
+                    .with(CfgDump::extension(move |opts| &extract_dump(opts).config_dump))
+                    .with(CfgHelp::extension(move |opts| &extract_help(opts).config_help))
             }
         }
     }
@@ -425,6 +425,8 @@ mod tests {
 
     use serde_derive::Serialize;
 
+    // Toml doesn't like certain orders of dumping, we have a workaround for that ‒ checking it
+    // here. In particular, it doesn't like if a lone value is after a table (B::z after B::a).
     #[test]
     fn toml_out_of_order() {
         #[derive(Default, Serialize)]
