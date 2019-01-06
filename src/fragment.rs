@@ -1,4 +1,5 @@
 use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet, LinkedList};
+use std::fmt::Debug;
 use std::hash::{BuildHasher, Hash};
 use std::iter;
 use std::marker::PhantomData;
@@ -7,6 +8,7 @@ use std::sync::Arc;
 
 use either::Either;
 use failure::Error;
+use log::trace;
 use parking_lot::Mutex;
 
 use crate::extension::{Extensible, Extension};
@@ -105,6 +107,71 @@ impl<F: Fragment> Driver<F> for TrivialDriver {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct CacheEq<Fragment: ToOwned> {
+    previous: Option<Fragment::Owned>,
+    proposition: Option<Fragment::Owned>,
+}
+
+impl<F> Driver<F> for CacheEq<F>
+where
+    F: Debug + Fragment + ToOwned + PartialEq<<F as ToOwned>::Owned>,
+{
+    type SubFragment = F;
+    fn instructions<T, I>(
+        &mut self,
+        fragment: &F,
+        transform: &mut T,
+        name: &str,
+    ) -> Result<Vec<CacheInstruction<T::OutputResource>>, Vec<Error>>
+    where
+        T: Transformation<F::Resource, I, F>,
+    {
+        assert!(self.proposition.is_none(), "Unclosed transaction");
+        // maybe_cached means *is* cached for us
+        if self.maybe_cached(fragment) {
+            trace!(
+                "The {} stays the same on {:?}, keeping previous",
+                name,
+                fragment
+            );
+            Ok(Vec::new())
+        } else {
+            trace!("New config {:?} for {}, recreating", fragment, name);
+            self.proposition = Some(fragment.to_owned());
+            // We just delegate to the trivial driver in such case
+            // (we know it has no state at all, so we can simply create a new one).
+            <TrivialDriver as Driver<F>>::instructions(
+                &mut TrivialDriver,
+                fragment,
+                transform,
+                name,
+            )
+        }
+    }
+    fn abort(&mut self) {
+        assert!(
+            self.proposition.take().is_some(),
+            "Abort called without previous instructions"
+        );
+    }
+    fn confirm(&mut self) {
+        assert!(
+            self.proposition.is_some(),
+            "Confirm called without previous instructions"
+        );
+        self.previous = self.proposition.take();
+    }
+    fn maybe_cached(&self, fragment: &F) -> bool {
+        // Option doesn't implement parametrized PartialEq :-(
+        if let Some(prev) = self.previous.as_ref() {
+            fragment == prev
+        } else {
+            false
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 // TODO: Use some kind of immutable/persistent data structures? Or not, this is likely to be small?
 pub struct IdMapping {
@@ -112,8 +179,11 @@ pub struct IdMapping {
 }
 
 impl IdMapping {
-    pub fn translate<'a, R, I>(&'a mut self, id_gen: &'a mut IdGen, instructions: I)
-        -> impl Iterator<Item = CacheInstruction<R>> + 'a
+    pub fn translate<'a, R, I>(
+        &'a mut self,
+        id_gen: &'a mut IdGen,
+        instructions: I,
+    ) -> impl Iterator<Item = CacheInstruction<R>> + 'a
     where
         R: 'a,
         I: IntoIterator<Item = CacheInstruction<R>> + 'a,
@@ -134,20 +204,29 @@ impl IdMapping {
                 CacheInstruction::DropAll => {
                     let mut mapping = HashMap::new();
                     mem::swap(&mut mapping, &mut self.mapping);
-                    Either::Left(mapping
-                        .into_iter()
-                        .map(|(_, outer_id)| CacheInstruction::DropSpecific(outer_id)))
-                },
+                    Either::Left(
+                        mapping
+                            .into_iter()
+                            .map(|(_, outer_id)| CacheInstruction::DropSpecific(outer_id)),
+                    )
+                }
                 CacheInstruction::DropSpecific(id) => {
-                    let id = self.mapping
+                    let id = self
+                        .mapping
                         .remove(&id)
                         .expect("Inconsistent use of cache: missing ID to remove");
                     Either::Right(iter::once(CacheInstruction::DropSpecific(id)))
                 }
                 CacheInstruction::Install { id, resource } => {
                     let new_id = id_gen.next().expect("Run out of cache IDs? Impossible");
-                    assert!(self.mapping.insert(id, new_id).is_none(), "Duplicate ID created");
-                    Either::Right(iter::once(CacheInstruction::Install { id: new_id, resource }))
+                    assert!(
+                        self.mapping.insert(id, new_id).is_none(),
+                        "Duplicate ID created"
+                    );
+                    Either::Right(iter::once(CacheInstruction::Install {
+                        id: new_id,
+                        resource,
+                    }))
                 }
             })
     }
@@ -365,6 +444,7 @@ pub trait Fragment: Sized {
 }
 
 // TODO: Export the macro for other containers?
+// TODO: The where-* should be where-?
 macro_rules! fragment_for_seq {
     ($container: ident<$base: ident $(, $extra: ident)*> $(where $($bounds: tt)+)*) => {
         impl<$base: Clone + Fragment + Stackable + 'static $(, $extra)*> Fragment
@@ -400,28 +480,44 @@ fragment_for_seq!(Option<T>);
 fragment_for_seq!(BinaryHeap<T> where T: Ord);
 fragment_for_seq!(HashSet<T, S> where T: Eq + Hash, S: BuildHasher);
 
+// TODO: Generics
+#[macro_export]
+macro_rules! simple_fragment {
+    (impl Fragment for $ty: ty {
+        type Resource = $resource: ty;
+        type Installer = $installer: ty;
+        fn create(&$self: tt, $name: tt: &str) -> $result: ty $block: block
+    }) => {
+        $crate::simple_fragment! {
+            impl Fragment for $ty {
+                type Driver = $crate::fragment::TrivialDriver;
+                type Resource = $resource;
+                type Installer = $installer;
+                fn create(&$self, $name: &str) -> $result $block
+            }
+        }
+    };
+    (impl Fragment for $ty: ty {
+        type Driver = $driver: ty;
+        type Resource = $resource: ty;
+        type Installer = $installer: ty;
+        fn create(&$self: tt, $name: tt: &str) -> $result: ty $block: block
+    }) => {
+        impl $crate::fragment::Fragment for $ty {
+            type Driver = $driver;
+            type Resource = $resource;
+            type Installer = $installer;
+            type Seed = ();
+            fn make_seed(&self, _: &str) -> Result<(), Error> {
+                Ok(())
+            }
+            fn make_resource(&$self, _: &mut (), $name: &str) -> $result $block
+        }
+    }
+}
+
 // TODO: How do we stack maps, etc?
 // TODO: Arcs, Rcs, Mutexes, refs, ...
-
-// TODO: Make this into a macro instead, so we can impl Fragment for refs?
-pub trait SimpleFragment: Sized {
-    type SimpleResource;
-    type SimpleInstaller: Default;
-    fn make_simple_resource(&self, name: &str) -> Result<Self::SimpleResource, Error>;
-}
-
-impl<F: SimpleFragment> Fragment for F {
-    type Driver = TrivialDriver;
-    type Seed = ();
-    type Installer = F::SimpleInstaller;
-    type Resource = F::SimpleResource;
-    fn make_seed(&self, _: &str) -> Result<(), Error> {
-        Ok(())
-    }
-    fn make_resource(&self, _: &mut (), name: &str) -> Result<Self::Resource, Error> {
-        self.make_simple_resource(name)
-    }
-}
 
 // TODO: Allow returning refs somehow?
 pub trait Extractor<O, C> {
@@ -550,7 +646,8 @@ impl Pipeline<(), (), (), (), ()> {
     pub fn extract<O, C, E: Extractor<O, C>>(
         self,
         e: E,
-    ) -> Pipeline<E::Fragment, E, <E::Fragment as Fragment>::Driver, NopTransformation, (O, C)> {
+    ) -> Pipeline<E::Fragment, E, <E::Fragment as Fragment>::Driver, NopTransformation, (O, C)>
+    {
         Pipeline {
             name: self.name,
             _fragment: PhantomData,
@@ -605,7 +702,10 @@ where
     D: Driver<F>,
     T: Transformation<<D::SubFragment as Fragment>::Resource, F::Installer, D::SubFragment>,
 {
-    pub fn transform<NT>(self, transform: NT) -> Pipeline<F, E, D, ChainedTransformation<T, NT>, (O, C)>
+    pub fn transform<NT>(
+        self,
+        transform: NT,
+    ) -> Pipeline<F, E, D, ChainedTransformation<T, NT>, (O, C)>
     where
         NT: Transformation<T::OutputResource, T::OutputInstaller, D::SubFragment>,
     {
@@ -619,10 +719,7 @@ where
         }
     }
 
-    pub fn install<I>(
-        self,
-        installer: I,
-    ) -> Pipeline<F, E, D, SetInstaller<T, I>, (O, C)>
+    pub fn install<I>(self, installer: I) -> Pipeline<F, E, D, SetInstaller<T, I>, (O, C)>
     where
         I: Installer<T::OutputResource, O, C>,
     {
@@ -658,6 +755,7 @@ where
 {
     // TODO: Extract parts & make it possible to run independently?
     // TODO: There seems to be a lot of mutexes that are not really necessary here.
+    // TODO: This would use some tests
     fn apply(self, builder: B) -> Result<B, Error> {
         let name = self.name;
         let mut transformation = self.transformation;

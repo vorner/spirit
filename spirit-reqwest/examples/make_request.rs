@@ -23,6 +23,7 @@ enable-gzip = false
 "#;
 
 fn main() {
+    env_logger::init();
     // The ::empty client would panic if used before it is configured
     let client = AtomicClient::empty();
     Spirit::<Empty, Cfg>::new()

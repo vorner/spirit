@@ -76,7 +76,7 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use serde_humantime::De;
-use spirit::fragment::{Installer, SimpleFragment};
+use spirit::fragment::{CacheEq, Installer};
 use spirit::utils::Hidden;
 use url_serde::SerdeUrl;
 
@@ -512,11 +512,14 @@ impl AtomicClient {
 }
 
 // TODO: Enable caching of equal values
-impl SimpleFragment for ReqwestClient {
-    type SimpleResource = Client;
-    type SimpleInstaller = ();
-    fn make_simple_resource(&self, _: &str) -> Result<Client, Error> {
-        self.create_client()
+spirit::simple_fragment! {
+    impl Fragment for ReqwestClient {
+        type Driver = CacheEq<ReqwestClient>;
+        type Resource = Client;
+        type Installer = ();
+        fn create(&self, _: &str) -> Result<Client, Error> {
+            self.create_client()
+        }
     }
 }
 
