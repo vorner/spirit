@@ -1,5 +1,7 @@
 use serde_derive::Deserialize;
-use spirit::{Empty, Spirit};
+use spirit::prelude::*;
+// TODO: Put into prelude? Or some convenience macro?
+use spirit::fragment::Pipeline;
 use spirit_reqwest::{AtomicClient, ReqwestClient};
 
 #[derive(Debug, Default, Deserialize)]
@@ -25,7 +27,7 @@ fn main() {
     let client = AtomicClient::empty();
     Spirit::<Empty, Cfg>::new()
         .config_defaults(DEFAULT_CFG)
-        .config_helper(Cfg::client, &client, "client")
+        .with(Pipeline::new("http client").extract_cfg(Cfg::client).install(client.clone()))
         .run(move |_| {
             // But by now, spirit already stored the configured client in there. Also, if we were
             // running for a longer time, it would replace it with a new one every time we change

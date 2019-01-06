@@ -526,19 +526,21 @@ where
     }
 }
 
-pub struct Pipeline<Fragment, Extractor, Driver, Transformation> {
+pub struct Pipeline<Fragment, Extractor, Driver, Transformation, SpiritType> {
     name: &'static str,
-    _fragment: PhantomData<Fn() -> Fragment>,
+    _fragment: PhantomData<Fn(Fragment)>,
+    _spirit: PhantomData<Fn(SpiritType)>,
     extractor: Extractor,
     driver: Driver,
     transformation: Transformation,
 }
 
-impl Pipeline<(), (), (), ()> {
+impl Pipeline<(), (), (), (), ()> {
     pub fn new(name: &'static str) -> Self {
         Self {
             name,
             _fragment: PhantomData,
+            _spirit: PhantomData,
             extractor: (),
             driver: (),
             transformation: (),
@@ -548,20 +550,21 @@ impl Pipeline<(), (), (), ()> {
     pub fn extract<O, C, E: Extractor<O, C>>(
         self,
         e: E,
-    ) -> Pipeline<E::Fragment, E, <E::Fragment as Fragment>::Driver, NopTransformation> {
+    ) -> Pipeline<E::Fragment, E, <E::Fragment as Fragment>::Driver, NopTransformation, (O, C)> {
         Pipeline {
             name: self.name,
             _fragment: PhantomData,
+            _spirit: PhantomData,
             extractor: e,
             driver: Default::default(),
             transformation: NopTransformation,
         }
     }
 
-    pub fn extract_cfg<C, R, E>(
+    pub fn extract_cfg<O, C, R, E>(
         self,
         e: E,
-    ) -> Pipeline<R, CfgExtractor<E>, R::Driver, NopTransformation>
+    ) -> Pipeline<R, CfgExtractor<E>, R::Driver, NopTransformation, (O, C)>
     where
         E: FnMut(&C) -> R,
         R: Fragment,
@@ -569,6 +572,7 @@ impl Pipeline<(), (), (), ()> {
         Pipeline {
             name: self.name,
             _fragment: PhantomData,
+            _spirit: PhantomData,
             extractor: CfgExtractor(e),
             driver: Default::default(),
             transformation: NopTransformation,
@@ -576,11 +580,11 @@ impl Pipeline<(), (), (), ()> {
     }
 }
 
-impl<F, E, D, T> Pipeline<F, E, D, T>
+impl<F, E, D, T, O, C> Pipeline<F, E, D, T, (O, C)>
 where
     F: Fragment,
 {
-    pub fn set_driver<ND: Driver<F>>(self, driver: ND) -> Pipeline<F, E, ND, T>
+    pub fn set_driver<ND: Driver<F>>(self, driver: ND) -> Pipeline<F, E, ND, T, (O, C)>
     where
         T: Transformation<<ND::SubFragment as Fragment>::Resource, F::Installer, ND::SubFragment>,
     {
@@ -588,41 +592,44 @@ where
             driver,
             name: self.name,
             _fragment: PhantomData,
+            _spirit: PhantomData,
             extractor: self.extractor,
             transformation: self.transformation,
         }
     }
 }
 
-impl<F, E, D, T> Pipeline<F, E, D, T>
+impl<F, E, D, T, O, C> Pipeline<F, E, D, T, (O, C)>
 where
     F: Fragment,
     D: Driver<F>,
     T: Transformation<<D::SubFragment as Fragment>::Resource, F::Installer, D::SubFragment>,
 {
-    pub fn transform<NT>(self, transform: NT) -> Pipeline<F, E, D, ChainedTransformation<T, NT>>
+    pub fn transform<NT>(self, transform: NT) -> Pipeline<F, E, D, ChainedTransformation<T, NT>, (O, C)>
     where
         NT: Transformation<T::OutputResource, T::OutputInstaller, D::SubFragment>,
     {
         Pipeline {
             name: self.name,
             _fragment: PhantomData,
+            _spirit: PhantomData,
             driver: self.driver,
             extractor: self.extractor,
             transformation: ChainedTransformation(self.transformation, transform),
         }
     }
 
-    pub fn set_installer<I, Opts, Config>(
+    pub fn install<I>(
         self,
         installer: I,
-    ) -> Pipeline<F, E, D, SetInstaller<T, I>>
+    ) -> Pipeline<F, E, D, SetInstaller<T, I>, (O, C)>
     where
-        I: Installer<T::OutputResource, Opts, Config>,
+        I: Installer<T::OutputResource, O, C>,
     {
         Pipeline {
             name: self.name,
             _fragment: PhantomData,
+            _spirit: PhantomData,
             driver: self.driver,
             extractor: self.extractor,
             transformation: SetInstaller(self.transformation, Some(installer)),
@@ -632,7 +639,7 @@ where
     // TODO: add_installer
 }
 
-impl<B, E, D, T> Extension<B> for Pipeline<E::Fragment, E, D, T>
+impl<B, E, D, T> Extension<B> for Pipeline<E::Fragment, E, D, T, (B::Opts, B::Config)>
 where
     B: Extensible<Ok = B>,
     B::Opts: Send + 'static,

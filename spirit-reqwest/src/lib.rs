@@ -57,9 +57,7 @@
 //! [`builder`]: ReqwestClient::builder
 //! [`Spirit`]: spirit::Spirit
 
-use std::borrow::Borrow;
 use std::collections::HashMap;
-use std::fmt::{Debug, Display};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -69,21 +67,17 @@ use std::time::Duration;
 use arc_swap::{ArcSwapOption, Lease};
 use failure::{Error, ResultExt};
 use log::{debug, trace};
-use parking_lot::Mutex;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{
     Certificate, Client, ClientBuilder, Identity, IntoUrl, Method, Proxy, RedirectPolicy,
     RequestBuilder,
 };
-use serde::de::{Deserialize, DeserializeOwned, Deserializer};
+use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use serde_humantime::De;
-use spirit::helpers::CfgHelper;
+use spirit::fragment::{Installer, SimpleFragment};
 use spirit::utils::Hidden;
-use spirit::validation::Result as ValidationResult;
-use spirit::Builder;
-use structopt::StructOpt;
 use url_serde::SerdeUrl;
 
 fn default_timeout() -> Option<Duration> {
@@ -266,7 +260,7 @@ pub struct ReqwestClient {
     #[serde(default = "default_redirects")]
     redirects: Option<usize>,
 
-    /// Manages automatical setting of the Referer header.
+    /// Manages automatic setting of the Referer header.
     ///
     /// Default is on.
     #[serde(default = "default_referer")]
@@ -300,7 +294,7 @@ impl ReqwestClient {
     ///
     /// Unless there's a need to tweak the configuration, the [`create`] is more comfortable.
     ///
-    /// [`create`]: ReqwestClient::create
+    /// [`create_client`]: ReqwestClient::create
     pub fn builder(&self) -> Result<ClientBuilder, Error> {
         debug!("Creating Reqwest client from {:?}", self);
         let mut headers = HeaderMap::new();
@@ -360,7 +354,7 @@ impl ReqwestClient {
     ///
     /// This is for manually creating the client. It is also possible to pair with an
     /// [`AtomicClient`] to form a [`CfgHelper`].
-    pub fn create(&self) -> Result<Client, Error> {
+    pub fn create_client(&self) -> Result<Client, Error> {
         self.builder()?
             .build()
             .context("Failed to finish creating Reqwest HTTP client")
@@ -517,46 +511,18 @@ impl AtomicClient {
     }
 }
 
-impl<O, C, A: Borrow<AtomicClient>> CfgHelper<O, C, A> for ReqwestClient
-where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-{
-    fn apply<Extractor, Name>(
-        mut extractor: Extractor,
-        atomic_client: A,
-        name: Name,
-        builder: Builder<O, C>,
-    ) -> Builder<O, C>
-    where
-        Extractor: FnMut(&C) -> Self + Send + 'static,
-        Name: Clone + Display + Send + Sync + 'static,
-    {
-        let cl = atomic_client.borrow().clone();
-        let last_config = Arc::new(Mutex::new(None));
-        builder.config_validator(move |_, new_cfg, _| {
-            let config = extractor(new_cfg);
-            if last_config.lock().as_ref() == Some(&config) {
-                debug!(
-                    "Config of {} didn't change (still {:?}), not recreating the client",
-                    name, config,
-                );
-                return ValidationResult::nothing();
-            }
-            match config.create() {
-                Ok(client) => {
-                    let cl = cl.clone();
-                    let conf = Arc::clone(&last_config);
-                    ValidationResult::nothing().on_success(move || {
-                        *conf.lock() = Some(config);
-                        cl.replace(Arc::new(client));
-                    })
-                }
-                Err(e) => {
-                    let e = e.context(format!("Failed to create HTTP client {}", name));
-                    ValidationResult::from_error(e.into())
-                }
-            }
-        })
+// TODO: Enable caching of equal values
+impl SimpleFragment for ReqwestClient {
+    type SimpleResource = Client;
+    type SimpleInstaller = ();
+    fn make_simple_resource(&self, _: &str) -> Result<Client, Error> {
+        self.create_client()
+    }
+}
+
+impl<O, C> Installer<Client, O, C> for AtomicClient {
+    type UninstallHandle = ();
+    fn install(&mut self, client: Client) {
+        self.replace(client);
     }
 }
