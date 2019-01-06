@@ -20,8 +20,8 @@ pub enum CacheInstruction<Resource> {
     Install { id: CacheId, resource: Resource },
 }
 
-pub trait Cache<F: Fragment> {
-    type SubFragment;
+pub trait Driver<F: Fragment> {
+    type SubFragment: Fragment;
     fn instructions<T, I>(
         &mut self,
         fragment: &F,
@@ -29,15 +29,15 @@ pub trait Cache<F: Fragment> {
         name: &str,
     ) -> Result<Vec<CacheInstruction<T::OutputResource>>, Vec<Error>>
     where
-        T: Transformation<F::Resource, I, Self::SubFragment>;
+        T: Transformation<<Self::SubFragment as Fragment>::Resource, I, Self::SubFragment>;
     fn confirm(&mut self);
     fn abort(&mut self);
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-pub struct NoCache;
+pub struct TrivialDriver;
 
-impl<F: Fragment> Cache<F> for NoCache {
+impl<F: Fragment> Driver<F> for TrivialDriver {
     type SubFragment = F;
     fn instructions<T, I>(
         &mut self,
@@ -105,7 +105,7 @@ where
 }
 
 pub trait Fragment: Sized {
-    type Cache: Cache<Self> + Default;
+    type Driver: Driver<Self> + Default;
     type Installer: Default;
     type Seed;
     type Resource;
@@ -124,7 +124,7 @@ pub trait SimpleFragment: Sized {
 }
 
 impl<F: SimpleFragment> Fragment for F {
-    type Cache = NoCache;
+    type Driver = TrivialDriver;
     type Seed = ();
     type Installer = F::SimpleInstaller;
     type Resource = F::SimpleResource;
@@ -239,11 +239,11 @@ where
     }
 }
 
-pub struct Pipeline<Fragment, Extractor, Cache, Transformation> {
+pub struct Pipeline<Fragment, Extractor, Driver, Transformation> {
     name: &'static str,
     _fragment: PhantomData<Fn() -> Fragment>,
     extractor: Extractor,
-    cache: Cache,
+    driver: Driver,
     transformation: Transformation,
 }
 
@@ -253,7 +253,7 @@ impl Pipeline<(), (), (), ()> {
             name,
             _fragment: PhantomData,
             extractor: (),
-            cache: (),
+            driver: (),
             transformation: (),
         }
     }
@@ -261,12 +261,12 @@ impl Pipeline<(), (), (), ()> {
     pub fn extract<O, C, E: Extractor<O, C>>(
         self,
         e: E,
-    ) -> Pipeline<E::Fragment, E, <E::Fragment as Fragment>::Cache, NopTransformation> {
+    ) -> Pipeline<E::Fragment, E, <E::Fragment as Fragment>::Driver, NopTransformation> {
         Pipeline {
             name: self.name,
             _fragment: PhantomData,
             extractor: e,
-            cache: Default::default(),
+            driver: Default::default(),
             transformation: NopTransformation,
         }
     }
@@ -274,7 +274,7 @@ impl Pipeline<(), (), (), ()> {
     pub fn extract_cfg<C, R, E>(
         self,
         e: E,
-    ) -> Pipeline<R, CfgExtractor<E>, R::Cache, NopTransformation>
+    ) -> Pipeline<R, CfgExtractor<E>, R::Driver, NopTransformation>
     where
         E: FnMut(&C) -> R,
         R: Fragment,
@@ -283,22 +283,22 @@ impl Pipeline<(), (), (), ()> {
             name: self.name,
             _fragment: PhantomData,
             extractor: CfgExtractor(e),
-            cache: Default::default(),
+            driver: Default::default(),
             transformation: NopTransformation,
         }
     }
 }
 
-impl<F, E, C, T> Pipeline<F, E, C, T>
+impl<F, E, D, T> Pipeline<F, E, D, T>
 where
     F: Fragment,
 {
-    pub fn set_cache<NC: Cache<F>>(self, cache: NC) -> Pipeline<F, E, NC, T>
+    pub fn set_driver<ND: Driver<F>>(self, driver: ND) -> Pipeline<F, E, ND, T>
     where
-        T: Transformation<F::Resource, F::Installer, NC::SubFragment>,
+        T: Transformation<<ND::SubFragment as Fragment>::Resource, F::Installer, ND::SubFragment>,
     {
         Pipeline {
-            cache,
+            driver,
             name: self.name,
             _fragment: PhantomData,
             extractor: self.extractor,
@@ -307,20 +307,20 @@ where
     }
 }
 
-impl<F, E, C, T> Pipeline<F, E, C, T>
+impl<F, E, D, T> Pipeline<F, E, D, T>
 where
     F: Fragment,
-    C: Cache<F>,
-    T: Transformation<F::Resource, F::Installer, C::SubFragment>,
+    D: Driver<F>,
+    T: Transformation<<D::SubFragment as Fragment>::Resource, F::Installer, D::SubFragment>,
 {
-    pub fn transform<NT>(self, transform: NT) -> Pipeline<F, E, C, ChainedTransformation<T, NT>>
+    pub fn transform<NT>(self, transform: NT) -> Pipeline<F, E, D, ChainedTransformation<T, NT>>
     where
-        NT: Transformation<T::OutputResource, T::OutputInstaller, C::SubFragment>,
+        NT: Transformation<T::OutputResource, T::OutputInstaller, D::SubFragment>,
     {
         Pipeline {
             name: self.name,
             _fragment: PhantomData,
-            cache: self.cache,
+            driver: self.driver,
             extractor: self.extractor,
             transformation: ChainedTransformation(self.transformation, transform),
         }
@@ -329,14 +329,14 @@ where
     pub fn set_installer<I, Opts, Config>(
         self,
         installer: I,
-    ) -> Pipeline<F, E, C, SetInstaller<T, I>>
+    ) -> Pipeline<F, E, D, SetInstaller<T, I>>
     where
         I: Installer<T::OutputResource, Opts, Config>,
     {
         Pipeline {
             name: self.name,
             _fragment: PhantomData,
-            cache: self.cache,
+            driver: self.driver,
             extractor: self.extractor,
             transformation: SetInstaller(self.transformation, Some(installer)),
         }
@@ -345,17 +345,17 @@ where
     // TODO: add_installer
 }
 
-impl<B, E, C, T> Extension<B> for Pipeline<E::Fragment, E, C, T>
+impl<B, E, D, T> Extension<B> for Pipeline<E::Fragment, E, D, T>
 where
     B: Extensible<Ok = B>,
     B::Opts: Send + 'static,
     B::Config: Send + 'static,
-    C: Cache<E::Fragment> + Send + 'static,
+    D: Driver<E::Fragment> + Send + 'static,
     E: Extractor<B::Opts, B::Config> + Send + 'static,
     T: Transformation<
-        <E::Fragment as Fragment>::Resource,
-        <E::Fragment as Fragment>::Installer,
-        C::SubFragment,
+        <D::SubFragment as Fragment>::Resource,
+        <D::SubFragment as Fragment>::Installer,
+        D::SubFragment,
     >,
     T: Send + 'static,
     T::OutputInstaller: Installer<T::OutputResource, B::Opts, B::Config>,
@@ -370,25 +370,25 @@ where
         let mut installer = transformation.installer(Default::default(), self.name);
         let builder = installer.init(builder)?;
         let install_cache = Arc::new(Mutex::new(InstallCache::new(installer)));
-        let cache = Arc::new(Mutex::new(self.cache));
+        let driver = Arc::new(Mutex::new(self.driver));
         let mut extractor = self.extractor;
         let validator = move |_old: &_, cfg: &mut B::Config, opts: &B::Opts| -> ValidationResults {
             let fragment = extractor.extract(opts, cfg);
-            let instructions = match cache
+            let instructions = match driver
                 .lock()
                 .instructions(&fragment, &mut transformation, name)
             {
                 Ok(i) => i,
                 Err(errs) => return errs.into(),
             };
-            let cache_f = Arc::clone(&cache);
+            let driver_f = Arc::clone(&driver);
             let failure = move || {
-                cache_f.lock().abort();
+                driver_f.lock().abort();
             };
-            let cache_s = Arc::clone(&cache);
+            let driver_s = Arc::clone(&driver);
             let install_cache = Arc::clone(&install_cache);
             let success = move || {
-                cache_s.lock().confirm();
+                driver_s.lock().confirm();
                 let mut install_cache = install_cache.lock();
                 for ins in instructions {
                     install_cache.interpret(ins);
