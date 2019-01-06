@@ -11,8 +11,38 @@ use crate::validation::{Result as ValidationResult, Results as ValidationResults
 // TODO: Add logging/trace logs?
 // TODO: Use ValidationResult instead?
 
+#[derive(Debug)]
+pub struct IdGen(u128);
+
+impl IdGen {
+    fn new() -> Self {
+        IdGen(1)
+    }
+}
+
+impl Default for IdGen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Iterator for IdGen {
+    type Item = CacheId;
+    fn next(&mut self) -> Option<CacheId> {
+        let id = self.0;
+        self.0 = self.0.checked_add(1).expect("WTF? Run out of 128bit cache IDs!?");
+        Some(CacheId(id))
+    }
+}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub struct CacheId(u64);
+pub struct CacheId(u128);
+
+impl CacheId {
+    fn dummy() -> Self {
+        CacheId(0)
+    }
+}
 
 pub enum CacheInstruction<Resource> {
     DropAll,
@@ -55,7 +85,7 @@ impl<F: Fragment> Driver<F> for TrivialDriver {
         Ok(vec![
             CacheInstruction::DropAll,
             CacheInstruction::Install {
-                id: CacheId(0),
+                id: CacheId::dummy(),
                 resource,
             },
         ])
