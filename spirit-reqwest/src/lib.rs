@@ -511,7 +511,6 @@ impl AtomicClient {
     }
 }
 
-// TODO: Enable caching of equal values
 spirit::simple_fragment! {
     impl Fragment for ReqwestClient {
         type Driver = CacheEq<ReqwestClient>;
