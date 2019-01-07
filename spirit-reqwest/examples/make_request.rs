@@ -11,8 +11,8 @@ struct Cfg {
 }
 
 impl Cfg {
-    fn client(&self) -> ReqwestClient {
-        self.client.clone()
+    fn client<'b>(_: &'b Empty, cfg: &'b Cfg) -> &'b ReqwestClient {
+        &cfg.client
     }
 }
 
@@ -28,7 +28,7 @@ fn main() {
     let client = AtomicClient::empty();
     Spirit::<Empty, Cfg>::new()
         .config_defaults(DEFAULT_CFG)
-        .with(Pipeline::new("http client").extract_cfg(Cfg::client).install(client.clone()))
+        .with(Pipeline::new("http client").extract(Cfg::client).install(client.clone()))
         .run(move |_| {
             // But by now, spirit already stored the configured client in there. Also, if we were
             // running for a longer time, it would replace it with a new one every time we change

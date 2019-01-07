@@ -395,16 +395,13 @@ where
     }
 }
 
-struct InstallCache<I, R, O, C>
-where
-    I: Installer<R, O, C>,
-{
+struct InstallCache<I, O, C, R, H> {
     installer: I,
-    cache: HashMap<CacheId, I::UninstallHandle>,
+    cache: HashMap<CacheId, H>,
     _type: PhantomData<(R, O, C)>,
 }
 
-impl<I, R, O, C> InstallCache<I, R, O, C>
+impl<I, O, C, R> InstallCache<I, O, C, R, I::UninstallHandle>
 where
     I: Installer<R, O, C>,
 {
@@ -440,6 +437,22 @@ pub trait Fragment: Sized {
     fn create(&self, name: &str) -> Result<Self::Resource, Error> {
         let mut seed = self.make_seed(name)?;
         self.make_resource(&mut seed, name)
+    }
+}
+
+impl<'a, F> Fragment for &'a F
+where
+    F: Fragment,
+{
+    type Driver = TrivialDriver; // FIXME
+    type Installer = F::Installer;
+    type Seed = F::Seed;
+    type Resource = F::Resource;
+    fn make_seed(&self, name: &str) -> Result<Self::Seed, Error> {
+        F::make_seed(*self, name)
+    }
+    fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<Self::Resource, Error> {
+        F::make_resource(*self, seed, name)
     }
 }
 
@@ -520,37 +533,37 @@ macro_rules! simple_fragment {
 // TODO: Arcs, Rcs, Mutexes, refs, ...
 
 // TODO: Allow returning refs somehow?
-pub trait Extractor<O, C> {
-    type Fragment: Fragment;
-    fn extract(&mut self, opts: &O, config: &C) -> Self::Fragment;
+pub trait Extractor<'a, O, C> {
+    type Fragment: Fragment + 'a;
+    fn extract(&mut self, opts: &'a O, config: &'a C) -> Self::Fragment;
 }
 
-impl<O, C, F, R> Extractor<O, C> for F
+impl<'a, O: 'a, C: 'a, F, R> Extractor<'a, O, C> for F
 where
-    F: FnMut(&O, &C) -> R,
-    R: Fragment,
+    F: FnMut(&'a O, &'a C) -> R,
+    R: Fragment + 'a,
 {
     type Fragment = R;
-    fn extract(&mut self, opts: &O, config: &C) -> R {
+    fn extract(&mut self, opts: &'a O, config: &'a C) -> R {
         self(opts, config)
     }
 }
 
 pub struct CfgExtractor<F>(F);
 
-impl<O, C, F, R> Extractor<O, C> for CfgExtractor<F>
+impl<'a, O, C: 'a, F, R> Extractor<'a, O, C> for CfgExtractor<F>
 where
-    F: FnMut(&C) -> R,
-    R: Fragment,
+    F: FnMut(&'a C) -> R,
+    R: Fragment + 'a,
 {
     type Fragment = R;
-    fn extract(&mut self, _: &O, config: &C) -> R {
+    fn extract(&mut self, _: &'a O, config: &'a C) -> R {
         (self.0)(config)
     }
 }
 
 pub trait Transformation<InputResource, InputInstaller, SubFragment> {
-    type OutputResource;
+    type OutputResource: 'static;
     type OutputInstaller;
     fn installer(&mut self, installer: InputInstaller, name: &str) -> Self::OutputInstaller;
     fn transform(
@@ -564,7 +577,7 @@ pub trait Transformation<InputResource, InputInstaller, SubFragment> {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NopTransformation;
 
-impl<R, I, S> Transformation<R, I, S> for NopTransformation {
+impl<R: 'static, I, S> Transformation<R, I, S> for NopTransformation {
     type OutputResource = R;
     type OutputInstaller = I;
     fn installer(&mut self, installer: I, _: &str) -> I {
@@ -643,10 +656,10 @@ impl Pipeline<(), (), (), (), ()> {
         }
     }
 
-    pub fn extract<O, C, E: Extractor<O, C>>(
+    pub fn extract<O, C, E: for<'e> Extractor<'e, O, C>>(
         self,
         e: E,
-    ) -> Pipeline<E::Fragment, E, <E::Fragment as Fragment>::Driver, NopTransformation, (O, C)>
+    ) -> Pipeline<<E as Extractor<'static, O, C>>::Fragment, E, <<E as Extractor<'static, O, C>>::Fragment as Fragment>::Driver, NopTransformation, (O, C)>
     {
         Pipeline {
             name: self.name,
@@ -658,12 +671,13 @@ impl Pipeline<(), (), (), (), ()> {
         }
     }
 
-    pub fn extract_cfg<O, C, R, E>(
+    pub fn extract_cfg<O, C: 'static, R, E>(
         self,
         e: E,
     ) -> Pipeline<R, CfgExtractor<E>, R::Driver, NopTransformation, (O, C)>
     where
-        E: FnMut(&C) -> R,
+        CfgExtractor<E>: for<'a> Extractor<'a, O, C>,
+        E: FnMut(&'static C) -> R,
         R: Fragment,
     {
         Pipeline {
@@ -736,50 +750,49 @@ where
     // TODO: add_installer
 }
 
-impl<B, E, D, T> Extension<B> for Pipeline<E::Fragment, E, D, T, (B::Opts, B::Config)>
+pub struct CompiledPipeline<O, C, T, I, D, E, R, H> {
+    name: &'static str,
+    transformation: T,
+    install_cache: Arc<Mutex<InstallCache<I, O, C, R, H>>>,
+    driver: Arc<Mutex<D>>,
+    extractor: E,
+}
+
+pub trait BoundedCompiledPipeline<'a, O, C> {
+    fn run(&mut self, opts: &'a O, config: &'a C) -> ValidationResults;
+}
+
+impl<'a, O, C, T, I, D, E> BoundedCompiledPipeline<'a, O, C>
+    for CompiledPipeline<O, C, T, I, D, E, T::OutputResource, I::UninstallHandle>
 where
-    B: Extensible<Ok = B>,
-    B::Opts: Send + 'static,
-    B::Config: Send + 'static,
+    O: 'static,
+    C: 'static,
+    E: Extractor<'a, O, C>,
     D: Driver<E::Fragment> + Send + 'static,
-    E: Extractor<B::Opts, B::Config> + Send + 'static,
     T: Transformation<
         <D::SubFragment as Fragment>::Resource,
         <D::SubFragment as Fragment>::Installer,
         D::SubFragment,
     >,
-    T: Send + 'static,
-    T::OutputInstaller: Installer<T::OutputResource, B::Opts, B::Config>,
-    T::OutputResource: Send + 'static,
-    T::OutputInstaller: Send + 'static,
+    T::OutputResource: 'static,
+    I: Installer<T::OutputResource, O, C> + Send + 'static,
 {
-    // TODO: Extract parts & make it possible to run independently?
-    // TODO: There seems to be a lot of mutexes that are not really necessary here.
-    // TODO: This would use some tests
-    fn apply(self, builder: B) -> Result<B, Error> {
-        let name = self.name;
-        let mut transformation = self.transformation;
-        let mut installer = transformation.installer(Default::default(), self.name);
-        let builder = installer.init(builder)?;
-        let install_cache = Arc::new(Mutex::new(InstallCache::new(installer)));
-        let driver = Arc::new(Mutex::new(self.driver));
-        let mut extractor = self.extractor;
-        let validator = move |_old: &_, cfg: &mut B::Config, opts: &B::Opts| -> ValidationResults {
-            let fragment = extractor.extract(opts, cfg);
-            let instructions =
-                match driver
+    fn run(&mut self, opts: &'a O, config: &'a C) -> ValidationResults {
+        let fragment = self.extractor.extract(opts, config);
+        let instructions =
+            match self.driver
                     .lock()
-                    .instructions(&fragment, &mut transformation, name)
+                    .instructions(&fragment, &mut self.transformation, self.name)
                 {
                     Ok(i) => i,
                     Err(errs) => return errs.into(),
                 };
-            let driver_f = Arc::clone(&driver);
+            let driver_f = Arc::clone(&self.driver);
             let failure = move || {
                 driver_f.lock().abort();
             };
-            let driver_s = Arc::clone(&driver);
-            let install_cache = Arc::clone(&install_cache);
+            let driver_s = Arc::clone(&self.driver);
+            let install_cache = Arc::clone(&self.install_cache);
             let success = move || {
                 driver_s.lock().confirm();
                 let mut install_cache = install_cache.lock();
@@ -791,6 +804,41 @@ where
                 .on_abort(failure)
                 .on_success(success)
                 .into()
+    }
+}
+
+impl<F, B, E, D, T> Extension<B> for Pipeline<F, E, D, T, (B::Opts, B::Config)>
+where
+    B::Config: Send + 'static,
+    B::Opts: Send + 'static,
+    B: Extensible<Ok = B>,
+    CompiledPipeline<B::Opts, B::Config, T, T::OutputInstaller, D, E, T::OutputResource, <T::OutputInstaller as Installer<T::OutputResource, B::Opts, B::Config>>::UninstallHandle>:
+        for<'a> BoundedCompiledPipeline<'a, B::Opts, B::Config> + Send + 'static,
+    D: Driver<F> + Send + 'static,
+    F: Fragment,
+    T: Transformation<
+        <D::SubFragment as Fragment>::Resource,
+        <D::SubFragment as Fragment>::Installer,
+        D::SubFragment,
+    >,
+    T::OutputInstaller: Installer<T::OutputResource, B::Opts, B::Config> + 'static,
+{
+    // TODO: Extract parts & make it possible to run independently?
+    // TODO: There seems to be a lot of mutexes that are not really necessary here.
+    // TODO: This would use some tests
+    fn apply(self, builder: B) -> Result<B, Error> {
+        let mut transformation = self.transformation;
+        let mut installer = transformation.installer(Default::default(), self.name);
+        let builder = installer.init(builder)?;
+        let mut compiled = CompiledPipeline {
+            name: self.name,
+            driver: Arc::new(Mutex::new(self.driver)),
+            extractor: self.extractor,
+            install_cache: Arc::new(Mutex::new(InstallCache::new(installer))),
+            transformation,
+        };
+        let validator = move |_old: &_, cfg: &mut B::Config, opts: &B::Opts| -> ValidationResults {
+            compiled.run(opts, cfg)
         };
         builder.config_validator(validator)
     }
