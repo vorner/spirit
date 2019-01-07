@@ -11,8 +11,8 @@ struct Cfg {
 }
 
 impl Cfg {
-    fn client<'b>(_: &'b Empty, cfg: &'b Cfg) -> &'b ReqwestClient {
-        &cfg.client
+    fn client(_: &Empty, cfg: &Cfg) -> ReqwestClient {
+        cfg.client.clone()
     }
 }
 
