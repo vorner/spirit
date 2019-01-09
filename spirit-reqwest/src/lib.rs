@@ -20,7 +20,7 @@
 //!
 //! ```rust
 //! use serde_derive::Deserialize;
-//! use spirit::{Empty, Spirit};
+//! use spirit::prelude::*;
 //! use spirit_reqwest::{AtomicClient, ReqwestClient};
 //!
 //! #[derive(Debug, Default, Deserialize)]
@@ -38,7 +38,7 @@
 //! fn main() {
 //!     let client = AtomicClient::unconfigured(); // Get a default config before we get configured
 //!     Spirit::<Empty, Cfg>::new()
-//!         .config_helper(Cfg::client, &client, "client")
+//!         .with(Pipeline::new("http client").extract_cfg(Cfg::client).install(client.clone()))
 //!         .run(move |_| {
 //!             let page = client
 //!                 .get("https://www.rust-lang.org")
@@ -76,7 +76,8 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use serde_humantime::De;
-use spirit::fragment::{CacheEq, Installer};
+use spirit::fragment::driver::CacheEq;
+use spirit::fragment::Installer;
 use spirit::utils::Hidden;
 use url_serde::SerdeUrl;
 

@@ -1,7 +1,5 @@
 use serde_derive::Deserialize;
 use spirit::prelude::*;
-// TODO: Put into prelude? Or some convenience macro?
-use spirit::fragment::Pipeline;
 use spirit_reqwest::{AtomicClient, ReqwestClient};
 
 #[derive(Debug, Default, Deserialize)]
