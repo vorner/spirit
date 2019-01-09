@@ -4,7 +4,7 @@ use std::hash::{BuildHasher, Hash};
 use failure::Error;
 
 use crate::extension::Extensible;
-use self::driver::{Driver, SeqDriver, TrivialDriver};
+use self::driver::{Driver, RefDriver, SeqDriver};
 
 pub mod driver;
 pub mod pipeline;
@@ -62,7 +62,7 @@ impl<'a, F> Fragment for &'a F
 where
     F: Fragment,
 {
-    type Driver = TrivialDriver; // FIXME
+    type Driver = RefDriver<F::Driver>;
     type Installer = F::Installer;
     type Seed = F::Seed;
     type Resource = F::Resource;

@@ -255,6 +255,39 @@ impl<Item, SlaveDriver> Default for SeqDriver<Item, SlaveDriver> {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct RefDriver<Inner>(Inner);
+
+impl<Inner> RefDriver<Inner> {
+    pub fn new(inner: Inner) -> Self {
+        RefDriver(inner)
+    }
+}
+
+impl<'a, F: Fragment, Inner: Driver<F>> Driver<&'a F> for RefDriver<Inner> {
+    type SubFragment = Inner::SubFragment;
+    fn instructions<T, I>(
+        &mut self,
+        fragment: &&F,
+        transform: &mut T,
+        name: &str,
+    ) -> Result<Vec<CacheInstruction<T::OutputResource>>, Vec<Error>>
+    where
+        T: Transformation<<Self::SubFragment as Fragment>::Resource, I, Self::SubFragment>
+    {
+        self.0.instructions(*fragment, transform, name)
+    }
+    fn confirm(&mut self) {
+        self.0.confirm();
+    }
+    fn abort(&mut self) {
+        self.0.abort();
+    }
+    fn maybe_cached(&self, fragment: &&F) -> bool {
+        self.0.maybe_cached(*fragment)
+    }
+}
+
 // TODO: This one is complex enough, this calls for bunch of trace and debug logging!
 impl<F, I, SlaveDriver> Driver<F> for SeqDriver<I, SlaveDriver>
 where
