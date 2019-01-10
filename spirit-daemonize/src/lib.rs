@@ -5,9 +5,9 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-//! A spirit helpers and configuration fragments for daemonization.
+//! A spirit extension for daemonization.
 //!
-//! The helpers in here extend the [`spirit`](https://crates.io/crates/spirit) configuration
+//! The configuration in here extends the [`spirit`](https://crates.io/crates/spirit) configuration
 //! framework to automatically go into background based on user's configuration and command line
 //! options.
 //!
@@ -21,7 +21,7 @@
 //! #[macro_use]
 //! extern crate structopt;
 //!
-//! use spirit::Spirit;
+//! use spirit::prelude::*;
 //! use spirit_daemonize::{Daemon, Opts as DaemonOpts};
 //!
 //! // From config files
@@ -32,8 +32,8 @@
 //! }
 //!
 //! impl Cfg {
-//!    fn daemon(&self) -> Daemon {
-//!        self.daemon.clone()
+//!    fn daemon(&self, opts: &Opts) -> Daemon {
+//!        opts.daemon.transform(self.daemon.clone())
 //!    }
 //! }
 //!
@@ -44,15 +44,9 @@
 //!     daemon: DaemonOpts,
 //! }
 //!
-//! impl Opts {
-//!    fn daemon(&self) -> &DaemonOpts {
-//!        &self.daemon
-//!    }
-//! }
-//!
 //! fn main() {
 //!      Spirit::<Opts, Cfg>::new()
-//!         .config_helper(Cfg::daemon, spirit_daemonize::with_opts(Opts::daemon), "daemonize")
+//!         .with(Daemon::extension(Cfg::daemon))
 //!         .run(|_spirit| {
 //!             // Possibly daemonized program goes here
 //!             Ok(())
@@ -100,7 +94,6 @@ extern crate structdoc;
 extern crate structopt;
 
 use std::env;
-use std::fmt::{Debug, Display};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
@@ -111,10 +104,8 @@ use std::process;
 use failure::{Error, ResultExt};
 use nix::sys::stat::{self, Mode};
 use nix::unistd::{self, ForkResult, Gid, Uid};
-use serde::de::DeserializeOwned;
-use spirit::extension::CfgHelper;
+use spirit::extension::{Extension, Extensible};
 use spirit::validation::Result as ValidationResult;
-use spirit::Builder;
 use structopt::StructOpt;
 
 /// Configuration of either user or a group.
@@ -154,8 +145,7 @@ impl Default for SecId {
 ///
 /// The fields can be manipulated by the user of this crate. However, it is not possible to create
 /// the struct manually. This is on purpose, some future versions might add more fields. If you
-/// want to create one, use `Daemon::default` and modify certain fields as needed (this is
-/// future-version compatible).
+/// want to create one, use `Daemon::default` and modify certain fields as needed.
 ///
 /// # Examples
 ///
@@ -215,8 +205,7 @@ pub struct Daemon {
 impl Daemon {
     /// Goes into background according to the configuration.
     ///
-    /// This does the actual work of daemonization. Usually, this is handled behind the scenes
-    /// using the config helper, but if you want you can run it manually.
+    /// This does the actual work of daemonization. This can be used manually.
     pub fn daemonize(&self) -> Result<(), Error> {
         // TODO: Tests for this
         debug!("Preparing to daemonize with {:?}", self);
@@ -273,6 +262,31 @@ impl Daemon {
         }
         Ok(())
     }
+
+    /// An extension that can be plugged into the [`Spirit`][spirit::Spirit].
+    ///
+    /// See the [crate documentation](index.html).
+    pub fn extension<E, F>(extractor: F) -> impl Extension<E>
+    where
+        E: Extensible<Ok = E>,
+        F: Fn(&E::Config, &E::Opts) -> Self + Send + 'static,
+    {
+        let mut previous_daemon = None;
+        let validator_hook = move |_: &_, new_cfg: &mut E::Config, opts: &E::Opts| -> ValidationResult {
+            let daemon = extractor(new_cfg, opts);
+            if let Some(previous) = previous_daemon.as_ref() {
+                if previous != &daemon {
+                    warn!("Can't change daemon config at runtime");
+                }
+                return ValidationResult::nothing();
+            } else if let Err(e) = daemon.daemonize().context("Failed to daemonize") {
+                return ValidationResult::from_error(e.into());
+            }
+            previous_daemon = Some(daemon);
+            ValidationResult::nothing()
+        };
+        move |e: E| e.config_validator(validator_hook)
+    }
 }
 
 impl From<UserDaemon> for Daemon {
@@ -291,9 +305,10 @@ impl From<UserDaemon> for Daemon {
 /// This adds the `-d` (`--daemonize`) and `-f` (`--foreground`) flag to command line. These
 /// override whatever is written in configuration (if merged together with the configuration).
 ///
-/// It can be used either manually, through the [`transform`](struct.transform.html) method or
-/// using the [`with_opts`](fn.with_opts.html) function as the second parameter of the
-/// `spirit::Builder::config_helper`.
+/// This can be used to transform the [`Daemon`] before daemonization or before providing it to
+/// spirit.
+///
+/// See the [example](index.html#Examples).
 ///
 /// Flatten this into the top-level `StructOpt` structure.
 #[derive(Clone, Debug, StructOpt)]
@@ -324,69 +339,14 @@ impl Opts {
     }
 }
 
-/// Wraps an extractor of an [`Opts`](struct.Opts.html) struct to form a transformation closure for
-/// `Daemon` config helper.
-///
-/// See the [top-level example](index.html#examples).
-pub fn with_opts<O, C, F>(mut extractor: F) -> impl FnMut(&O, &C, Daemon) -> Daemon
-where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-    F: FnMut(&O) -> &Opts + Sync + Send + 'static,
-{
-    move |opts: &O, _: &C, daemon| {
-        let opts = extractor(opts);
-        opts.transform(daemon)
-    }
-}
-
-impl<O, C, Transformer> CfgHelper<O, C, Transformer> for Daemon
-where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-    Transformer: FnMut(&O, &C, Daemon) -> Daemon + Sync + Send + 'static,
-{
-    fn apply<Extractor, Name>(
-        mut extractor: Extractor,
-        mut transformer: Transformer,
-        name: Name,
-        builder: Builder<O, C>,
-    ) -> Builder<O, C>
-    where
-        Extractor: FnMut(&C) -> Self + Send + 'static,
-        Name: Clone + Display + Send + Sync + 'static,
-    {
-        let mut previous_daemon = None;
-        let validator_hook = move |_: &_, new_cfg: &mut C, opts: &O| -> ValidationResult {
-            let daemon = extractor(new_cfg);
-            let daemon = transformer(opts, new_cfg, daemon);
-            if let Some(previous) = previous_daemon.as_ref() {
-                if previous != &daemon {
-                    return ValidationResult::warning(format!(
-                        "Can't change daemon config {} at runtime for",
-                        name,
-                    ));
-                } else {
-                    return ValidationResult::nothing();
-                }
-            } else if let Err(e) = daemon.daemonize().context("Failed to daemonize") {
-                return ValidationResult::from_error(e.into());
-            }
-            previous_daemon = Some(daemon);
-            ValidationResult::nothing()
-        };
-        builder.config_validator(validator_hook)
-    }
-}
-
 /// A stripped-down version of [`Daemon`](struct.Daemon.html) without the user-switching options.
 ///
 /// Sometimes, the daemon either needs to keep the root privileges or is started with the
 /// appropriate user right away, therefore the user should not be able to configure the `user` and
 /// `group` options.
 ///
-/// This configuration fragment serves the role. It can be used as a drop-in replacement with
-/// config helpers, but to do anything manually, turn it into `Daemon` first.
+/// This configuration fragment serves the role. Convert it to [`Daemon`] first, by
+/// [`into_daemon`][Daemon::into_daemon] (or using the [`Into`] trait).
 ///
 /// # Examples
 ///
@@ -426,23 +386,13 @@ pub struct UserDaemon {
     daemonize: bool,
 }
 
-impl<O, C, Transformer> CfgHelper<O, C, Transformer> for UserDaemon
-where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-    Daemon: CfgHelper<O, C, Transformer>,
-{
-    fn apply<Extractor, Name>(
-        mut extractor: Extractor,
-        transformer: Transformer,
-        name: Name,
-        builder: Builder<O, C>,
-    ) -> Builder<O, C>
-    where
-        Extractor: FnMut(&C) -> Self + Send + 'static,
-        Name: Clone + Display + Send + Sync + 'static,
-    {
-        let extractor = move |c: &C| -> Daemon { extractor(c).into() };
-        builder.config_helper(extractor, transformer, name)
+impl UserDaemon {
+    /// Converts to full-featured [`Daemon`].
+    ///
+    /// All the useful functionality is on [`Daemon`], therefore to use it, convert it first.
+    ///
+    /// It can be also converted using the usual [`From`]/[`Into`] traits.
+    pub fn into_daemon(self) -> Daemon {
+        self.into()
     }
 }

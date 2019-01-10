@@ -9,19 +9,13 @@ extern crate structopt;
 use std::thread;
 use std::time::Duration;
 
-use spirit::Spirit;
+use spirit::prelude::*;
 use spirit_daemonize::{Daemon, Opts as DaemonOpts};
 
 #[derive(Clone, Debug, StructOpt)]
 struct Opts {
     #[structopt(flatten)]
     daemon: DaemonOpts,
-}
-
-impl Opts {
-    fn daemon(&self) -> &DaemonOpts {
-        &self.daemon
-    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -35,12 +29,6 @@ struct Cfg {
     #[serde(default)]
     daemon: Daemon,
     ui: Ui,
-}
-
-impl Cfg {
-    fn daemon(&self) -> Daemon {
-        self.daemon.clone()
-    }
 }
 
 const DEFAULT_CONFIG: &str = r#"
@@ -57,11 +45,7 @@ fn main() {
     Spirit::<Opts, Cfg>::new()
         .config_defaults(DEFAULT_CONFIG)
         .config_exts(&["toml", "ini", "json"])
-        .config_helper(
-            Cfg::daemon,
-            spirit_daemonize::with_opts(Opts::daemon),
-            "daemon",
-        )
+        .with(Daemon::extension(|cfg: &Cfg, opts: &Opts| opts.daemon.transform(cfg.daemon.clone())))
         .run(|spirit| {
             while !spirit.is_terminated() {
                 let cfg = spirit.config();
