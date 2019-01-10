@@ -6,7 +6,7 @@ use std::mem;
 
 use either::Either;
 use failure::Error;
-use log::trace;
+use log::{trace, warn};
 
 use super::{Fragment, Transformation};
 
@@ -273,7 +273,7 @@ impl<'a, F: Fragment, Inner: Driver<F>> Driver<&'a F> for RefDriver<Inner> {
         name: &str,
     ) -> Result<Vec<CacheInstruction<T::OutputResource>>, Vec<Error>>
     where
-        T: Transformation<<Self::SubFragment as Fragment>::Resource, I, Self::SubFragment>
+        T: Transformation<<Self::SubFragment as Fragment>::Resource, I, Self::SubFragment>,
     {
         self.0.instructions(*fragment, transform, name)
     }
@@ -390,3 +390,71 @@ where
     }
 }
 
+struct OnceDriver<F: ToOwned> {
+    loaded: Option<F::Owned>,
+    initial: bool,
+}
+
+impl<F> Default for OnceDriver<F>
+where
+    F: ToOwned,
+{
+    fn default() -> Self {
+        OnceDriver {
+            loaded: None,
+            initial: true,
+        }
+    }
+}
+
+impl<F> Driver<F> for OnceDriver<F>
+where
+    F: Fragment + PartialEq<<F as ToOwned>::Owned> + ToOwned + 'static,
+{
+    type SubFragment = F;
+    fn instructions<T, I>(
+        &mut self,
+        fragment: &F,
+        transform: &mut T,
+        name: &str,
+    ) -> Result<Vec<CacheInstruction<T::OutputResource>>, Vec<Error>>
+    where
+        T: Transformation<<Self::SubFragment as Fragment>::Resource, I, Self::SubFragment>,
+    {
+        if let Some(loaded) = self.loaded.as_ref() {
+            if fragment == loaded {
+                warn!(
+                    "{} changed in configuration, can't change at runtime, keeping previous",
+                    name,
+                );
+            }
+            Ok(Vec::new())
+        } else {
+            assert!(self.initial);
+            trace!("Building {} for the first time", name);
+            self.loaded = Some(fragment.to_owned());
+            TrivialDriver.instructions(fragment, transform, name)
+        }
+    }
+    fn confirm(&mut self) {
+        assert!(self.loaded.is_some(), "Confirm called before instructions");
+        self.initial = false;
+    }
+    fn abort(&mut self) {
+        if self.initial {
+            // Keep initial to true in such case
+            assert!(
+                self.loaded.take().is_some(),
+                "Abort called before instructions"
+            );
+        }
+        // else - we still keep the thing that was set, because this must have been from previous
+        // round
+    }
+    fn maybe_cached(&self, fragment: &F) -> bool {
+        self.loaded
+            .as_ref()
+            .map(|l| fragment == l)
+            .unwrap_or_default()
+    }
+}
