@@ -3,8 +3,8 @@ use std::hash::{BuildHasher, Hash};
 
 use failure::Error;
 
-use crate::extension::Extensible;
 use self::driver::{Driver, RefDriver, SeqDriver};
+use crate::extension::Extensible;
 
 pub mod driver;
 pub mod pipeline;
@@ -14,8 +14,12 @@ pub mod pipeline;
 
 pub trait Installer<Resource, O, C>: Default {
     type UninstallHandle: Send + 'static;
+    // TODO: Add names here too
     fn install(&mut self, resource: Resource) -> Self::UninstallHandle;
-    fn init<B: Extensible<Opts = O, Config = C>>(&mut self, builder: B) -> Result<B, Error> {
+    fn init<B: Extensible<Opts = O, Config = C, Ok = B>>(
+        &mut self,
+        builder: B,
+    ) -> Result<B, Error> {
         Ok(builder)
     }
 }
@@ -37,7 +41,10 @@ where
             .map(|r| self.slave.install(r))
             .collect()
     }
-    fn init<B: Extensible<Opts = O, Config = C>>(&mut self, builder: B) -> Result<B, Error> {
+    fn init<B: Extensible<Opts = O, Config = C, Ok = B>>(
+        &mut self,
+        builder: B,
+    ) -> Result<B, Error> {
         self.slave.init(builder)
     }
 }
@@ -50,11 +57,15 @@ pub trait Fragment: Sized {
     type Installer: Default;
     type Seed;
     type Resource;
+    const RUN_BEFORE_CONFIG: bool = false;
     fn make_seed(&self, name: &str) -> Result<Self::Seed, Error>;
     fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<Self::Resource, Error>;
     fn create(&self, name: &str) -> Result<Self::Resource, Error> {
         let mut seed = self.make_seed(name)?;
         self.make_resource(&mut seed, name)
+    }
+    fn init<B: Extensible<Ok = B>>(builder: B, _: &str) -> Result<B, Error> {
+        Ok(builder)
     }
 }
 
@@ -72,13 +83,16 @@ where
     fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<Self::Resource, Error> {
         F::make_resource(*self, seed, name)
     }
+    fn init<B: Extensible<Ok = B>>(builder: B, name: &str) -> Result<B, Error> {
+        F::init(builder, name)
+    }
 }
 
 // TODO: Export the macro for other containers?
 // TODO: The where-* should be where-?
 macro_rules! fragment_for_seq {
     ($container: ident<$base: ident $(, $extra: ident)*> $(where $($bounds: tt)+)*) => {
-        impl<$base: Clone + Fragment + Stackable + 'static $(, $extra)*> Fragment
+        impl<$base: Fragment + Stackable + 'static $(, $extra)*> Fragment
             for $container<$base $(, $extra)*>
         $(
             where
@@ -99,6 +113,9 @@ macro_rules! fragment_for_seq {
                     .zip(seed)
                     .map(|(i, s)| i.make_resource(s, name))
                     .collect()
+            }
+            fn init<B: Extensible<Ok = B>>(builder: B, name: &str) -> Result<B, Error> {
+                $base::init(builder, name)
             }
         }
     }
@@ -121,7 +138,7 @@ macro_rules! simple_fragment {
     }) => {
         $crate::simple_fragment! {
             impl Fragment for $ty {
-                type Driver = $crate::fragment::TrivialDriver;
+                type Driver = $crate::fragment::driver::TrivialDriver;
                 type Resource = $resource;
                 type Installer = $installer;
                 fn create(&$self, $name: &str) -> $result $block

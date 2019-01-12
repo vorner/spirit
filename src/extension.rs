@@ -43,6 +43,15 @@ pub trait Extensible: Sized {
     type Ok;
     const STARTED: bool;
 
+    /// A callback that is run after the building started and the command line is parsed, but even
+    /// before the first configuration is loaded. The configuration provided is either the one
+    /// provided to the builder, or a default one.
+    ///
+    /// This does nothing when used after building is finished.
+    fn before_config<F>(self, cback: F) -> Self
+    where
+        F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), Error> + Send + 'static;
+
     /// Adds another config validator to the chain.
     ///
     /// The validators are there to check, possibly modify and possibly refuse a newly loaded
@@ -225,8 +234,8 @@ pub trait Extensible: Sized {
 
     /// Apply the first [`Helper`](helpers.trait.Helper.html) of the type.
     ///
-    /// This applies the passed helper, but only if a helper with the same hasn't yet been applied
-    /// (or the [`singleton`](#method.singleton) called manually).
+    /// This applies the passed helper, but only if a helper with the type same hasn't yet been
+    /// applied (or the [`singleton`](#method.singleton) called manually).
     ///
     /// Note that different instances of the same type of a helper can act differently, but are
     /// still considered the same type. This means the first instance wins. This is considered a
@@ -246,6 +255,13 @@ where
     type Config = C::Config;
     type Ok = C;
     const STARTED: bool = C::STARTED;
+
+    fn before_config<F>(self, cback: F) -> Self
+    where
+        F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), Error> + Send + 'static,
+    {
+        self.map(|c| c.before_config(cback))
+    }
 
     fn config_validator<R, F>(self, f: F) -> Result<Self::Ok, Error>
     where

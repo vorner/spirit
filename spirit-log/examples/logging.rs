@@ -10,8 +10,8 @@ extern crate structopt;
 use std::thread;
 use std::time::Duration;
 
-use spirit::Spirit;
-use spirit_log::{Cfg as LogCfg, Opts as LogOpts};
+use spirit::prelude::*;
+use spirit_log::{Cfg as LogCfg, CfgAndOpts as LogBoth, Opts as LogOpts};
 
 #[derive(Clone, Debug, StructOpt)]
 struct Opts {
@@ -64,7 +64,12 @@ fn main() {
     Spirit::<Opts, Cfg>::new()
         .config_defaults(DEFAULT_CONFIG)
         .config_exts(&["toml", "ini", "json"])
-        .config_helper(Cfg::log, Opts::log, "logging")
+        .with(
+            Pipeline::new("logging").extract(|opts: &Opts, cfg: &Cfg| LogBoth {
+                cfg: cfg.log(),
+                opts: opts.log(),
+            }),
+        )
         .run(|spirit| {
             while !spirit.is_terminated() {
                 let cfg = spirit.config();

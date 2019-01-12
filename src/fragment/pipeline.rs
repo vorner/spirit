@@ -5,10 +5,10 @@ use std::sync::Arc;
 use failure::Error;
 use parking_lot::Mutex;
 
-use crate::extension::{Extensible, Extension};
-use crate::validation::{Result as ValidationResult, Results as ValidationResults};
-use super::{Extractor, Fragment, Installer, Transformation};
 use super::driver::{CacheId, CacheInstruction, Driver};
+use super::{Extractor, Fragment, Installer, Transformation};
+use crate::extension::{Extensible, Extension};
+use crate::validation::{Error as ValidationError, Level, Result as ValidationResult, Results as ValidationResults};
 
 struct InstallCache<I, O, C, R, H> {
     installer: I,
@@ -236,13 +236,23 @@ where
 pub struct CompiledPipeline<O, C, T, I, D, E, R, H> {
     name: &'static str,
     transformation: T,
-    install_cache: Arc<Mutex<InstallCache<I, O, C, R, H>>>,
-    driver: Arc<Mutex<D>>,
+    install_cache: InstallCache<I, O, C, R, H>,
+    driver: D,
     extractor: E,
 }
 
+impl<O, C, T, I, D, E, R, H> CompiledPipeline<O, C, T, I, D, E, R, H> {
+    // :-| Borrow checker is not that smart to be able to pass two mutable sub-borrows through the
+    // deref trait. So this one allows us to smuggle it through the one on `self` and get the two
+    // on the other side.
+    fn explode(&mut self) -> (&str, &mut T, &mut D) {
+        (self.name, &mut self.transformation, &mut self.driver)
+    }
+}
+
 pub trait BoundedCompiledPipeline<'a, O, C> {
-    fn run(&mut self, opts: &'a O, config: &'a C) -> ValidationResults;
+    fn run(me: &Arc<Mutex<Self>>, opts: &'a O, config: &'a C)
+        -> Result<ValidationResult, Vec<Error>>;
 }
 
 impl<'a, O, C, T, I, D, E> BoundedCompiledPipeline<'a, O, C>
@@ -250,44 +260,39 @@ impl<'a, O, C, T, I, D, E> BoundedCompiledPipeline<'a, O, C>
 where
     O: 'static,
     C: 'static,
-    E: Extractor<'a, O, C>,
+    E: Extractor<'a, O, C> + 'static,
     D: Driver<E::Fragment> + Send + 'static,
     T: Transformation<
         <D::SubFragment as Fragment>::Resource,
         <D::SubFragment as Fragment>::Installer,
         D::SubFragment,
     >,
+    T: 'static,
     T::OutputResource: 'static,
     I: Installer<T::OutputResource, O, C> + Send + 'static,
 {
-    fn run(&mut self, opts: &'a O, config: &'a C) -> ValidationResults {
-        let fragment = self.extractor.extract(opts, config);
-        let instructions =
-            match self
-                .driver
-                .lock()
-                .instructions(&fragment, &mut self.transformation, self.name)
-            {
-                Ok(i) => i,
-                Err(errs) => return errs.into(),
-            };
-        let driver_f = Arc::clone(&self.driver);
+    fn run(me: &Arc<Mutex<Self>>, opts: &'a O, config: &'a C)
+        -> Result<ValidationResult, Vec<Error>>
+    {
+        let mut me_lock = me.lock();
+        let fragment = me_lock.extractor.extract(opts, config);
+        let (name, transform, driver) = me_lock.explode();
+        let instructions = driver.instructions(&fragment, transform, name)?;
+        let me_f = Arc::clone(&me);
         let failure = move || {
-            driver_f.lock().abort();
+            me_f.lock().driver.abort();
         };
-        let driver_s = Arc::clone(&self.driver);
-        let install_cache = Arc::clone(&self.install_cache);
+        let me_s = Arc::clone(&me);
         let success = move || {
-            driver_s.lock().confirm();
-            let mut install_cache = install_cache.lock();
+            let mut me = me_s.lock();
+            me.driver.confirm();
             for ins in instructions {
-                install_cache.interpret(ins);
+                me.install_cache.interpret(ins);
             }
         };
-        ValidationResult::nothing()
+        Ok(ValidationResult::nothing()
             .on_abort(failure)
-            .on_success(success)
-            .into()
+            .on_success(success))
     }
 }
 
@@ -318,19 +323,40 @@ where
     // TODO: Extract parts & make it possible to run independently?
     // TODO: There seems to be a lot of mutexes that are not really necessary here.
     // TODO: This would use some tests
-    fn apply(self, builder: B) -> Result<B, Error> {
+    fn apply(self, mut builder: B) -> Result<B, Error> {
         let mut transformation = self.transformation;
         let mut installer = transformation.installer(Default::default(), self.name);
-        let builder = installer.init(builder)?;
-        let mut compiled = CompiledPipeline {
+        builder = F::init(builder, self.name)?;
+        builder = installer.init(builder)?;
+        let compiled = CompiledPipeline {
             name: self.name,
-            driver: Arc::new(Mutex::new(self.driver)),
+            driver: self.driver,
             extractor: self.extractor,
-            install_cache: Arc::new(Mutex::new(InstallCache::new(installer))),
+            install_cache: InstallCache::new(installer),
             transformation,
         };
+        let compiled = Arc::new(Mutex::new(compiled));
+        if F::RUN_BEFORE_CONFIG && !B::STARTED {
+            let compiled = Arc::clone(&compiled);
+            let before_config = move |cfg: &B::Config, opts: &B::Opts| -> Result<(), Error> {
+                match BoundedCompiledPipeline::run(&compiled, opts, cfg) {
+                    Ok(mut hooks) => {
+                        assert!(hooks.level() == Level::Nothing);
+                        hooks.on_success.take().unwrap()();
+                        Ok(())
+                    }
+                    Err(e) => {
+                        Err(ValidationError(e).into())
+                    }
+                }
+            };
+            builder = builder.before_config(before_config);
+        }
         let validator = move |_old: &_, cfg: &mut B::Config, opts: &B::Opts| -> ValidationResults {
-            compiled.run(opts, cfg)
+            match BoundedCompiledPipeline::run(&compiled, opts, cfg) {
+                Ok(hooks) => hooks.into(),
+                Err(errs) => errs.into(),
+            }
         };
         builder.config_validator(validator)
     }

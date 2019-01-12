@@ -359,6 +359,15 @@ where
     type Ok = Self;
     const STARTED: bool = true;
 
+    // TODO: Run the thing!
+    fn before_config<F>(self, _cback: F) -> Self
+    where
+        F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), Error> + Send + 'static
+    {
+        self
+    }
+
+    // TODO: Run the thing!
     fn config_validator<R, F>(self, mut f: F) -> Result<Self, Error>
     where
         F: FnMut(&Arc<C>, &mut C, &O) -> R + Send + 'static,
@@ -369,11 +378,13 @@ where
         Ok(self)
     }
 
+    // TODO: Run the thing
     fn on_config<F: FnMut(&O, &Arc<C>) + Send + 'static>(self, hook: F) -> Self {
         self.hooks.lock().config.push(Box::new(hook));
         self
     }
 
+    // TODO: Run the thing
     fn on_signal<F>(self, signal: libc::c_int, hook: F) -> Result<Self, Error>
     where
         F: FnMut() + Send + 'static,
@@ -398,6 +409,7 @@ where
         }
         self
     }
+
     fn with<E>(self, ext: E) -> Result<Self::Ok, Error>
     where
         E: Extension<Self>,
@@ -447,7 +459,7 @@ where
 #[must_use = "The builder is inactive without calling `run` or `build`"]
 pub struct Builder<O = Empty, C = Empty> {
     before_bodies: Vec<SpiritBody<O, C>>,
-    before_config: Vec<Box<FnMut(&O) -> Result<(), Error> + Send>>,
+    before_config: Vec<Box<FnMut(&C, &O) -> Result<(), Error> + Send>>,
     body_wrappers: Vec<Wrapper<O, C>>,
     config: C,
     config_loader: CfgBuilder,
@@ -464,19 +476,6 @@ where
     C: DeserializeOwned + Send + Sync + 'static,
     O: StructOpt + Sync + Send + 'static,
 {
-    /// A callback that is run after the building started and the command line is parsed, but even
-    /// before the first configuration is loaded.
-    ///
-    /// If the callback returns an error, the building is aborted.
-    pub fn before_config<F>(mut self, cback: F) -> Self
-    where
-        F: FnOnce(&O) -> Result<(), Error> + Send + 'static,
-    {
-        let mut cback = Some(cback);
-        let cback = move |opts: &O| (cback.take().unwrap())(opts);
-        self.before_config.push(Box::new(cback));
-        self
-    }
 
     /// Sets the inner config loader.
     ///
@@ -591,6 +590,16 @@ impl<O, C> Extensible for Builder<O, C> {
     type Config = C;
     type Ok = Self;
     const STARTED: bool = false;
+
+    fn before_config<F>(mut self, cback: F) -> Self
+    where
+        F: FnOnce(&C, &O) -> Result<(), Error> + Send + 'static,
+    {
+        let mut cback = Some(cback);
+        let cback = move |conf: &C, opts: &O| (cback.take().unwrap())(conf, opts);
+        self.before_config.push(Box::new(cback));
+        self
+    }
 
     fn config_validator<R, F>(self, mut f: F) -> Result<Self, Error>
     where
@@ -756,7 +765,7 @@ where
         debug!("Building the spirit");
         let (opts, loader) = self.config_loader.build::<Self::Opts>();
         for before_config in &mut self.before_config {
-            before_config(&opts).context("The before-config phase failed")?;
+            before_config(&self.config, &opts).context("The before-config phase failed")?;
         }
         let interesting_signals = self
             .sig_hooks

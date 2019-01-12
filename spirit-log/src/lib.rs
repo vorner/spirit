@@ -137,12 +137,11 @@ extern crate syslog;
 
 use std::cmp;
 use std::collections::HashMap;
-use std::fmt::{Arguments, Debug, Display};
+use std::fmt::Arguments;
 use std::io::{self, Write};
 use std::iter;
 use std::net::TcpStream;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::thread;
 
 use chrono::format::{DelayedFormat, StrftimeItems};
@@ -151,26 +150,54 @@ use failure::{Error, Fail};
 use fern::Dispatch;
 use itertools::Itertools;
 use log::{LevelFilter, Log, Metadata, Record};
-use serde::de::{Deserialize, DeserializeOwned, Deserializer, Error as DeError};
+use serde::de::{Deserialize, Deserializer, Error as DeError};
 use serde::ser::{Serialize, Serializer};
-use spirit::extension::CfgHelper;
-use spirit::validation::{Result as ValidationResult, Results as ValidationResults};
-use spirit::Builder;
+use spirit::extension::{Extensible, Extension};
+use spirit::fragment::driver::TrivialDriver;
+use spirit::fragment::{Fragment, Installer};
 use structopt::StructOpt;
 
-struct MultiLog(Vec<Box<Log>>);
+pub struct MultiLog {
+    max_level: LevelFilter,
+    loggers: Vec<Box<Log>>,
+}
+
+impl MultiLog {
+    pub fn push(&mut self, logger: Box<Log>, max_level: LevelFilter) {
+        self.max_level = cmp::max(max_level, self.max_level);
+        self.loggers.push(logger);
+    }
+    pub fn install(mut self) {
+        debug!("Installing loggers");
+        log::set_max_level(self.max_level);
+        if self.loggers.len() == 1 {
+            log_reroute::reroute_boxed(self.loggers.pop().unwrap());
+        } else {
+            log_reroute::reroute(self);
+        }
+    }
+}
+
+impl Default for MultiLog {
+    fn default() -> Self {
+        MultiLog {
+            max_level: LevelFilter::Off,
+            loggers: Vec::new(),
+        }
+    }
+}
 
 impl Log for MultiLog {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        self.0.iter().any(|l| l.enabled(metadata))
+        self.loggers.iter().any(|l| l.enabled(metadata))
     }
     fn log(&self, record: &Record) {
-        for sub in &self.0 {
+        for sub in &self.loggers {
             sub.log(record)
         }
     }
     fn flush(&self) {
-        for sub in &self.0 {
+        for sub in &self.loggers {
             sub.flush()
         }
     }
@@ -215,59 +242,6 @@ impl Opts {
 }
 
 // TODO: OptsExt & OptsVerbose and turn the other things into Into<Opts>
-
-type ExtraLogger<O, C> =
-    Box<Fn(&O, &C) -> Result<(LevelFilter, Vec<Box<Log>>), Error> + Send + Sync>;
-
-/// Description of extra configuration for logging.
-///
-/// This allows customizing the logging as managed by this crate, mostly by pairing it with command
-/// line options (see [`Opts`](struct.Opts.html)) and adding arbitrary additional loggers.
-///
-/// The default does nothing (eg. no command line options and no extra loggers).
-pub struct Extras<O, C> {
-    opts: Option<Box<Fn(&O) -> Opts + Send + Sync>>,
-    loggers: Vec<ExtraLogger<O, C>>,
-}
-
-impl<O, C> Default for Extras<O, C> {
-    fn default() -> Self {
-        Extras {
-            opts: None,
-            loggers: Vec::new(),
-        }
-    }
-}
-
-impl<O, C> Extras<O, C> {
-    /// Constructs the `Extras` structure with an extractor for options.
-    ///
-    /// The passed closure should take the applications global options structure and return the
-    /// `Opts` by which the logging from command line can be tweaked.
-    pub fn with_opts<F: Fn(&O) -> Opts + Send + Sync + 'static>(extractor: F) -> Self {
-        Extras {
-            opts: Some(Box::new(extractor)),
-            loggers: Vec::new(),
-        }
-    }
-
-    /// Modifies the `Extras` to contain another source of additional loggers.
-    ///
-    /// Each such closure is run every time logging is being configured. It can return either bunch
-    /// of loggers (with the needed log level), or an error. If an error is returned, the loading
-    /// of new configuration is aborted.
-    pub fn extra_loggers<F>(self, extra: F) -> Self
-    where
-        F: Fn(&O, &C) -> Result<(LevelFilter, Vec<Box<Log>>), Error> + Send + Sync + 'static,
-    {
-        let mut loggers = self.loggers;
-        loggers.push(Box::new(extra));
-        Extras { loggers, ..self }
-    }
-    fn opts(&self, opts: &O) -> Option<Logger> {
-        self.opts.as_ref().and_then(|ext| ext(opts).logger_cfg())
-    }
-}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
@@ -652,6 +626,22 @@ impl Logger {
     }
 }
 
+fn create<'a, I>(logging: I) -> Result<MultiLog, Error>
+where
+    I: IntoIterator<Item = &'a Logger>,
+{
+    debug!("Creating loggers");
+    let (max_level, logger) = logging
+        .into_iter()
+        .map(Logger::create)
+        .fold_results(Dispatch::new(), Dispatch::chain)?
+        .into_log();
+    Ok(MultiLog {
+        max_level,
+        loggers: vec![logger],
+    })
+}
+
 /// A configuration fragment to set up logging.
 ///
 /// By flattening this into the configuration structure, the program can load options for
@@ -758,147 +748,75 @@ pub struct Cfg {
     logging: Vec<Logger>,
 }
 
-fn create<'a, I>(logging: I) -> Result<(LevelFilter, Box<Log>), Error>
-where
-    I: IntoIterator<Item = &'a Logger>,
-{
-    debug!("Creating loggers");
-    let result = logging
-        .into_iter()
-        .map(Logger::create)
-        .fold_results(Dispatch::new(), Dispatch::chain)?
-        .into_log();
-    Ok(result)
-}
-
-fn install((max_log_level, top_logger): (LevelFilter, Box<Log>)) {
-    debug!("Installing loggers");
-    log_reroute::reroute_boxed(top_logger);
-    log::set_max_level(max_log_level);
-}
-
 struct Configured;
 
-impl<O, C> CfgHelper<O, C, Extras<O, C>> for Cfg
-where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-{
-    fn apply<Extractor, Name>(
-        mut extractor: Extractor,
-        extras: Extras<O, C>,
-        name: Name,
-        mut builder: Builder<O, C>,
-    ) -> Builder<O, C>
-    where
-        Extractor: FnMut(&C) -> Self + Send + 'static,
-        Name: Clone + Display + Send + Sync + 'static,
-    {
-        let extras = Arc::new(extras);
-        let extras_before = Arc::clone(&extras);
-        let validator = move |_old_cfg: &Arc<C>, new_cfg: &mut C, opts: &O| -> ValidationResults {
-            let opt_logger = extras.opts(opts);
-            let logging = extractor(new_cfg);
-            let cfg = logging.logging.iter().chain(opt_logger.as_ref());
-            let mut loggers = Vec::new();
-            let mut max_level = LevelFilter::Off;
-            let mut errors = Vec::new();
-            match create(cfg) {
-                Ok((level, logger)) => {
-                    loggers.push(logger);
-                    max_level = cmp::max(level, max_level);
-                }
-                Err(e) => errors.push(e),
-            }
-            for extra in &extras.loggers {
-                match extra(opts, new_cfg) {
-                    Ok((level, extra_loggers)) => {
-                        loggers.extend(extra_loggers);
-                        max_level = cmp::max(level, max_level);
-                    }
-                    Err(e) => errors.push(e),
-                }
-            }
-            if !errors.is_empty() {
-                let errors = errors.into_iter().map(|e| {
-                    let with_context = e.context(format!("Can't configure {}", name));
-                    ValidationResult::from_error(with_context.into())
-                });
-                ValidationResults::from(errors)
-            } else {
-                let install = move || {
-                    debug!("Installing loggers");
-                    log::set_max_level(max_level);
-                    if loggers.len() == 1 {
-                        log_reroute::reroute_boxed(loggers.pop().unwrap());
-                    } else {
-                        log_reroute::reroute(MultiLog(loggers));
-                    }
+impl Cfg {
+    pub fn init_extension<E: Extensible>() -> impl Extension<E> {
+        |mut e: E| {
+            if e.singleton::<Configured>() {
+                log_panics::init();
+                let logger = Logger {
+                    destination: LogDestination::StdErr,
+                    level: LevelFilterSerde(LevelFilter::Warn),
+                    per_module: HashMap::new(),
+                    clock: Clock::Local,
+                    time_format: cmdline_time_format(),
+                    format: Format::Short,
                 };
-                ValidationResults::from(ValidationResult::nothing().on_success(install))
+                let _ = log_reroute::init();
+                create(iter::once(&logger)).unwrap().install();
             }
-        };
-
-        let before_config = move |opts: &O| -> Result<(), Error> {
-            if let Some(logger) = extras_before.opts(opts) {
-                install(create(iter::once(&logger))?);
-            }
-            Ok(())
-        };
-        if builder.singleton::<Configured>() {
-            log_panics::init();
-            let logger = Logger {
-                destination: LogDestination::StdErr,
-                level: LevelFilterSerde(LevelFilter::Warn),
-                per_module: HashMap::new(),
-                clock: Clock::Local,
-                time_format: cmdline_time_format(),
-                format: Format::Short,
-            };
-            let _ = log_reroute::init();
-            install(create(iter::once(&logger)).unwrap());
+            e
         }
-        builder
-            .before_config(before_config)
-            .config_validator(validator)
     }
 }
 
-impl<O, C, E> CfgHelper<O, C, E> for Cfg
-where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-    E: Fn(&O) -> Opts + Send + Sync + 'static,
-{
-    fn apply<Extractor, Name>(
-        extractor: Extractor,
-        opt_extractor: E,
-        name: Name,
-        builder: Builder<O, C>,
-    ) -> Builder<O, C>
-    where
-        Extractor: FnMut(&C) -> Self + Send + 'static,
-        Name: Clone + Display + Send + Sync + 'static,
-    {
-        builder.config_helper(extractor, Extras::with_opts(opt_extractor), name)
+impl Fragment for Cfg {
+    type Driver = TrivialDriver;
+    type Seed = ();
+    type Resource = MultiLog;
+    type Installer = MultiLogInstaller;
+    fn make_seed(&self, _name: &str) -> Result<(), Error> {
+        Ok(())
+    }
+    fn make_resource(&self, _: &mut (), _name: &str) -> Result<MultiLog, Error> {
+        create(&self.logging)
+    }
+    fn init<B: Extensible<Ok = B>>(builder: B, _name: &str) -> Result<B, Error> {
+        builder.with(Cfg::init_extension())
     }
 }
 
-impl<O, C> CfgHelper<O, C, ()> for Cfg
-where
-    C: DeserializeOwned + Send + Sync + 'static,
-    O: Debug + StructOpt + Sync + Send + 'static,
-{
-    fn apply<Extractor, Name>(
-        extractor: Extractor,
-        (): (),
-        name: Name,
-        builder: Builder<O, C>,
-    ) -> Builder<O, C>
-    where
-        Extractor: FnMut(&C) -> Self + Send + 'static,
-        Name: Clone + Display + Send + Sync + 'static,
-    {
-        builder.config_helper(extractor, Extras::default(), name)
+// TODO: Non-owned version too?
+#[derive(Clone, Debug)]
+pub struct CfgAndOpts {
+    pub cfg: Cfg,
+    pub opts: Opts,
+}
+
+impl Fragment for CfgAndOpts {
+    type Driver = TrivialDriver;
+    type Seed = ();
+    type Resource = MultiLog;
+    type Installer = MultiLogInstaller;
+    const RUN_BEFORE_CONFIG: bool = true;
+    fn make_seed(&self, _name: &str) -> Result<(), Error> {
+        Ok(())
+    }
+    fn make_resource(&self, _: &mut (), _name: &str) -> Result<MultiLog, Error> {
+        create(self.cfg.logging.iter().chain(self.opts.logger_cfg().as_ref()))
+    }
+    fn init<B: Extensible<Ok = B>>(builder: B, _name: &str) -> Result<B, Error> {
+        builder.with(Cfg::init_extension())
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct MultiLogInstaller;
+
+impl<O, C> Installer<MultiLog, O, C> for MultiLogInstaller {
+    type UninstallHandle = ();
+    fn install(&mut self, logger: MultiLog) {
+        logger.install();
     }
 }
