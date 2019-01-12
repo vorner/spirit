@@ -10,8 +10,8 @@ use std::thread;
 use std::time::Duration;
 
 use arc_swap::{ArcSwap, Lease};
-use failure::{Error, ResultExt};
-use log::{debug, error, info, warn};
+use failure::{Error, Fail, ResultExt};
+use log::{debug, info, trace};
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use signal_hook::iterator::Signals;
@@ -23,14 +23,16 @@ use crate::cfg_loader::{Builder as CfgBuilder, ConfigBuilder, Loader as CfgLoade
 use crate::empty::Empty;
 use crate::extension::{Extensible, Extension};
 use crate::utils;
-use crate::validation::{
-    Error as ValidationError, Level as ValidationLevel, Results as ValidationResults,
-};
+use crate::validation::Action;
+
+#[derive(Debug, Fail)]
+#[fail(display = "Config validation failed with {} errors", _0)]
+pub struct ValidationError(usize);
 
 struct Hooks<O, C> {
     config: Vec<Box<FnMut(&O, &Arc<C>) + Send>>,
     config_loader: CfgLoader,
-    config_validators: Vec<Box<FnMut(&Arc<C>, &Arc<C>, &O) -> ValidationResults + Send>>,
+    config_validators: Vec<Box<FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, Error> + Send>>,
     sigs: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
     singletons: HashSet<TypeId>,
     terminate: Vec<Box<FnMut() + Send>>,
@@ -204,48 +206,31 @@ where
         let mut hooks = self.hooks.lock();
         let old = self.config.load();
         debug!("Running config validators");
-        let mut results = hooks
-            .config_validators
-            .iter_mut()
-            .map(|v| v(&old, &new, &self.opts))
-            .fold(ValidationResults::new(), |mut acc, r| {
-                acc.merge(r);
-                acc
-            });
-        let new = Arc::new(new);
-        for result in &results {
-            match result.level() {
-                ValidationLevel::Error => {
-                    if let Some(e) = result.detailed_error() {
-                        utils::log_error("configuration", e);
-                    } else {
-                        error!(target: "configuration", "{}", result.description());
-                    }
-                }
-                ValidationLevel::Warning => {
-                    warn!(target: "configuration", "{}", result.description());
-                }
-                ValidationLevel::Hint => {
-                    info!(target: "configuration", "{}", result.description());
-                }
-                ValidationLevel::Nothing => (),
-            }
-        }
-        if results.max_level() == Some(ValidationLevel::Error) {
-            error!(target: "configuration", "Refusing new configuration due to errors");
-            for r in &mut results.0 {
-                if let Some(abort) = r.on_abort.as_mut() {
-                    abort();
+        let mut errors = 0;
+        let mut actions = Vec::with_capacity(hooks.config_validators.len());
+        for v in hooks.config_validators.iter_mut() {
+            match v(&old, &new, &self.opts) {
+                Ok(ac) => actions.push(ac),
+                Err(e) => {
+                    errors += 1;
+                    utils::log_error(module_path!(), &e);
                 }
             }
-            return Err(ValidationError::from(results).into());
         }
-        debug!("Validation successful, installing new config");
-        for r in &mut results.0 {
-            if let Some(success) = r.on_success.as_mut() {
-                success();
+
+        if errors == 0 {
+            debug!("Validation successful, switching to new config");
+            for a in actions {
+                a.run(true);
             }
+        } else {
+            debug!("Rolling back validation attempt");
+            for a in actions {
+                a.run(false);
+            }
+            return Err(ValidationError(errors).into());
         }
+
         // Once everything is validated, switch to the new config
         self.config.store(Arc::clone(&new));
         debug!("Running post-configuration hooks");
@@ -363,39 +348,25 @@ where
     where
         F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), Error> + Send + 'static
     {
+        trace!("Running just added before_config");
         cback(&self.config(), self.cmd_opts())?;
         Ok(self)
     }
 
-    fn config_validator<R, F>(self, mut f: F) -> Result<Self, Error>
+    fn config_validator<F>(self, mut f: F) -> Result<Self, Error>
     where
-        F: FnMut(&Arc<C>, &Arc<C>, &O) -> R + Send + 'static,
-        R: Into<ValidationResults>,
+        F: FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, Error> + Send + 'static,
     {
-        let mut wrapper = move |old: &Arc<C>, new: &Arc<C>, opts: &O| f(old, new, opts).into();
+        trace!("Adding config validator at runtime");
         let mut hooks = self.hooks.lock();
         let cfg = Lease::into_upgrade(self.config());
-        let result = wrapper(&cfg, &cfg, self.cmd_opts());
-        // FIXME: Logging
-        // We probably want to change the validation machinery. It's over-complex.
-        if let Some(ValidationLevel::Error) = result.max_level() {
-            for mut r in result.0 {
-                if let Some(mut a) = r.on_abort.take() {
-                    a();
-                }
-            }
-        } else {
-            for mut r in result.0 {
-                if let Some(mut s) = r.on_success.take() {
-                    s();
-                }
-            }
-        }
-        hooks.config_validators.push(Box::new(wrapper));
+        f(&cfg, &cfg, self.cmd_opts())?.run(true);
+        hooks.config_validators.push(Box::new(f));
         Ok(self)
     }
 
     fn on_config<F: FnMut(&O, &Arc<C>) + Send + 'static>(self, mut hook: F) -> Self {
+        trace!("Adding config hook at runtime");
         let mut hooks = self.hooks.lock();
         hook(self.cmd_opts(), &Lease::upgrade(&self.config()));
         hooks.config.push(Box::new(hook));
@@ -406,6 +377,7 @@ where
     where
         F: FnMut() + Send + 'static,
     {
+        trace!("Adding signal hook at runtime");
         self.signals.add_signal(signal)?;
         self.hooks
             .lock()
@@ -417,6 +389,7 @@ where
     }
 
     fn on_terminate<F: FnMut() + Send + 'static>(self, hook: F) -> Self {
+        trace!("Running termination hook at runtime");
         let mut hooks = self.hooks.lock();
         hooks.terminate.push(Box::new(hook));
         // FIXME: Is there possibly a race condition because the lock and the is_terminated are
@@ -481,7 +454,7 @@ pub struct Builder<O = Empty, C = Empty> {
     config: C,
     config_loader: CfgBuilder,
     config_hooks: Vec<Box<FnMut(&O, &Arc<C>) + Send>>,
-    config_validators: Vec<Box<FnMut(&Arc<C>, &Arc<C>, &O) -> ValidationResults + Send>>,
+    config_validators: Vec<Box<FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, Error> + Send>>,
     opts: PhantomData<O>,
     sig_hooks: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
     singletons: HashSet<TypeId>,
@@ -618,14 +591,12 @@ impl<O, C> Extensible for Builder<O, C> {
         Ok(self)
     }
 
-    fn config_validator<R, F>(self, mut f: F) -> Result<Self, Error>
+    fn config_validator<F>(self, f: F) -> Result<Self, Error>
     where
-        F: FnMut(&Arc<C>, &Arc<C>, &O) -> R + Send + 'static,
-        R: Into<ValidationResults>,
+        F: FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, Error> + Send + 'static,
     {
-        let wrapper = move |old: &Arc<C>, new: &Arc<C>, opts: &O| f(old, new, opts).into();
         let mut validators = self.config_validators;
-        validators.push(Box::new(wrapper));
+        validators.push(Box::new(f));
         Ok(Self {
             config_validators: validators,
             ..self

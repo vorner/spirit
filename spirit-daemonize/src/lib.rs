@@ -100,12 +100,13 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::Arc;
 
 use failure::{Error, ResultExt};
 use nix::sys::stat::{self, Mode};
 use nix::unistd::{self, ForkResult, Gid, Uid};
 use spirit::extension::{Extension, Extensible};
-use spirit::validation::Result as ValidationResult;
+use spirit::validation::Action;
 use structopt::StructOpt;
 
 /// Configuration of either user or a group.
@@ -272,18 +273,17 @@ impl Daemon {
         F: Fn(&E::Config, &E::Opts) -> Self + Send + 'static,
     {
         let mut previous_daemon = None;
-        let validator_hook = move |_: &_, new_cfg: &mut E::Config, opts: &E::Opts| -> ValidationResult {
-            let daemon = extractor(new_cfg, opts);
+        let validator_hook = move |_: &_, cfg: &Arc<E::Config>, opts: &_| -> Result<Action, Error> {
+            let daemon = extractor(cfg, opts);
             if let Some(previous) = previous_daemon.as_ref() {
                 if previous != &daemon {
                     warn!("Can't change daemon config at runtime");
                 }
-                return ValidationResult::nothing();
-            } else if let Err(e) = daemon.daemonize().context("Failed to daemonize") {
-                return ValidationResult::from_error(e.into());
+                return Ok(Action::new())
             }
+            daemon.daemonize().context("Failed to daemonize")?;
             previous_daemon = Some(daemon);
-            ValidationResult::nothing()
+            Ok(Action::new())
         };
         move |e: E| e.config_validator(validator_hook)
     }

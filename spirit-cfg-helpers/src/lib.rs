@@ -33,7 +33,7 @@ use log::{log, Level};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use spirit::extension::{Extensible, Extension};
-use spirit::validation::Result as ValidationResult;
+use spirit::validation::Action;
 use spirit::Builder;
 use structopt::StructOpt;
 
@@ -237,12 +237,12 @@ impl CfgDump {
         E::Config: Serialize,
     {
         let mut extract = Some(extract);
-        let validator = move |_: &_, cfg: &mut _, opts: &_| {
+        let validator = move |_: &_, cfg: &_, opts: &_| {
             if let Some(extract) = extract.take() {
                 let me = extract(opts);
-                me.dump(cfg);
+                me.dump(&cfg as &E::Config);
             }
-            ValidationResult::nothing()
+            Ok(Action::new())
         };
         |ext: E| ext.config_validator(validator)
     }
@@ -370,7 +370,7 @@ mod cfg_help {
             C: DeserializeOwned + StructDoc + Send + Sync + 'static,
         {
             |builder: Builder<O, C>| {
-                builder.before_config(|opts: &O| {
+                builder.before_config(|_: &C, opts: &O| {
                     extract(opts).help::<C>();
                     Ok(())
                 })

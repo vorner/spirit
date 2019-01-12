@@ -8,7 +8,7 @@ use parking_lot::Mutex;
 use super::driver::{CacheId, CacheInstruction, Driver};
 use super::{Extractor, Fragment, Installer, Transformation};
 use crate::extension::{Extensible, Extension};
-use crate::validation::{Error as ValidationError, Level, Result as ValidationResult, Results as ValidationResults};
+use crate::validation::{Action, MultiError};
 
 struct InstallCache<I, O, C, R, H> {
     installer: I,
@@ -252,7 +252,7 @@ impl<O, C, T, I, D, E, R, H> CompiledPipeline<O, C, T, I, D, E, R, H> {
 
 pub trait BoundedCompiledPipeline<'a, O, C> {
     fn run(me: &Arc<Mutex<Self>>, opts: &'a O, config: &'a C)
-        -> Result<ValidationResult, Vec<Error>>;
+        -> Result<Action, Vec<Error>>;
 }
 
 impl<'a, O, C, T, I, D, E> BoundedCompiledPipeline<'a, O, C>
@@ -272,7 +272,7 @@ where
     I: Installer<T::OutputResource, O, C> + Send + 'static,
 {
     fn run(me: &Arc<Mutex<Self>>, opts: &'a O, config: &'a C)
-        -> Result<ValidationResult, Vec<Error>>
+        -> Result<Action, Vec<Error>>
     {
         let mut me_lock = me.lock();
         let fragment = me_lock.extractor.extract(opts, config);
@@ -290,9 +290,7 @@ where
                 me.install_cache.interpret(ins);
             }
         };
-        Ok(ValidationResult::nothing()
-            .on_abort(failure)
-            .on_success(success))
+        Ok(Action::new().on_abort(failure).on_success(success))
     }
 }
 
@@ -338,25 +336,16 @@ where
         let compiled = Arc::new(Mutex::new(compiled));
         if F::RUN_BEFORE_CONFIG && !B::STARTED {
             let compiled = Arc::clone(&compiled);
-            let before_config = move |cfg: &B::Config, opts: &B::Opts| -> Result<(), Error> {
-                match BoundedCompiledPipeline::run(&compiled, opts, cfg) {
-                    Ok(mut hooks) => {
-                        assert!(hooks.level() == Level::Nothing);
-                        hooks.on_success.take().unwrap()();
-                        Ok(())
-                    }
-                    Err(e) => {
-                        Err(ValidationError(e).into())
-                    }
-                }
+            let before_config = move |cfg: &B::Config, opts: &B::Opts| {
+                BoundedCompiledPipeline::run(&compiled, opts, cfg)
+                    .map(|action| action.run(true))
+                    .map_err(MultiError::wrap)
             };
             builder = builder.before_config(before_config)?;
         }
-        let validator = move |_old: &_, cfg: &Arc<B::Config>, opts: &B::Opts| -> ValidationResults {
-            match BoundedCompiledPipeline::run(&compiled, opts, cfg) {
-                Ok(hooks) => hooks.into(),
-                Err(errs) => errs.into(),
-            }
+        let validator = move |_old: &_, cfg: &Arc<B::Config>, opts: &B::Opts| {
+            BoundedCompiledPipeline::run(&compiled, opts, cfg)
+                .map_err(MultiError::wrap)
         };
         builder.config_validator(validator)
     }

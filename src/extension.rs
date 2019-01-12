@@ -19,7 +19,7 @@ use structopt::StructOpt;
 
 use crate::bodies::InnerBody;
 use crate::spirit::{Builder, Spirit};
-use crate::validation::Results as ValidationResults;
+use crate::validation::Action;
 
 pub trait IntoResult<T>: Sized {
     fn into_result(self) -> Result<T, Error>;
@@ -91,10 +91,10 @@ pub trait Extensible: Sized {
     /// # Examples
     ///
     /// TODO
-    fn config_validator<R, F>(self, f: F) -> Result<Self::Ok, Error>
+    fn config_validator<F>(self, f: F) -> Result<Self::Ok, Error>
     where
-        F: FnMut(&Arc<Self::Config>, &Arc<Self::Config>, &Self::Opts) -> R + Send + 'static,
-        R: Into<ValidationResults>;
+        F: FnMut(&Arc<Self::Config>, &Arc<Self::Config>, &Self::Opts) -> Result<Action, Error>,
+        F: Send + 'static;
 
     /// Adds a callback for notification about new configurations.
     ///
@@ -263,10 +263,10 @@ where
         self.and_then(|c| c.before_config(cback))
     }
 
-    fn config_validator<R, F>(self, f: F) -> Result<Self::Ok, Error>
+    fn config_validator<F>(self, f: F) -> Result<Self::Ok, Error>
     where
-        F: FnMut(&Arc<Self::Config>, &Arc<Self::Config>, &Self::Opts) -> R + Send + 'static,
-        R: Into<ValidationResults>,
+        F: FnMut(&Arc<Self::Config>, &Arc<Self::Config>, &Self::Opts) -> Result<Action, Error>,
+        F: Send + 'static,
     {
         self.and_then(|c| c.config_validator(f))
     }
