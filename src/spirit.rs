@@ -30,7 +30,7 @@ use crate::validation::{
 struct Hooks<O, C> {
     config: Vec<Box<FnMut(&O, &Arc<C>) + Send>>,
     config_loader: CfgLoader,
-    config_validators: Vec<Box<FnMut(&Arc<C>, &mut C, &O) -> ValidationResults + Send>>,
+    config_validators: Vec<Box<FnMut(&Arc<C>, &Arc<C>, &O) -> ValidationResults + Send>>,
     sigs: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
     singletons: HashSet<TypeId>,
     terminate: Vec<Box<FnMut() + Send>>,
@@ -198,7 +198,7 @@ where
     /// don't have to by `Sync`). That, however, means that you can't call `config_reload` or
     /// [`terminate`](#method.terminate) from any callback (that would lead to a deadlock).
     pub fn config_reload(&self) -> Result<(), Error> {
-        let mut new = self.load_config().context("Failed to load configuration")?;
+        let new = Arc::new(self.load_config().context("Failed to load configuration")?);
         // The lock here is across the whole processing, to avoid potential races in logic
         // processing. This makes writing the hooks correctly easier.
         let mut hooks = self.hooks.lock();
@@ -207,7 +207,7 @@ where
         let mut results = hooks
             .config_validators
             .iter_mut()
-            .map(|v| v(&old, &mut new, &self.opts))
+            .map(|v| v(&old, &new, &self.opts))
             .fold(ValidationResults::new(), |mut acc, r| {
                 acc.merge(r);
                 acc
@@ -359,32 +359,49 @@ where
     type Ok = Self;
     const STARTED: bool = true;
 
-    // TODO: Run the thing!
-    fn before_config<F>(self, _cback: F) -> Self
+    fn before_config<F>(self, cback: F) -> Result<Self, Error>
     where
         F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), Error> + Send + 'static
     {
-        self
-    }
-
-    // TODO: Run the thing!
-    fn config_validator<R, F>(self, mut f: F) -> Result<Self, Error>
-    where
-        F: FnMut(&Arc<C>, &mut C, &O) -> R + Send + 'static,
-        R: Into<ValidationResults>,
-    {
-        let wrapper = move |old: &Arc<C>, new: &mut C, opts: &O| f(old, new, opts).into();
-        self.hooks.lock().config_validators.push(Box::new(wrapper));
+        cback(&self.config(), self.cmd_opts())?;
         Ok(self)
     }
 
-    // TODO: Run the thing
-    fn on_config<F: FnMut(&O, &Arc<C>) + Send + 'static>(self, hook: F) -> Self {
-        self.hooks.lock().config.push(Box::new(hook));
+    fn config_validator<R, F>(self, mut f: F) -> Result<Self, Error>
+    where
+        F: FnMut(&Arc<C>, &Arc<C>, &O) -> R + Send + 'static,
+        R: Into<ValidationResults>,
+    {
+        let mut wrapper = move |old: &Arc<C>, new: &Arc<C>, opts: &O| f(old, new, opts).into();
+        let mut hooks = self.hooks.lock();
+        let cfg = Lease::into_upgrade(self.config());
+        let result = wrapper(&cfg, &cfg, self.cmd_opts());
+        // FIXME: Logging
+        // We probably want to change the validation machinery. It's over-complex.
+        if let Some(ValidationLevel::Error) = result.max_level() {
+            for mut r in result.0 {
+                if let Some(mut a) = r.on_abort.take() {
+                    a();
+                }
+            }
+        } else {
+            for mut r in result.0 {
+                if let Some(mut s) = r.on_success.take() {
+                    s();
+                }
+            }
+        }
+        hooks.config_validators.push(Box::new(wrapper));
+        Ok(self)
+    }
+
+    fn on_config<F: FnMut(&O, &Arc<C>) + Send + 'static>(self, mut hook: F) -> Self {
+        let mut hooks = self.hooks.lock();
+        hook(self.cmd_opts(), &Lease::upgrade(&self.config()));
+        hooks.config.push(Box::new(hook));
         self
     }
 
-    // TODO: Run the thing
     fn on_signal<F>(self, signal: libc::c_int, hook: F) -> Result<Self, Error>
     where
         F: FnMut() + Send + 'static,
@@ -464,7 +481,7 @@ pub struct Builder<O = Empty, C = Empty> {
     config: C,
     config_loader: CfgBuilder,
     config_hooks: Vec<Box<FnMut(&O, &Arc<C>) + Send>>,
-    config_validators: Vec<Box<FnMut(&Arc<C>, &mut C, &O) -> ValidationResults + Send>>,
+    config_validators: Vec<Box<FnMut(&Arc<C>, &Arc<C>, &O) -> ValidationResults + Send>>,
     opts: PhantomData<O>,
     sig_hooks: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
     singletons: HashSet<TypeId>,
@@ -591,22 +608,22 @@ impl<O, C> Extensible for Builder<O, C> {
     type Ok = Self;
     const STARTED: bool = false;
 
-    fn before_config<F>(mut self, cback: F) -> Self
+    fn before_config<F>(mut self, cback: F) -> Result<Self, Error>
     where
         F: FnOnce(&C, &O) -> Result<(), Error> + Send + 'static,
     {
         let mut cback = Some(cback);
         let cback = move |conf: &C, opts: &O| (cback.take().unwrap())(conf, opts);
         self.before_config.push(Box::new(cback));
-        self
+        Ok(self)
     }
 
     fn config_validator<R, F>(self, mut f: F) -> Result<Self, Error>
     where
-        F: FnMut(&Arc<C>, &mut C, &O) -> R + Send + 'static,
+        F: FnMut(&Arc<C>, &Arc<C>, &O) -> R + Send + 'static,
         R: Into<ValidationResults>,
     {
-        let wrapper = move |old: &Arc<C>, new: &mut C, opts: &O| f(old, new, opts).into();
+        let wrapper = move |old: &Arc<C>, new: &Arc<C>, opts: &O| f(old, new, opts).into();
         let mut validators = self.config_validators;
         validators.push(Box::new(wrapper));
         Ok(Self {

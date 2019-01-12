@@ -48,7 +48,7 @@ pub trait Extensible: Sized {
     /// provided to the builder, or a default one.
     ///
     /// This does nothing when used after building is finished.
-    fn before_config<F>(self, cback: F) -> Self
+    fn before_config<F>(self, cback: F) -> Result<Self::Ok, Error>
     where
         F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), Error> + Send + 'static;
 
@@ -60,7 +60,7 @@ pub trait Extensible: Sized {
     /// The callback is passed three parameters:
     ///
     /// * The old configuration.
-    /// * The new configuration (possible to modify).
+    /// * The new configuration.
     /// * The command line options.
     ///
     /// They are run in order of being set. Each one can pass arbitrary number of results, where a
@@ -93,7 +93,7 @@ pub trait Extensible: Sized {
     /// TODO
     fn config_validator<R, F>(self, f: F) -> Result<Self::Ok, Error>
     where
-        F: FnMut(&Arc<Self::Config>, &mut Self::Config, &Self::Opts) -> R + Send + 'static,
+        F: FnMut(&Arc<Self::Config>, &Arc<Self::Config>, &Self::Opts) -> R + Send + 'static,
         R: Into<ValidationResults>;
 
     /// Adds a callback for notification about new configurations.
@@ -256,16 +256,16 @@ where
     type Ok = C;
     const STARTED: bool = C::STARTED;
 
-    fn before_config<F>(self, cback: F) -> Self
+    fn before_config<F>(self, cback: F) -> Result<Self::Ok, Error>
     where
         F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), Error> + Send + 'static,
     {
-        self.map(|c| c.before_config(cback))
+        self.and_then(|c| c.before_config(cback))
     }
 
     fn config_validator<R, F>(self, f: F) -> Result<Self::Ok, Error>
     where
-        F: FnMut(&Arc<Self::Config>, &mut Self::Config, &Self::Opts) -> R + Send + 'static,
+        F: FnMut(&Arc<Self::Config>, &Arc<Self::Config>, &Self::Opts) -> R + Send + 'static,
         R: Into<ValidationResults>,
     {
         self.and_then(|c| c.config_validator(f))

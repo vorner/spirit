@@ -7,6 +7,5 @@
   share the code somehow? Macro?
 * Get rid of the deprecated methods
 
-* !! Before release ‒ make config_validator and such run the provided hook on plug in
 * Simplify validation results?
 * unify Order of Opts/Config

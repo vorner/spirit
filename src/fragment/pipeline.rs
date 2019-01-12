@@ -350,9 +350,9 @@ where
                     }
                 }
             };
-            builder = builder.before_config(before_config);
+            builder = builder.before_config(before_config)?;
         }
-        let validator = move |_old: &_, cfg: &mut B::Config, opts: &B::Opts| -> ValidationResults {
+        let validator = move |_old: &_, cfg: &Arc<B::Config>, opts: &B::Opts| -> ValidationResults {
             match BoundedCompiledPipeline::run(&compiled, opts, cfg) {
                 Ok(hooks) => hooks.into(),
                 Err(errs) => errs.into(),
