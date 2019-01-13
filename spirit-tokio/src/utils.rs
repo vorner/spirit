@@ -10,14 +10,14 @@ use futures::Stream;
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use spirit::extension::Extension;
-use spirit::validation::{Result as ValidationResult, Results as ValidationResults};
 use spirit::{Builder, Spirit};
 use structopt::StructOpt;
 
-use base_traits::{Name, ResourceConfig, ResourceConsumer};
+use base_traits::Name;
 use net::IntoIncoming;
 use runtime::Runtime;
 
+/*
 /// Creates a [`ResourceConsumer`] that takes a listener and runs the provided closure on each
 /// accepted connection.
 ///
@@ -126,24 +126,9 @@ where
         },
     )
 }
+*/
 
-// TODO: Make this public, it may be useful to other helper crates.
-struct RemoteDrop {
-    request_drop: Option<oneshot::Sender<()>>,
-    drop_confirmed: Option<oneshot::Receiver<()>>,
-}
-
-impl Drop for RemoteDrop {
-    fn drop(&mut self) {
-        trace!("Requesting remote drop");
-        // Ask the other side to drop the thing
-        let _ = self.request_drop.take().unwrap().send(());
-        // And wait for it to actually happen
-        let _ = self.drop_confirmed.take().unwrap().wait();
-        trace!("Remote drop done");
-    }
-}
-
+/*
 /// Binds a [`ResourceConfig`] and [`ResourceConsumer`] together to form a [`Helper`].
 ///
 /// This takes an extractor function returning an iterator of [`ResourceConfig`]s from the
@@ -356,3 +341,4 @@ where
 {
     resources(move |c: &C| iter::once(extract(c)), consumer, name)
 }
+*/

@@ -21,18 +21,20 @@ use net2::{TcpBuilder, UdpBuilder};
 use serde::de::{Deserialize, Deserializer, Error as DeError, Unexpected};
 use serde::ser::{Serialize, Serializer};
 use serde_humantime;
-use spirit::validation::Results as ValidationResults;
+use spirit::fragment::driver::TrivialDriver;
+use spirit::fragment::Fragment;
 use spirit::Empty;
 use tokio::net::tcp::Incoming;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::reactor::Handle;
 
-use super::ResourceConfig;
-use scaled::{Scale, Scaled};
+// use scaled::{Scale, Scaled};
 
+/* XXX: Re-enable
 pub mod limits;
 #[cfg(unix)]
 pub mod unix;
+*/
 
 /// Abstraction over endpoints that accept connections.
 ///
@@ -198,6 +200,7 @@ impl Listen {
         builder.bind((self.host, self.port))?;
         Ok(builder.listen(cmp::min(self.backlog, i32::max_value() as u32) as i32)?)
     }
+
     /// Creates a UDP socket described by the loaded configuration.
     pub fn create_udp(&self) -> Result<StdUdpSocket, Error> {
         let builder = match self.host {
@@ -511,33 +514,31 @@ where
 /// [`WithListenLimits`]: limits::WithListenLimits
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
-pub struct TcpListen<ExtraCfg = Empty, ScaleMode = Scale, TcpStreamConfigure = TcpConfig> {
+pub struct TcpListen<ExtraCfg = Empty, TcpStreamConfigure = TcpConfig> {
     #[serde(flatten)]
     listen: Listen,
     #[serde(flatten)]
     tcp_config: TcpStreamConfigure,
     #[serde(flatten)]
-    scale: ScaleMode,
-    #[serde(flatten)]
     extra_cfg: ExtraCfg,
 }
 
-impl<ExtraCfg, ScaleMode, TcpConfig, O, C> ResourceConfig<O, C>
-    for TcpListen<ExtraCfg, ScaleMode, TcpConfig>
+impl<ExtraCfg, TcpConfig> Fragment for TcpListen<ExtraCfg, TcpConfig>
 where
-    ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
-    ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static,
-    TcpConfig: Clone + Debug + PartialEq + Send + Sync + StreamConfig<TcpStream> + 'static,
+    ExtraCfg: Clone + Debug,
+    TcpConfig: Clone + Debug,
 {
+    type Driver = TrivialDriver; // FIXME: This won't work. We need eq on the listen part.
+    type Installer = ();
     type Seed = StdTcpListener;
     type Resource = ConfiguredStreamListener<TcpListener, TcpConfig>;
-    fn create(&self, name: &str) -> Result<StdTcpListener, Error> {
+    fn make_seed(&self, name: &str) -> Result<StdTcpListener, Error> {
         self.listen
             .create_tcp()
             .with_context(|_| format!("Failed to create socket {}/{:?}", name, self))
             .map_err(Error::from)
     }
-    fn fork(&self, seed: &StdTcpListener, name: &str) -> Result<Self::Resource, Error> {
+    fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<Self::Resource, Error> {
         let config = self.tcp_config.clone();
         seed.try_clone() // Another copy of the listener
             // std → tokio socket conversion
@@ -546,23 +547,21 @@ where
             .map_err(Error::from)
             .map(|listener| ConfiguredStreamListener::new(listener, config))
     }
-    fn scaled(&self, name: &str) -> (usize, ValidationResults) {
-        self.scale.scaled(name)
-    }
-    fn is_similar(&self, other: &Self, _: &str) -> bool {
-        self.listen == other.listen
-    }
 }
 
 /// A [`TcpListen`] with all parameters set to [`Empty`].
 ///
 /// This doesn't configure much more than the minimum actually needed.
-pub type MinimalTcpListen<ExtraCfg = Empty> = TcpListen<ExtraCfg, Empty, Empty>;
+pub type MinimalTcpListen<ExtraCfg = Empty> = TcpListen<ExtraCfg, Empty>;
 
+/*
+ * XXX: Re-enable
 /// Convenience type alias for configuration fragment for TCP listening socket with handling of
 /// accept errors and limiting number of current connections.
-pub type TcpListenWithLimits<ExtraCfg = Empty, ScaleMode = Scale, TcpStreamConfigure = TcpConfig> =
-    limits::WithListenLimits<TcpListen<ExtraCfg, ScaleMode, TcpStreamConfigure>>;
+pub type TcpListenWithLimits<ExtraCfg = Empty, TcpStreamConfigure = TcpConfig> =
+    limits::WithListenLimits<TcpListen<ExtraCfg, TcpStreamConfigure>>;
+    */
+pub type TcpListenWithLimits = ();
 
 /// A configuration fragment describing a bound UDP socket.
 ///
@@ -583,15 +582,37 @@ pub type TcpListenWithLimits<ExtraCfg = Empty, ScaleMode = Scale, TcpStreamConfi
 /// [`ExtraCfgCarrier`]: ::base_traits::ExtraCfgCarrier
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
-pub struct UdpListen<ExtraCfg = Empty, ScaleMode = Scale> {
+pub struct UdpListen<ExtraCfg = Empty> {
     #[serde(flatten)]
     listen: Listen,
-    #[serde(flatten)]
-    scale: ScaleMode,
     #[serde(flatten)]
     extra_cfg: ExtraCfg,
 }
 
+impl<ExtraCfg> Fragment for UdpListen<ExtraCfg>
+where
+    ExtraCfg: Debug,
+{
+    type Driver = TrivialDriver; // FIXME: Caching by similar
+    type Installer = ();
+    type Seed = StdUdpSocket;
+    type Resource = UdpSocket;
+    fn make_seed(&self, name: &str) -> Result<Self::Seed, Error> {
+        self.listen
+            .create_udp()
+            .with_context(|_| format!("Failed to create socket {}/{:?}", name, self))
+            .map_err(Error::from)
+    }
+    fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<UdpSocket, Error> {
+        seed.try_clone() // Another copy of the socket
+            // std → tokio socket conversion
+            .and_then(|socket| UdpSocket::from_std(socket, &Handle::default()))
+            .with_context(|_| format!("Failed to fork socket {}/{:?}", name, self))
+            .map_err(Error::from)
+    }
+}
+
+/*
 impl<ExtraCfg, ScaleMode, O, C> ResourceConfig<O, C> for UdpListen<ExtraCfg, ScaleMode>
 where
     ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
@@ -619,7 +640,10 @@ where
         self.listen == other.listen
     }
 }
+*/
 
+/*
+ * FIXME: Something with this?
 extra_cfg_impl! {
     TcpListen<ExtraCfg, ScaleMode, TcpConfig>::extra_cfg: ExtraCfg;
     UdpListen<ExtraCfg, ScaleMode>::extra_cfg: ExtraCfg;
@@ -637,6 +661,7 @@ cfg_helpers! {
         ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
         ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static;
 }
+*/
 
 #[cfg(test)]
 mod tests {

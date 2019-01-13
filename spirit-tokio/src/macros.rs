@@ -18,8 +18,6 @@ pub use serde::de::DeserializeOwned;
 #[doc(hidden)]
 pub use spirit::extension::{CfgHelper, IteratedCfgHelper};
 #[doc(hidden)]
-pub use spirit::validation::Results as ValidationResults;
-#[doc(hidden)]
 pub use spirit::Builder;
 #[doc(hidden)]
 pub use structopt::StructOpt;

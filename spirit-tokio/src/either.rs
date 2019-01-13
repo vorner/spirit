@@ -5,11 +5,10 @@ use std::io::{BufRead, Error as IoError, Read, Seek, SeekFrom, Write};
 use failure::Error;
 use futures::future::Either as FutEither;
 use futures::{Async, Future, Poll, Sink, StartSend, Stream};
-use spirit::validation::Results as ValidationResults;
 use spirit::Builder;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use base_traits::{ExtraCfgCarrier, Name, ResourceConfig};
+use base_traits::{ExtraCfgCarrier, Name};
 use net::IntoIncoming;
 
 /// The [`Either`] type allows to wrap two similar [`ResourceConfig`]s and let the user choose
@@ -236,6 +235,8 @@ where
     }
 }
 
+// XXX: Fragment instead?
+/*
 impl<A, B, O, C> ResourceConfig<O, C> for Either<A, B>
 where
     A: ResourceConfig<O, C>,
@@ -270,6 +271,7 @@ where
         B::install(builder, name)
     }
 }
+*/
 
 impl<A, B> IntoIncoming for Either<A, B>
 where

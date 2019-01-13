@@ -517,7 +517,7 @@ spirit::simple_fragment! {
         type Driver = CacheEq<ReqwestClient>;
         type Resource = Client;
         type Installer = ();
-        fn create(&self, _: &str) -> Result<Client, Error> {
+        fn create(&self, _: &'static str) -> Result<Client, Error> {
             self.create_client()
         }
     }
@@ -525,7 +525,8 @@ spirit::simple_fragment! {
 
 impl<O, C> Installer<Client, O, C> for AtomicClient {
     type UninstallHandle = ();
-    fn install(&mut self, client: Client) {
+    fn install(&mut self, client: Client, name: &'static str) {
+        debug!("Installing http client '{}'", name);
         self.replace(client);
     }
 }

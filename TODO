@@ -8,3 +8,5 @@
 * Get rid of the deprecated methods
 
 * unify Order of Opts/Config
+
+* Reintroduce scaling

@@ -196,14 +196,15 @@ extern crate tokio;
 
 pub mod base_traits;
 pub mod either;
+pub mod installer;
 #[macro_use]
 pub mod macros;
 pub mod net;
 pub mod runtime;
-pub mod scaled;
+// pub mod scaled; FIXME
 pub mod utils;
 
-pub use base_traits::{ExtraCfgCarrier, Name, ResourceConfig, ResourceConsumer};
+pub use base_traits::{ExtraCfgCarrier, Name};
 pub use net::{TcpListen, TcpListenWithLimits, UdpListen};
 pub use runtime::Runtime;
-pub use utils::{per_connection, per_connection_init, resource, resources};
+//pub use utils::{per_connection, per_connection_init, resource, resources};

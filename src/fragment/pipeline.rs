@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use failure::Error;
 use parking_lot::Mutex;
+use serde::de::DeserializeOwned;
+use structopt::StructOpt;
 
 use super::driver::{CacheId, CacheInstruction, Driver};
 use super::{Extractor, Fragment, Installer, Transformation};
@@ -27,12 +29,12 @@ where
             _type: PhantomData,
         }
     }
-    fn interpret(&mut self, instruction: CacheInstruction<R>) {
+    fn interpret(&mut self, instruction: CacheInstruction<R>, name: &'static str) {
         match instruction {
             CacheInstruction::DropAll => self.cache.clear(),
             CacheInstruction::DropSpecific(id) => assert!(self.cache.remove(&id).is_some()),
             CacheInstruction::Install { id, resource } => {
-                let handle = self.installer.install(resource);
+                let handle = self.installer.install(resource, name);
                 assert!(self.cache.insert(id, handle).is_none());
             }
         }
@@ -75,7 +77,7 @@ where
 {
     type OutputResource = B::OutputResource;
     type OutputInstaller = B::OutputInstaller;
-    fn installer(&mut self, installer: I, name: &str) -> B::OutputInstaller {
+    fn installer(&mut self, installer: I, name: &'static str) -> B::OutputInstaller {
         let installer = self.0.installer(installer, name);
         self.1.installer(installer, name)
     }
@@ -83,7 +85,7 @@ where
         &mut self,
         resource: R,
         fragment: &S,
-        name: &str,
+        name: &'static str,
     ) -> Result<Self::OutputResource, Error> {
         let resource = self.0.transform(resource, fragment, name)?;
         self.1.transform(resource, fragment, name)
@@ -98,7 +100,7 @@ where
 {
     type OutputResource = T::OutputResource;
     type OutputInstaller = I;
-    fn installer(&mut self, _installer: OI, _: &str) -> I {
+    fn installer(&mut self, _installer: OI, _: &'static str) -> I {
         self.1
             .take()
             .expect("SetInstaller::installer called more than once")
@@ -107,7 +109,7 @@ where
         &mut self,
         resource: R,
         fragment: &S,
-        name: &str,
+        name: &'static str,
     ) -> Result<Self::OutputResource, Error> {
         self.0.transform(resource, fragment, name)
     }
@@ -245,7 +247,7 @@ impl<O, C, T, I, D, E, R, H> CompiledPipeline<O, C, T, I, D, E, R, H> {
     // :-| Borrow checker is not that smart to be able to pass two mutable sub-borrows through the
     // deref trait. So this one allows us to smuggle it through the one on `self` and get the two
     // on the other side.
-    fn explode(&mut self) -> (&str, &mut T, &mut D) {
+    fn explode(&mut self) -> (&'static str, &mut T, &mut D) {
         (self.name, &mut self.transformation, &mut self.driver)
     }
 }
@@ -286,8 +288,9 @@ where
         let success = move || {
             let mut me = me_s.lock();
             me.driver.confirm();
+            let name = me.name;
             for ins in instructions {
-                me.install_cache.interpret(ins);
+                me.install_cache.interpret(ins, name);
             }
         };
         Ok(Action::new().on_abort(failure).on_success(success))
@@ -296,8 +299,8 @@ where
 
 impl<F, B, E, D, T> Extension<B> for Pipeline<F, E, D, T, (B::Opts, B::Config)>
 where
-    B::Config: Send + 'static,
-    B::Opts: Send + 'static,
+    B::Config: DeserializeOwned + Send + Sync + 'static,
+    B::Opts: StructOpt + Send + Sync + 'static,
     B: Extensible<Ok = B>,
     CompiledPipeline<
         B::Opts,
@@ -325,7 +328,7 @@ where
         let mut transformation = self.transformation;
         let mut installer = transformation.installer(Default::default(), self.name);
         builder = F::init(builder, self.name)?;
-        builder = installer.init(builder)?;
+        builder = installer.init(builder, self.name)?;
         let compiled = CompiledPipeline {
             name: self.name,
             driver: self.driver,

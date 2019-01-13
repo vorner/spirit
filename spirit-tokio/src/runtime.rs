@@ -1,6 +1,5 @@
 //! A helper to start the tokio runtime at the appropriate time.
 
-use std::fmt::Debug;
 use std::sync::Arc;
 
 use failure::Error;
@@ -9,8 +8,7 @@ use serde::de::DeserializeOwned;
 use structopt::StructOpt;
 use tokio::runtime;
 
-use spirit::extension::{Configurable, Extension};
-use spirit::Builder;
+use spirit::extension::{Extensible, Extension};
 
 /// A body run on tokio runtime.
 ///
@@ -131,13 +129,15 @@ impl Default for Runtime {
     }
 }
 
-impl<C> Extension<C> for Runtime
+impl<E> Extension<E> for Runtime
 where
-    C: Configurable,
+    E: Extensible<Ok = E>,
+    E::Config: DeserializeOwned + Send + Sync + 'static,
+    E::Opts: StructOpt + Send + Sync + 'static,
 {
-    fn apply(self, cfg: C) -> Result<C, Error> {
+    fn apply(self, ext: E) -> Result<E, Error> {
         trace!("Wrapping in tokio runtime");
-        Ok(cfg.body_wrapper(|spirit, inner| {
+        ext.run_around(|spirit, inner| {
             let spirit = Arc::clone(spirit);
             let fut = future::lazy(move || {
                 inner.run().map_err(move |e| {
@@ -163,6 +163,6 @@ where
                 Runtime::Custom(mut callback) => callback(Box::new(fut)),
                 Runtime::__NonExhaustive__ => unreachable!(),
             }
-        }))
+        })
     }
 }

@@ -58,10 +58,11 @@ pub trait Driver<F: Fragment> {
         &mut self,
         fragment: &F,
         transform: &mut T,
-        name: &str,
+        name: &'static str,
     ) -> Result<Vec<CacheInstruction<T::OutputResource>>, Vec<Error>>
     where
         T: Transformation<<Self::SubFragment as Fragment>::Resource, I, Self::SubFragment>;
+    // XXX: Names here too?
     fn confirm(&mut self);
     fn abort(&mut self);
     fn maybe_cached(&self, frament: &F) -> bool;
@@ -76,7 +77,7 @@ impl<F: Fragment> Driver<F> for TrivialDriver {
         &mut self,
         fragment: &F,
         transform: &mut T,
-        name: &str,
+        name: &'static str,
     ) -> Result<Vec<CacheInstruction<T::OutputResource>>, Vec<Error>>
     where
         T: Transformation<F::Resource, I, F>,
@@ -115,7 +116,7 @@ where
         &mut self,
         fragment: &F,
         transform: &mut T,
-        name: &str,
+        name: &'static str,
     ) -> Result<Vec<CacheInstruction<T::OutputResource>>, Vec<Error>>
     where
         T: Transformation<F::Resource, I, F>,
@@ -270,7 +271,7 @@ impl<'a, F: Fragment, Inner: Driver<F>> Driver<&'a F> for RefDriver<Inner> {
         &mut self,
         fragment: &&F,
         transform: &mut T,
-        name: &str,
+        name: &'static str,
     ) -> Result<Vec<CacheInstruction<T::OutputResource>>, Vec<Error>>
     where
         T: Transformation<<Self::SubFragment as Fragment>::Resource, I, Self::SubFragment>,
@@ -301,7 +302,7 @@ where
         &mut self,
         fragment: &F,
         transform: &mut T,
-        name: &str,
+        name: &'static str,
     ) -> Result<Vec<CacheInstruction<T::OutputResource>>, Vec<Error>>
     where
         T: Transformation<<Self::SubFragment as Fragment>::Resource, Ins, Self::SubFragment>,
@@ -416,7 +417,7 @@ where
         &mut self,
         fragment: &F,
         transform: &mut T,
-        name: &str,
+        name: &'static str,
     ) -> Result<Vec<CacheInstruction<T::OutputResource>>, Vec<Error>>
     where
         T: Transformation<<Self::SubFragment as Fragment>::Resource, I, Self::SubFragment>,

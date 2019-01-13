@@ -816,7 +816,7 @@ pub struct MultiLogInstaller;
 
 impl<O, C> Installer<MultiLog, O, C> for MultiLogInstaller {
     type UninstallHandle = ();
-    fn install(&mut self, logger: MultiLog) {
+    fn install(&mut self, logger: MultiLog, _: &str) {
         logger.install();
     }
 }

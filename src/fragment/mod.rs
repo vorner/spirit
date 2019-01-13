@@ -2,6 +2,8 @@ use std::collections::{BTreeSet, BinaryHeap, HashSet, LinkedList};
 use std::hash::{BuildHasher, Hash};
 
 use failure::Error;
+use serde::de::DeserializeOwned;
+use structopt::StructOpt;
 
 use self::driver::{Driver, RefDriver, SeqDriver};
 use crate::extension::Extensible;
@@ -9,17 +11,21 @@ use crate::extension::Extensible;
 pub mod driver;
 pub mod pipeline;
 
-// TODO: Add logging/trace logs?
-// TODO: Use ValidationResult instead?
+// XXX: Add logging/trace logs?
 
-pub trait Installer<Resource, O, C>: Default {
+pub trait Installer<Resource, O, C> {
     type UninstallHandle: Send + 'static;
-    // TODO: Add names here too
-    fn install(&mut self, resource: Resource) -> Self::UninstallHandle;
+    // XXX: Add names here too
+    fn install(&mut self, resource: Resource, name: &'static str) -> Self::UninstallHandle;
     fn init<B: Extensible<Opts = O, Config = C, Ok = B>>(
         &mut self,
         builder: B,
-    ) -> Result<B, Error> {
+        _name: &'static str,
+    ) -> Result<B, Error>
+    where
+        B::Config: DeserializeOwned + Send + Sync + 'static,
+        B::Opts: StructOpt + Send + Sync + 'static,
+    {
         Ok(builder)
     }
 }
@@ -35,17 +41,22 @@ where
     Slave: Installer<Resource::Item, O, C>,
 {
     type UninstallHandle = Vec<Slave::UninstallHandle>;
-    fn install(&mut self, resource: Resource) -> Self::UninstallHandle {
+    fn install(&mut self, resource: Resource, name: &'static str) -> Self::UninstallHandle {
         resource
             .into_iter()
-            .map(|r| self.slave.install(r))
+            .map(|r| self.slave.install(r, name))
             .collect()
     }
     fn init<B: Extensible<Opts = O, Config = C, Ok = B>>(
         &mut self,
         builder: B,
-    ) -> Result<B, Error> {
-        self.slave.init(builder)
+        name: &'static str,
+    ) -> Result<B, Error>
+    where
+        B::Config: DeserializeOwned + Send + Sync + 'static,
+        B::Opts: StructOpt + Send + Sync + 'static,
+    {
+        self.slave.init(builder, name)
     }
 }
 
@@ -58,13 +69,18 @@ pub trait Fragment: Sized {
     type Seed;
     type Resource;
     const RUN_BEFORE_CONFIG: bool = false;
-    fn make_seed(&self, name: &str) -> Result<Self::Seed, Error>;
-    fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<Self::Resource, Error>;
-    fn create(&self, name: &str) -> Result<Self::Resource, Error> {
+    fn make_seed(&self, name: &'static str) -> Result<Self::Seed, Error>;
+    fn make_resource(&self, seed: &mut Self::Seed, name: &'static str)
+        -> Result<Self::Resource, Error>;
+    fn create(&self, name: &'static str) -> Result<Self::Resource, Error> {
         let mut seed = self.make_seed(name)?;
         self.make_resource(&mut seed, name)
     }
-    fn init<B: Extensible<Ok = B>>(builder: B, _: &str) -> Result<B, Error> {
+    fn init<B: Extensible<Ok = B>>(builder: B, _: &'static str) -> Result<B, Error>
+    where
+        B::Config: DeserializeOwned + Send + Sync + 'static,
+        B::Opts: StructOpt + Send + Sync + 'static,
+    {
         Ok(builder)
     }
 }
@@ -78,13 +94,19 @@ where
     type Seed = F::Seed;
     type Resource = F::Resource;
     const RUN_BEFORE_CONFIG: bool = F::RUN_BEFORE_CONFIG;
-    fn make_seed(&self, name: &str) -> Result<Self::Seed, Error> {
+    fn make_seed(&self, name: &'static str) -> Result<Self::Seed, Error> {
         F::make_seed(*self, name)
     }
-    fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<Self::Resource, Error> {
+    fn make_resource(&self, seed: &mut Self::Seed, name: &'static str)
+        -> Result<Self::Resource, Error>
+    {
         F::make_resource(*self, seed, name)
     }
-    fn init<B: Extensible<Ok = B>>(builder: B, name: &str) -> Result<B, Error> {
+    fn init<B: Extensible<Ok = B>>(builder: B, name: &'static str) -> Result<B, Error>
+    where
+        B::Config: DeserializeOwned + Send + Sync + 'static,
+        B::Opts: StructOpt + Send + Sync + 'static,
+    {
         F::init(builder, name)
     }
 }
@@ -105,10 +127,10 @@ macro_rules! fragment_for_seq {
             type Seed = Vec<$base::Seed>;
             type Resource = Vec<$base::Resource>;
             const RUN_BEFORE_CONFIG: bool = $base::RUN_BEFORE_CONFIG;
-            fn make_seed(&self, name: &str) -> Result<Self::Seed, Error> {
+            fn make_seed(&self, name: &'static str) -> Result<Self::Seed, Error> {
                 self.iter().map(|i| i.make_seed(name)).collect()
             }
-            fn make_resource(&self, seed: &mut Self::Seed, name: &str)
+            fn make_resource(&self, seed: &mut Self::Seed, name: &'static str)
                 -> Result<Self::Resource, Error>
             {
                 self.iter()
@@ -116,7 +138,11 @@ macro_rules! fragment_for_seq {
                     .map(|(i, s)| i.make_resource(s, name))
                     .collect()
             }
-            fn init<B: Extensible<Ok = B>>(builder: B, name: &str) -> Result<B, Error> {
+            fn init<B: Extensible<Ok = B>>(builder: B, name: &'static str) -> Result<B, Error>
+            where
+                B::Config: DeserializeOwned + Send + Sync + 'static,
+                B::Opts: StructOpt + Send + Sync + 'static,
+            {
                 $base::init(builder, name)
             }
         }
@@ -136,14 +162,14 @@ macro_rules! simple_fragment {
     (impl Fragment for $ty: ty {
         type Resource = $resource: ty;
         type Installer = $installer: ty;
-        fn create(&$self: tt, $name: tt: &str) -> $result: ty $block: block
+        fn create(&$self: tt, $name: tt: &'static str) -> $result: ty $block: block
     }) => {
         $crate::simple_fragment! {
             impl Fragment for $ty {
                 type Driver = $crate::fragment::driver::TrivialDriver;
                 type Resource = $resource;
                 type Installer = $installer;
-                fn create(&$self, $name: &str) -> $result $block
+                fn create(&$self, $name: &'static str) -> $result $block
             }
         }
     };
@@ -151,17 +177,17 @@ macro_rules! simple_fragment {
         type Driver = $driver: ty;
         type Resource = $resource: ty;
         type Installer = $installer: ty;
-        fn create(&$self: tt, $name: tt: &str) -> $result: ty $block: block
+        fn create(&$self: tt, $name: tt: &'static str) -> $result: ty $block: block
     }) => {
         impl $crate::fragment::Fragment for $ty {
             type Driver = $driver;
             type Resource = $resource;
             type Installer = $installer;
             type Seed = ();
-            fn make_seed(&self, _: &str) -> Result<(), Error> {
+            fn make_seed(&self, _: &'static str) -> Result<(), Error> {
                 Ok(())
             }
-            fn make_resource(&$self, _: &mut (), $name: &str) -> $result $block
+            fn make_resource(&$self, _: &mut (), $name: &'static str) -> $result $block
         }
     }
 }
@@ -188,11 +214,11 @@ where
 pub trait Transformation<InputResource, InputInstaller, SubFragment> {
     type OutputResource: 'static;
     type OutputInstaller;
-    fn installer(&mut self, installer: InputInstaller, name: &str) -> Self::OutputInstaller;
+    fn installer(&mut self, installer: InputInstaller, name: &'static str) -> Self::OutputInstaller;
     fn transform(
         &mut self,
         resource: InputResource,
         fragment: &SubFragment,
-        name: &str,
+        name: &'static str,
     ) -> Result<Self::OutputResource, Error>;
 }
