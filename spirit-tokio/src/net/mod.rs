@@ -30,8 +30,8 @@ use tokio::reactor::Handle;
 
 // use scaled::{Scale, Scaled};
 
-/* XXX: Re-enable
 pub mod limits;
+/* XXX: Re-enable
 #[cfg(unix)]
 pub mod unix;
 */

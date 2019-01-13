@@ -7,7 +7,6 @@
 //!
 //! This module provides tools to address these problems.
 
-use std::fmt::Debug;
 use std::io::{Error as IoError, Read, Write};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -17,14 +16,16 @@ use std::time::Duration;
 use failure::Error;
 use futures::task::AtomicTask;
 use futures::{Async, Poll, Stream};
+use serde::de::DeserializeOwned;
 use serde::ser::Serializer;
-use spirit::validation::Results as ValidationResults;
-use spirit::Builder;
+use spirit::extension::Extensible;
+use spirit::fragment::driver::TrivialDriver;
+use spirit::fragment::Fragment;
+use structopt::StructOpt;
 use tk_listen::{ListenExt, SleepOnError};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::IntoIncoming;
-use base_traits::{ExtraCfgCarrier, Name, ResourceConfig};
 
 /// Additional configuration for limiting of connections & error handling when accepting.
 ///
@@ -33,13 +34,6 @@ use base_traits::{ExtraCfgCarrier, Name, ResourceConfig};
 /// If you don't like how/where it gets the configuration, you can provide your own implementation
 /// of this trait. It'll implement the [`ResourceConfig`].
 pub trait ListenLimits {
-    /// The configuration/[`ResourceConfig`] of the real inner listener to handle errors and limits
-    /// on.
-    type Listener;
-
-    /// Access to the listener configuration.
-    fn listener(&self) -> &Self::Listener;
-
     /// How long to sleep when error happens.
     fn error_sleep(&self) -> Duration;
 
@@ -50,32 +44,44 @@ pub trait ListenLimits {
     fn max_conn(&self) -> usize;
 }
 
-impl<O, C, Limited> ResourceConfig<O, C> for Limited
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, StructDoc)]
+pub struct WithListenLimits<Listener, Limits> {
+    #[serde(flatten)]
+    listener: Listener,
+
+    #[serde(flatten)]
+    limits: Limits,
+}
+
+impl<Listener, Limits> Fragment for WithListenLimits<Listener, Limits>
 where
-    Limited: ListenLimits + Debug + ExtraCfgCarrier + PartialEq + Send + Sync + 'static,
-    Limited::Listener: ResourceConfig<O, C>,
+    Listener: Fragment,
+    Limits: ListenLimits,
 {
-    type Seed = <Limited::Listener as ResourceConfig<O, C>>::Seed;
-    type Resource = LimitedListener<<Limited::Listener as ResourceConfig<O, C>>::Resource>;
-    fn create(&self, name: &str) -> Result<Self::Seed, Error> {
-        self.listener().create(name)
+    type Driver = TrivialDriver; // XXX Some real one
+    type Installer = ();
+    type Seed = Listener::Seed;
+    type Resource = LimitedListener<Listener::Resource>;
+    const RUN_BEFORE_CONFIG: bool = Listener::RUN_BEFORE_CONFIG;
+    fn make_seed(&self, name: &'static str) -> Result<Self::Seed, Error> {
+        self.listener.make_seed(name)
     }
-    fn fork(&self, seed: &Self::Seed, name: &str) -> Result<Self::Resource, Error> {
-        let inner = self.listener().fork(seed, name)?;
+    fn make_resource(&self, seed: &mut Self::Seed, name: &'static str)
+        -> Result<Self::Resource, Error>
+    {
+        let inner = self.listener.make_resource(seed, name)?;
         Ok(LimitedListener {
             inner,
-            error_sleep: self.error_sleep(),
-            max_conn: self.max_conn(),
+            error_sleep: self.limits.error_sleep(),
+            max_conn: self.limits.max_conn(),
         })
     }
-    fn scaled(&self, name: &str) -> (usize, ValidationResults) {
-        self.listener().scaled(name)
-    }
-    fn is_similar(&self, other: &Self, name: &str) -> bool {
-        self.listener().is_similar(&other.listener(), name)
-    }
-    fn install<N: Name>(builder: Builder<O, C>, name: &N) -> Builder<O, C> {
-        Limited::Listener::install(builder, name)
+    fn init<B: Extensible<Ok = B>>(builder: B, name: &'static str) -> Result<B, Error>
+    where
+        B::Config: DeserializeOwned + Send + Sync + 'static,
+        B::Opts: StructOpt + Send + Sync + 'static,
+    {
+        Listener::init(builder, name)
     }
 }
 
@@ -123,10 +129,7 @@ fn serialize_duration<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Err
 /// [`Scaled`]: ::scaled::Scaled
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
-pub struct WithListenLimits<Listener> {
-    #[serde(flatten)]
-    inner: Listener,
-
+pub struct Limits {
     /// How long to wait before trying again after an error.
     ///
     /// Some errors when accepting are simply ignored (eg. the connection was closed by the other
@@ -154,21 +157,16 @@ pub struct WithListenLimits<Listener> {
     max_conn: Option<usize>,
 }
 
-impl<Listener: Default> Default for WithListenLimits<Listener> {
+impl Default for Limits {
     fn default() -> Self {
         Self {
-            inner: Listener::default(),
             error_sleep: default_error_sleep(),
             max_conn: None,
         }
     }
 }
 
-impl<Listener> ListenLimits for WithListenLimits<Listener> {
-    type Listener = Listener;
-    fn listener(&self) -> &Listener {
-        &self.inner
-    }
+impl ListenLimits for Limits {
     fn error_sleep(&self) -> Duration {
         self.error_sleep
     }
@@ -177,6 +175,7 @@ impl<Listener> ListenLimits for WithListenLimits<Listener> {
     }
 }
 
+/* XXX
 delegate_resource_traits! {
     delegate ExtraCfgCarrier to inner on WithListenLimits;
 }
@@ -184,6 +183,7 @@ delegate_resource_traits! {
 cfg_helpers! {
     impl helpers for WithListenLimits<Listener> where;
 }
+*/
 
 /// Wrapper around a listener instance.
 ///
