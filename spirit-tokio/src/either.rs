@@ -2,13 +2,11 @@
 
 use std::io::{BufRead, Error as IoError, Read, Seek, SeekFrom, Write};
 
-use failure::Error;
 use futures::future::Either as FutEither;
 use futures::{Async, Future, Poll, Sink, StartSend, Stream};
-use spirit::Builder;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use base_traits::{ExtraCfgCarrier, Name};
+use base_traits::ExtraCfgCarrier;
 use net::IntoIncoming;
 
 /// The [`Either`] type allows to wrap two similar [`ResourceConfig`]s and let the user choose

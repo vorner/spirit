@@ -1,10 +1,10 @@
 use failure::Error;
-use futures::{Future, IntoFuture, Stream};
 use futures::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use futures::sync::oneshot::{self, Receiver, Sender};
+use futures::{Future, IntoFuture, Stream};
 use serde::de::DeserializeOwned;
-use spirit::fragment::Installer;
 use spirit::extension::Extensible;
+use spirit::fragment::Installer;
 use structopt::StructOpt;
 
 use runtime::Runtime;
@@ -41,7 +41,8 @@ where
     fn spawn(self, name: &'static str) {
         let drop_req = self.drop_req;
         let confirm_drop = self.confirm_drop;
-        let fut = self.resource
+        let fut = self
+            .resource
             .into_future()
             .map_err(move |()| error!("{} unexpectedly failed", name))
             .select(drop_req.map_err(|_| ()))
@@ -88,7 +89,10 @@ where
             confirm_drop: confirm_send,
         });
         if sent.is_err() {
-            warn!("Remote installer end of {} no longer listens (shutting down?)", name);
+            warn!(
+                "Remote installer end of {} no longer listens (shutting down?)",
+                name
+            );
         }
         RemoteDrop {
             name,
@@ -110,11 +114,9 @@ where
             install.spawn(name);
             Ok(())
         });
-        builder
-            .with_singleton(Runtime::default())
-            .run_before(|_| {
-                tokio::spawn(installer);
-                Ok(())
-            })
+        builder.with_singleton(Runtime::default()).run_before(|_| {
+            tokio::spawn(installer);
+            Ok(())
+        })
     }
 }

@@ -22,7 +22,7 @@ use serde::de::{Deserialize, Deserializer, Error as DeError, Unexpected};
 use serde::ser::{Serialize, Serializer};
 use serde_humantime;
 use spirit::fragment::driver::TrivialDriver;
-use spirit::fragment::Fragment;
+use spirit::fragment::{Fragment, Stackable};
 use spirit::Empty;
 use tokio::net::tcp::Incoming;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
@@ -523,6 +523,8 @@ pub struct TcpListen<ExtraCfg = Empty, TcpStreamConfigure = TcpConfig> {
     extra_cfg: ExtraCfg,
 }
 
+impl<ExtraCfg, TcpConfig> Stackable for TcpListen<ExtraCfg, TcpConfig> {}
+
 impl<ExtraCfg, TcpConfig> Fragment for TcpListen<ExtraCfg, TcpConfig>
 where
     ExtraCfg: Clone + Debug,
@@ -588,6 +590,8 @@ pub struct UdpListen<ExtraCfg = Empty> {
     #[serde(flatten)]
     extra_cfg: ExtraCfg,
 }
+
+impl<ExtraCfg> Stackable for UdpListen<ExtraCfg> {}
 
 impl<ExtraCfg> Fragment for UdpListen<ExtraCfg>
 where

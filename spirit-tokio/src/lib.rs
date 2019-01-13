@@ -3,7 +3,7 @@
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
-#![warn(missing_docs)]
+// #![warn(missing_docs)] XXX
 
 //! A collection of helpers integrating tokio primitives into [spirit].
 //!
@@ -176,6 +176,7 @@
 #[cfg(test)]
 extern crate corona;
 extern crate failure;
+#[macro_use]
 extern crate futures;
 extern crate humantime;
 #[macro_use]
@@ -196,15 +197,18 @@ extern crate tokio;
 
 pub mod base_traits;
 pub mod either;
+pub mod handlers;
 pub mod installer;
 #[macro_use]
 pub mod macros;
 pub mod net;
 pub mod runtime;
 // pub mod scaled; FIXME
-pub mod utils;
 
 pub use base_traits::{ExtraCfgCarrier, Name};
+pub use handlers::{
+    handle_listener, handle_listener_init, handle_listener_simple, handle_socket,
+    handle_socket_simple,
+};
 pub use net::{TcpListen, TcpListenWithLimits, UdpListen};
 pub use runtime::Runtime;
-//pub use utils::{per_connection, per_connection_init, resource, resources};
