@@ -556,14 +556,10 @@ where
 /// This doesn't configure much more than the minimum actually needed.
 pub type MinimalTcpListen<ExtraCfg = Empty> = TcpListen<ExtraCfg, Empty>;
 
-/*
- * XXX: Re-enable
 /// Convenience type alias for configuration fragment for TCP listening socket with handling of
 /// accept errors and limiting number of current connections.
 pub type TcpListenWithLimits<ExtraCfg = Empty, TcpStreamConfigure = TcpConfig> =
-    limits::WithListenLimits<TcpListen<ExtraCfg, TcpStreamConfigure>>;
-    */
-pub type TcpListenWithLimits = ();
+    limits::WithLimits<TcpListen<ExtraCfg, TcpStreamConfigure>>;
 
 /// A configuration fragment describing a bound UDP socket.
 ///

@@ -18,6 +18,7 @@ where
     F: FnMut(Socket, &SubFragment) -> Result<R, Error>,
     R: 'static,
     SubFragment: Debug,
+    R: IntoFuture<Item = (), Error = ()>,
 {
     type OutputResource = R;
     type OutputInstaller = FutureInstaller<R>;
@@ -31,7 +32,7 @@ where
     }
 }
 
-struct Acceptor<Incoming, Ctx, F> {
+pub struct Acceptor<Incoming, Ctx, F> {
     name: &'static str,
     incoming: Incoming,
     ctx: Ctx,
@@ -75,7 +76,7 @@ where
 }
 
 #[derive(Clone, Debug)]
-struct HandleListenerInit<I, F>(I, F);
+pub struct HandleListenerInit<I, F>(pub I, pub F);
 
 impl<Listener, InputInstaller, SubFragment, I, Ctx, F, Fut>
     Transformation<Listener, InputInstaller, SubFragment> for HandleListenerInit<I, F>
@@ -83,6 +84,8 @@ where
     Listener: IntoIncoming,
     I: FnMut(&mut Listener, &SubFragment) -> Result<Ctx, Error>,
     F: Fn(Listener::Connection, &mut Ctx) -> Fut + Clone + 'static,
+    Fut: IntoFuture<Item = ()>,
+    Fut::Error: Into<Error>,
     SubFragment: Debug,
     Ctx: 'static,
 {
@@ -117,6 +120,7 @@ where
     F: FnMut(Socket, &SubFragment) -> Result<Fut, Error>,
     Fut: 'static,
     SubFragment: Debug,
+    Fut: IntoFuture<Item = (), Error = ()>,
 {
     HandleSocket(f)
 }
@@ -128,6 +132,7 @@ where
     F: FnMut(Socket) -> Result<Fut, Error>,
     Fut: 'static,
     SubFragment: Debug,
+    Fut: IntoFuture<Item = (), Error = ()>,
 {
     let wrapper = move |sock: Socket, _cfg: &SubFragment| f(sock);
     handle_socket(wrapper)
@@ -141,6 +146,8 @@ where
     Listener: IntoIncoming,
     I: FnMut(&mut Listener, &SubFragment) -> Result<Ctx, Error>,
     F: Fn(Listener::Connection, &mut Ctx) -> Fut + 'static,
+    Fut: IntoFuture<Item = ()>,
+    Fut::Error: Into<Error>,
     SubFragment: Debug,
     Ctx: 'static,
 {
@@ -155,6 +162,8 @@ pub fn handle_listener<InputInstaller, Listener, SubFragment, F, Fut>(
 where
     Listener: IntoIncoming,
     F: Fn(Listener::Connection, &SubFragment) -> Fut + 'static,
+    Fut: IntoFuture<Item = ()>,
+    Fut::Error: Into<Error>,
     SubFragment: Clone + Debug + 'static,
 {
     let init =
@@ -169,6 +178,8 @@ pub fn handle_listener_simple<InputInstaller, Listener, SubFragment, F, Fut>(
 where
     Listener: IntoIncoming,
     F: Fn(Listener::Connection) -> Fut + 'static,
+    Fut: IntoFuture<Item = ()>,
+    Fut::Error: Into<Error>,
     SubFragment: Debug,
 {
     let init = |_: &mut Listener, _: &SubFragment| -> Result<(), Error> { Ok(()) };

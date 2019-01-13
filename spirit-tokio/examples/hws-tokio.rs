@@ -26,7 +26,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use failure::Error;
-use spirit::{Empty, Spirit};
+use spirit::prelude::*;
 use spirit_tokio::net::limits::LimitedConn;
 use spirit_tokio::TcpListenWithLimits;
 use tokio::net::TcpStream;
@@ -70,18 +70,19 @@ msg = "Hello world"
 
 /// Handle one connection, the tokio way.
 fn handle_connection(
-    spirit: &Arc<Spirit<Empty, Config>>,
-    _conf: &Arc<TcpListenWithLimits>,
+    //spirit: &Arc<Spirit<Empty, Config>>,
     conn: LimitedConn<TcpStream>,
-    _name: &str,
 ) -> impl Future<Item = (), Error = Error> {
     let addr = conn
         .peer_addr()
         .map(|addr| addr.to_string())
         .unwrap_or_else(|_| "<unknown>".to_owned());
     debug!("Handling connection {}", addr);
+    /*
     let mut msg = spirit.config().ui.msg.clone().into_bytes();
     msg.push(b'\n');
+    */
+    let msg = "Hello";
     tokio::io::write_all(conn, msg)
         .map(|_| ()) // Throw away the connection and close it
         .or_else(move |e| {
@@ -92,13 +93,10 @@ fn handle_connection(
 
 pub fn main() {
     env_logger::init();
+    let init = spirit_tokio::handlers::HandleListenerInit(|_, _| (), |conn, _| handle_connection(conn));
     Spirit::<Empty, Config>::new()
         .config_defaults(DEFAULT_CONFIG)
         .config_exts(&["toml", "ini", "json"])
-        .config_helper(
-            Config::listen,
-            spirit_tokio::per_connection(handle_connection),
-            "listen",
-        )
+        .with(Pipeline::new("listen").extract_cfg(Config::listen).transform(init).check())
         .run(|_| Ok(()));
 }
