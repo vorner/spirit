@@ -206,9 +206,6 @@ pub mod runtime;
 // pub mod scaled; FIXME
 
 pub use base_traits::{ExtraCfgCarrier, Name};
-pub use handlers::{
-    handle_listener, handle_listener_init, handle_listener_simple, handle_socket,
-    handle_socket_simple,
-};
+pub use handlers::{HandleListener, HandleListenerInit, HandleSocket};
 pub use net::{TcpListen, TcpListenWithLimits, UdpListen};
 pub use runtime::Runtime;

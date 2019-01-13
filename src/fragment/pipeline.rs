@@ -232,6 +232,14 @@ where
         }
     }
 
+    pub fn check(self) -> Self
+    where
+        D::SubFragment: Fragment,
+        T::OutputInstaller: Installer<T::OutputResource, O, C>,
+    {
+        self
+    }
+
     // TODO: add_installer
 }
 

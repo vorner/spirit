@@ -26,9 +26,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use failure::Error;
-use spirit::{Empty, Spirit};
+use spirit::prelude::*;
 use spirit_tokio::net::limits::LimitedConn;
-use spirit_tokio::TcpListenWithLimits;
+use spirit_tokio::{HandleListener, TcpListenWithLimits};
+use spirit_tokio::runtime::Runtime;
 use tokio::net::TcpStream;
 use tokio::prelude::*;
 
@@ -49,8 +50,8 @@ struct Config {
 
 impl Config {
     /// A function to extract the tcp ports configuration.
-    fn listen(&self) -> HashSet<TcpListenWithLimits> {
-        self.listen.clone()
+    fn listen(&self) -> &HashSet<TcpListenWithLimits> {
+        &self.listen
     }
 }
 
@@ -71,9 +72,7 @@ msg = "Hello world"
 /// Handle one connection, the tokio way.
 fn handle_connection(
     spirit: &Arc<Spirit<Empty, Config>>,
-    _conf: &Arc<TcpListenWithLimits>,
     conn: LimitedConn<TcpStream>,
-    _name: &str,
 ) -> impl Future<Item = (), Error = Error> {
     let addr = conn
         .peer_addr()
@@ -95,10 +94,12 @@ pub fn main() {
     Spirit::<Empty, Config>::new()
         .config_defaults(DEFAULT_CONFIG)
         .config_exts(&["toml", "ini", "json"])
-        .config_helper(
-            Config::listen,
-            spirit_tokio::per_connection(handle_connection),
-            "listen",
-        )
-        .run(|_| Ok(()));
+        .with_singleton(Runtime::default())
+        .run(|spirit| {
+            let spirit_handler = Arc::clone(spirit);
+            let handler =
+                HandleListener(move |conn, _: &_| handle_connection(&spirit_handler, conn));
+            spirit.with(Pipeline::new("listen").extract_cfg(Config::listen).transform(handler))?;
+            Ok(())
+        });
 }

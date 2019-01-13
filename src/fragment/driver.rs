@@ -10,6 +10,8 @@ use log::{trace, warn};
 
 use super::{Fragment, Transformation};
 
+// XXX: Rename stuff so we don't have Driver in everything
+
 #[derive(Debug)]
 pub struct IdGen(u128);
 
@@ -241,7 +243,7 @@ pub struct SeqDriver<Item, SlaveDriver> {
     sub_drivers: Vec<ItemDriver<SlaveDriver>>,
     transaction_open: bool,
     // TODO: Can we actually get rid of this?
-    _item: PhantomData<Fn(&Item)>,
+    _item: PhantomData<fn(&Item)>,
 }
 
 // The derived Default balks on Item: !Default, but we *don't* need that

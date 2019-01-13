@@ -20,7 +20,7 @@ use serde::de::DeserializeOwned;
 use serde::ser::Serializer;
 use spirit::extension::Extensible;
 use spirit::fragment::driver::TrivialDriver;
-use spirit::fragment::Fragment;
+use spirit::fragment::{Fragment, Stackable};
 use structopt::StructOpt;
 use tk_listen::{ListenExt, SleepOnError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -44,7 +44,7 @@ pub trait ListenLimits {
     fn max_conn(&self) -> usize;
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, StructDoc)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, StructDoc)]
 pub struct WithListenLimits<Listener, Limits> {
     #[serde(flatten)]
     listener: Listener,
@@ -52,6 +52,13 @@ pub struct WithListenLimits<Listener, Limits> {
     #[serde(flatten)]
     limits: Limits,
 }
+
+pub type WithLimits<Listener> = WithListenLimits<Listener, Limits>;
+
+impl<Listener, Limits> Stackable for WithListenLimits<Listener, Limits>
+where
+    Listener: Stackable
+{}
 
 impl<Listener, Limits> Fragment for WithListenLimits<Listener, Limits>
 where
