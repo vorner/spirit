@@ -77,6 +77,7 @@ where
     type Installer = F::Installer;
     type Seed = F::Seed;
     type Resource = F::Resource;
+    const RUN_BEFORE_CONFIG: bool = F::RUN_BEFORE_CONFIG;
     fn make_seed(&self, name: &str) -> Result<Self::Seed, Error> {
         F::make_seed(*self, name)
     }
@@ -103,6 +104,7 @@ macro_rules! fragment_for_seq {
             type Installer = SeqInstaller<$base::Installer>;
             type Seed = Vec<$base::Seed>;
             type Resource = Vec<$base::Resource>;
+            const RUN_BEFORE_CONFIG: bool = $base::RUN_BEFORE_CONFIG;
             fn make_seed(&self, name: &str) -> Result<Self::Seed, Error> {
                 self.iter().map(|i| i.make_seed(name)).collect()
             }
