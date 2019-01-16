@@ -7,6 +7,11 @@
   share the code somehow? Macro?
 * Get rid of the deprecated methods
 
+* Error logging: allow specifying the level, allow single-line format
+* Where are all the errors if validation of config fails? One of them seems to
+  be missing somewhere (or maybe all and that's only what gets printed in case
+  it bubbles one level up).
+
 * unify Order of Opts/Config
 
 * Reintroduce scaling
