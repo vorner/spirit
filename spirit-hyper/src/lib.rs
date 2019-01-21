@@ -78,20 +78,21 @@ extern crate spirit_tokio;
 extern crate structdoc;
 extern crate tokio;
 
-use std::error::Error;
 use std::sync::Arc;
 
-use failure::Error as FailError;
+use failure::Error;
 use futures::sync::oneshot::{self, Sender};
 use futures::{Async, Future, IntoFuture, Poll};
 use hyper::body::Payload;
-use hyper::server::Server;
+use hyper::server::{Builder, Server};
 use hyper::service::{MakeService, Service};
 use hyper::{Body, Request, Response};
-use spirit::{Empty, Spirit};
-use spirit_tokio::net::limits::WithListenLimits;
+use spirit::Empty;
+use spirit::fragment::driver::TrivialDriver;
+use spirit::fragment::{Fragment, Transformation};
+use spirit_tokio::net::limits::WithLimits;
 use spirit_tokio::net::IntoIncoming;
-use spirit_tokio::{ResourceConfig, ResourceConsumer, TcpListen};
+use spirit_tokio::TcpListen;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 /// Used to signal the graceful shutdown to hyper server.
@@ -105,7 +106,7 @@ impl Drop for SendOnDrop {
 
 impl Future for SendOnDrop {
     type Item = ();
-    type Error = FailError;
+    type Error = Error;
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         Ok(Async::NotReady)
     }
@@ -123,9 +124,10 @@ impl Future for SendOnDrop {
 ///
 /// There are also functions similar to [`server`] which forgo some flexibility in favor of
 /// convenience.
-pub trait ConfiguredMakeService<O, C, Cfg>: Send + Sync + 'static
+pub trait ConfiguredMakeService<Cfg>: Send + Sync + 'static
 where
-    Cfg: ResourceConfig<O, C>,
+    Cfg: Fragment,
+    Cfg::Resource: IntoIncoming,
 {
     /// The type of `MakeService` created.
     type MakeService;
@@ -134,36 +136,45 @@ where
     ///
     /// # Parameters
     ///
-    /// * `spirit`: The spirit instance.
     /// * `cfg`: The configuration fragment that caused creation of the server.
     /// * `resource`: The acceptor (eg. `TcpListener::accept`) the server will use.
     /// * `name`: Logging name.
     fn make(
         &self,
-        spirit: &Arc<Spirit<O, C>>,
-        cfg: &Arc<Cfg>,
-        resource: &Cfg::Resource,
-        name: &str,
+        cfg: &Cfg,
+        resource: &<Cfg::Resource as IntoIncoming>::Incoming,
+        name: &'static str,
     ) -> Self::MakeService;
 }
 
-impl<O, C, Cfg, F, R> ConfiguredMakeService<O, C, Cfg> for F
+impl<Cfg, F, R> ConfiguredMakeService<Cfg> for F
 where
-    Cfg: ResourceConfig<O, C>,
-    F: Fn(&Arc<Spirit<O, C>>, &Arc<Cfg>, &Cfg::Resource, &str) -> R + Send + Sync + 'static,
+    Cfg: Fragment,
+    Cfg::Resource: IntoIncoming,
+    F: Fn(&Cfg, &<Cfg::Resource as IntoIncoming>::Incoming, &'static str) -> R,
+    F: Send + Sync + 'static,
 {
     type MakeService = R;
     fn make(
         &self,
-        spirit: &Arc<Spirit<O, C>>,
-        cfg: &Arc<Cfg>,
-        resource: &Cfg::Resource,
-        name: &str,
+        cfg: &Cfg,
+        resource: &<Cfg::Resource as IntoIncoming>::Incoming,
+        name: &'static str,
     ) -> R {
-        self(spirit, cfg, resource, name)
+        self(cfg, resource, name)
     }
 }
 
+impl<Cfg, I, Installer, CMS> Transformation<Builder<I>, Installer, Cfg> for CMS
+where
+    Cfg: Fragment,
+    Cfg::Resource: IntoIncoming<Incoming = I>,
+    CMS: ConfiguredMakeService<Cfg>,
+{
+
+}
+
+/*
 /// Creates a [`ResourceConsumer`] from a [`ConfiguredMakeService`].
 ///
 /// This is the lowest level constructor of the hyper resource consumers, when the full flexibility
@@ -444,6 +455,7 @@ where
     };
     server(configure_service)
 }
+*/
 
 fn default_on() -> bool {
     true
@@ -545,6 +557,38 @@ impl<Transport: Default> Default for HyperServer<Transport> {
     }
 }
 
+impl<Transport> Fragment for HyperServer<Transport>
+where
+    Transport: Fragment,
+    Transport::Resource: IntoIncoming,
+{
+    type Driver = TrivialDriver; // XXX
+    type Installer = ();
+    type Seed = Transport::Seed;
+    type Resource = Builder<<<Transport as Fragment>::Resource as IntoIncoming>::Incoming>;
+    fn make_seed(&self, name: &'static str) -> Result<Self::Seed, Error> {
+        self.transport.make_seed(name)
+    }
+    fn make_resource(&self, seed: &mut Self::Seed, name: &'static str)
+        -> Result<Self::Resource, Error>
+    {
+        debug!("Creating HTTP server {}", name);
+        let (h1_only, h2_only) = match self.http_mode.http_mode {
+            HttpMode::Both => (false, false),
+            HttpMode::Http1Only => (true, false),
+            HttpMode::Http2Only => (false, true),
+        };
+        let transport = self.transport.make_resource(seed, name)?;
+        let builder = Server::builder(transport.into_incoming())
+            .http1_keepalive(self.http1_keepalive)
+            .http1_writev(self.http1_writev)
+            .http1_only(h1_only)
+            .http2_only(h2_only);
+        Ok(builder)
+    }
+}
+
+/*
 delegate_resource_traits! {
     delegate ResourceConfig, ExtraCfgCarrier to transport on HyperServer;
 }
@@ -552,6 +596,7 @@ delegate_resource_traits! {
 cfg_helpers! {
     impl helpers for HyperServer<Transport> where;
 }
+*/
 
 /// A type alias for http (plain TCP) hyper server.
-pub type HttpServer<ExtraCfg = Empty> = HyperServer<WithListenLimits<TcpListen<ExtraCfg>>>;
+pub type HttpServer<ExtraCfg = Empty> = HyperServer<WithLimits<TcpListen<ExtraCfg>>>;
