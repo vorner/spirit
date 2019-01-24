@@ -71,46 +71,30 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate spirit;
-#[macro_use]
 extern crate spirit_tokio;
 #[cfg(feature = "cfg-help")]
 #[macro_use]
 extern crate structdoc;
 extern crate tokio;
 
-use std::sync::Arc;
+use std::error::Error as EError;
+use std::io::Error as IoError;
 
-use failure::Error;
-use futures::sync::oneshot::{self, Sender};
-use futures::{Async, Future, IntoFuture, Poll};
+use failure::{Error, Fail};
+use futures::sync::oneshot::{self, Receiver, Sender};
+use futures::{Async, Future, Poll, Stream};
 use hyper::body::Payload;
 use hyper::server::{Builder, Server};
-use hyper::service::{MakeService, Service};
-use hyper::{Body, Request, Response};
+use hyper::service::{MakeServiceRef, Service};
+use hyper::Body;
 use spirit::Empty;
 use spirit::fragment::driver::TrivialDriver;
 use spirit::fragment::{Fragment, Transformation};
+use spirit_tokio::installer::FutureInstaller;
 use spirit_tokio::net::limits::WithLimits;
 use spirit_tokio::net::IntoIncoming;
 use spirit_tokio::TcpListen;
 use tokio::io::{AsyncRead, AsyncWrite};
-
-/// Used to signal the graceful shutdown to hyper server.
-struct SendOnDrop(Option<Sender<()>>);
-
-impl Drop for SendOnDrop {
-    fn drop(&mut self) {
-        let _ = self.0.take().unwrap().send(());
-    }
-}
-
-impl Future for SendOnDrop {
-    type Item = ();
-    type Error = Error;
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        Ok(Async::NotReady)
-    }
-}
 
 /// Factory for [`MakeService`] implementations.
 ///
@@ -127,7 +111,6 @@ impl Future for SendOnDrop {
 pub trait ConfiguredMakeService<Cfg>: Send + Sync + 'static
 where
     Cfg: Fragment,
-    Cfg::Resource: IntoIncoming,
 {
     /// The type of `MakeService` created.
     type MakeService;
@@ -142,7 +125,6 @@ where
     fn make(
         &self,
         cfg: &Cfg,
-        resource: &<Cfg::Resource as IntoIncoming>::Incoming,
         name: &'static str,
     ) -> Self::MakeService;
 }
@@ -150,21 +132,20 @@ where
 impl<Cfg, F, R> ConfiguredMakeService<Cfg> for F
 where
     Cfg: Fragment,
-    Cfg::Resource: IntoIncoming,
-    F: Fn(&Cfg, &<Cfg::Resource as IntoIncoming>::Incoming, &'static str) -> R,
+    F: Fn(&Cfg, &'static str) -> R,
     F: Send + Sync + 'static,
 {
     type MakeService = R;
     fn make(
         &self,
         cfg: &Cfg,
-        resource: &<Cfg::Resource as IntoIncoming>::Incoming,
         name: &'static str,
     ) -> R {
-        self(cfg, resource, name)
+        self(cfg, name)
     }
 }
 
+/*
 impl<Cfg, I, Installer, CMS> Transformation<Builder<I>, Installer, Cfg> for CMS
 where
     Cfg: Fragment,
@@ -173,6 +154,7 @@ where
 {
 
 }
+*/
 
 /*
 /// Creates a [`ResourceConsumer`] from a [`ConfiguredMakeService`].
@@ -600,3 +582,80 @@ cfg_helpers! {
 
 /// A type alias for http (plain TCP) hyper server.
 pub type HttpServer<ExtraCfg = Empty> = HyperServer<WithLimits<TcpListen<ExtraCfg>>>;
+
+struct ActivateInner<Transport, MS> {
+    builder: Builder<Transport>,
+    make_service: MS,
+    receiver: Receiver<()>,
+}
+
+pub struct Activate<Transport, MS> {
+    inner: Option<ActivateInner<Transport, MS>>,
+    sender: Option<Sender<()>>,
+    name: &'static str,
+}
+
+impl<Transport, MS> Drop for Activate<Transport, MS> {
+    fn drop(&mut self) {
+        // Tell the server to terminate
+        let _ = self.sender.take().expect("Dropped multiple times").send(());
+    }
+}
+
+impl<Transport, MS, B> Future for Activate<Transport, MS>
+where
+    Transport: Stream<Error = IoError> + Send + Sync + 'static,
+    Transport::Item: AsyncRead + AsyncWrite + Send + Sync,
+    MS: MakeServiceRef<Transport::Item, ReqBody = Body, ResBody = B> + Send + 'static,
+    MS::Error: Into<Box<dyn EError + Send + Sync>>,
+    MS::Future: Send + Sync + 'static,
+    <MS::Future as Future>::Error: EError + Send + Sync,
+    MS::Service: Send + 'static,
+    <MS::Service as Service>::Future: Send + Sync,
+    B: Payload,
+{
+    type Item = ();
+    type Error = ();
+    fn poll(&mut self) -> Poll<(), ()> {
+        if let Some(inner) = self.inner.take() {
+            let name = self.name;
+            let server = inner
+                .builder
+                .serve(inner.make_service)
+                .with_graceful_shutdown(inner.receiver)
+                .map_err(move |e| {
+                    spirit::log_error(module_path!(), &e.context(format!("HTTP server {} failed", name)).into());
+                });
+            tokio::spawn(server);
+        }
+        Ok(Async::NotReady)
+    }
+}
+
+pub struct Handler<CMS>(pub CMS);
+
+impl<Transport, Inst, CMS> Transformation<Builder<<<Transport as Fragment>::Resource as IntoIncoming>::Incoming>, Inst, HyperServer<Transport>> for Handler<CMS>
+where
+    Transport: Fragment + 'static,
+    Transport::Resource: IntoIncoming,
+    CMS: ConfiguredMakeService<HyperServer<Transport>>,
+{
+    type OutputResource = Activate<<<Transport as Fragment>::Resource as IntoIncoming>::Incoming, CMS::MakeService>;
+    type OutputInstaller = FutureInstaller<Self::OutputResource>;
+    fn installer(&mut self, _ii: Inst, _name: &'static str) -> Self::OutputInstaller {
+        FutureInstaller::default()
+    }
+    fn transform(&mut self, builder: Builder<<<Transport as Fragment>::Resource as IntoIncoming>::Incoming>, cfg: &HyperServer<Transport>, name: &'static str) -> Result<Self::OutputResource, Error> {
+        let (sender, receiver) = oneshot::channel();
+        let make_service = self.0.make(cfg, name);
+        Ok(Activate {
+            inner: Some(ActivateInner {
+                builder,
+                make_service,
+                receiver,
+            }),
+            sender: Some(sender),
+            name,
+        })
+    }
+}
