@@ -584,8 +584,7 @@ cfg_helpers! {
 pub type HttpServer<ExtraCfg = Empty> = HyperServer<WithLimits<TcpListen<ExtraCfg>>>;
 
 struct ActivateInner<Transport, MS> {
-    builder: Builder<Transport>,
-    make_service: MS,
+    server: Server<Transport, MS>,
     receiver: Receiver<()>,
 }
 
@@ -620,8 +619,7 @@ where
         if let Some(inner) = self.inner.take() {
             let name = self.name;
             let server = inner
-                .builder
-                .serve(inner.make_service)
+                .server
                 .with_graceful_shutdown(inner.receiver)
                 .map_err(move |e| {
                     spirit::log_error(module_path!(), &e.context(format!("HTTP server {} failed", name)).into());
@@ -632,26 +630,29 @@ where
     }
 }
 
-pub struct Handler<CMS>(pub CMS);
+pub struct BuildServer<BS>(pub BS);
 
-impl<Transport, Inst, CMS> Transformation<Builder<<<Transport as Fragment>::Resource as IntoIncoming>::Incoming>, Inst, HyperServer<Transport>> for Handler<CMS>
+impl<Transport, Inst, BS, Incoming, S, B> Transformation<Builder<Incoming>, Inst, HyperServer<Transport>> for BuildServer<BS>
 where
     Transport: Fragment + 'static,
-    Transport::Resource: IntoIncoming,
-    CMS: ConfiguredMakeService<HyperServer<Transport>>,
+    Transport::Resource: IntoIncoming<Incoming = Incoming, Connection = Incoming::Item>,
+    Incoming: Stream<Error = IoError> + Send + Sync + 'static,
+    Incoming::Item: AsyncRead + AsyncWrite + Send + Sync + 'static,
+    BS: Fn(Builder<Incoming>, &HyperServer<Transport>, &'static str) -> Server<Incoming, S>,
+    S: MakeServiceRef<Incoming::Item, ReqBody = Body, ResBody = B> + 'static,
+    B: Payload,
 {
-    type OutputResource = Activate<<<Transport as Fragment>::Resource as IntoIncoming>::Incoming, CMS::MakeService>;
+    type OutputResource = Activate<Incoming, S>;
     type OutputInstaller = FutureInstaller<Self::OutputResource>;
     fn installer(&mut self, _ii: Inst, _name: &'static str) -> Self::OutputInstaller {
         FutureInstaller::default()
     }
-    fn transform(&mut self, builder: Builder<<<Transport as Fragment>::Resource as IntoIncoming>::Incoming>, cfg: &HyperServer<Transport>, name: &'static str) -> Result<Self::OutputResource, Error> {
+    fn transform(&mut self, builder: Builder<Incoming>, cfg: &HyperServer<Transport>, name: &'static str) -> Result<Self::OutputResource, Error> {
         let (sender, receiver) = oneshot::channel();
-        let make_service = self.0.make(cfg, name);
+        let server = self.0(builder, cfg, name);
         Ok(Activate {
             inner: Some(ActivateInner {
-                builder,
-                make_service,
+                server,
                 receiver,
             }),
             sender: Some(sender),
