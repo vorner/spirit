@@ -10,9 +10,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use hyper::{Body, Request, Response};
-use spirit::{Empty, Spirit};
-use spirit_hyper::HttpServer;
-use spirit_tokio::ExtraCfgCarrier;
+use hyper::server::Builder;
+use hyper::service::service_fn_ok;
+use spirit::prelude::*;
+use spirit_tokio::Runtime;
+use spirit_hyper::{BuildServer, HttpServer};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Hash)]
 struct Signature {
@@ -38,8 +40,8 @@ struct Config {
 
 impl Config {
     /// A function to extract the HTTP servers configuration
-    fn listen(&self) -> HashSet<HttpServer<Signature>> {
-        self.listen.clone()
+    fn listen(&self) -> &HashSet<HttpServer<Signature>> {
+        &self.listen
     }
 }
 
@@ -62,16 +64,18 @@ msg = "Hello world"
 
 fn hello(
     spirit: &Arc<Spirit<Empty, Config>>,
-    cfg: &Arc<HttpServer<Signature>>,
+    //cfg: &Arc<HttpServer<Signature>>,
     _req: Request<Body>,
-) -> Result<Response<Body>, std::io::Error> {
+) -> Response<Body> {
     // Get some global configuration
     let mut msg = format!("{}\n", spirit.config().ui.msg);
+    /*
     // Get some listener-local configuration.
     if let Some(ref signature) = cfg.extra().signature {
         msg.push_str(&format!("Brought to you by {}\n", signature));
     }
-    Ok(Response::new(Body::from(msg)))
+    */
+    Response::new(Body::from(msg))
 }
 
 fn main() {
@@ -79,10 +83,21 @@ fn main() {
     Spirit::<Empty, _>::new()
         .config_defaults(DEFAULT_CONFIG)
         .config_exts(&["toml", "ini", "json"])
-        .config_helper(
-            Config::listen,
-            spirit_hyper::server_configured(hello),
-            "listen",
-        )
-        .run(|_| Ok(()));
+        .with_singleton(Runtime::default())
+        .run(|spirit| {
+            let spirit_srv = Arc::clone(spirit);
+            let build_server = move |builder: Builder<_>, _: &HttpServer<Signature>, _: &'static str| {
+                let spirit = Arc::clone(&spirit_srv);
+                builder.serve(move || {
+                    let spirit = Arc::clone(&spirit);
+                    service_fn_ok(move |req| hello(&spirit, req))
+                })
+            };
+            spirit.with(
+                Pipeline::new("listen")
+                    .extract_cfg(Config::listen)
+                    .transform(BuildServer(build_server))
+            )?;
+            Ok(())
+        });
 }

@@ -89,7 +89,7 @@ use hyper::service::{MakeServiceRef, Service};
 use hyper::Body;
 use spirit::Empty;
 use spirit::fragment::driver::TrivialDriver;
-use spirit::fragment::{Fragment, Transformation};
+use spirit::fragment::{Fragment, Stackable, Transformation};
 use spirit_tokio::installer::FutureInstaller;
 use spirit_tokio::net::limits::WithLimits;
 use spirit_tokio::net::IntoIncoming;
@@ -570,6 +570,11 @@ where
     }
 }
 
+impl<Transport> Stackable for HyperServer<Transport>
+where
+    Transport: Stackable
+{}
+
 /*
 delegate_resource_traits! {
     delegate ResourceConfig, ExtraCfgCarrier to transport on HyperServer;
@@ -607,10 +612,10 @@ where
     Transport::Item: AsyncRead + AsyncWrite + Send + Sync,
     MS: MakeServiceRef<Transport::Item, ReqBody = Body, ResBody = B> + Send + 'static,
     MS::Error: Into<Box<dyn EError + Send + Sync>>,
-    MS::Future: Send + Sync + 'static,
+    MS::Future: Send + 'static,
     <MS::Future as Future>::Error: EError + Send + Sync,
     MS::Service: Send + 'static,
-    <MS::Service as Service>::Future: Send + Sync,
+    <MS::Service as Service>::Future: Send,
     B: Payload,
 {
     type Item = ();

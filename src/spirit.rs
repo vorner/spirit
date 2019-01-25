@@ -424,6 +424,7 @@ where
             + Send
             + 'static,
     {
+        // XXX: Link to some documentation/help how to resolve
         panic!("Wrapping body while already running is not possible, move this to the builder");
     }
 
