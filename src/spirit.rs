@@ -32,6 +32,7 @@ pub struct ValidationError(usize);
 struct Hooks<O, C> {
     config: Vec<Box<FnMut(&O, &Arc<C>) + Send>>,
     config_loader: CfgLoader,
+    config_mutators: Vec<Box<FnMut(&mut C) + Send>>,
     config_validators: Vec<Box<FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, Error> + Send>>,
     sigs: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
     singletons: HashSet<TypeId>,
@@ -43,6 +44,7 @@ impl<O, C> Default for Hooks<O, C> {
         Hooks {
             config: Vec::new(),
             config_loader: CfgBuilder::new().build_no_opts(),
+            config_mutators: Vec::new(),
             config_validators: Vec::new(),
             sigs: HashMap::new(),
             singletons: HashSet::new(),
@@ -127,6 +129,7 @@ where
             config,
             config_loader: CfgBuilder::new(),
             config_hooks: Vec::new(),
+            config_mutators: Vec::new(),
             config_validators: Vec::new(),
             opts: PhantomData,
             sig_hooks: HashMap::new(),
@@ -184,6 +187,7 @@ where
     ///
     /// This is what happens:
     /// * The configuration is loaded from all places.
+    /// * Configuration mutators are run and can modify the loaded configuration.
     /// * Validation callbacks are called (all of them).
     /// * If no validation callback returns an error, success callbacks of the validation results
     ///   are called. Otherwise, abort callbacks are called.
@@ -200,12 +204,17 @@ where
     /// don't have to by `Sync`). That, however, means that you can't call `config_reload` or
     /// [`terminate`](#method.terminate) from any callback (that would lead to a deadlock).
     pub fn config_reload(&self) -> Result<(), Error> {
-        let new = Arc::new(self.load_config().context("Failed to load configuration")?);
+        let mut new = self.load_config().context("Failed to load configuration")?;
         // The lock here is across the whole processing, to avoid potential races in logic
         // processing. This makes writing the hooks correctly easier.
         let mut hooks = self.hooks.lock();
+        debug!("Running {} config mutators", hooks.config_mutators.len());
+        for m in &mut hooks.config_mutators {
+            m(&mut new);
+        }
+        let new = Arc::new(new);
         let old = self.config.load();
-        debug!("Running config validators");
+        debug!("Running {} config validators", hooks.config_validators.len());
         let mut errors = 0;
         let mut actions = Vec::with_capacity(hooks.config_validators.len());
         for v in hooks.config_validators.iter_mut() {
@@ -233,7 +242,7 @@ where
 
         // Once everything is validated, switch to the new config
         self.config.store(Arc::clone(&new));
-        debug!("Running post-configuration hooks");
+        debug!("Running {} post-configuration hooks", hooks.config.len());
         for hook in &mut hooks.config {
             hook(&self.opts, &new);
         }
@@ -365,6 +374,16 @@ where
         Ok(self)
     }
 
+    fn config_mutator<F>(self, f: F) -> Self
+    where
+        F: FnMut(&mut C) + Send + 'static,
+    {
+        trace!("Adding config mutator at runtime");
+        let mut hooks = self.hooks.lock();
+        hooks.config_mutators.push(Box::new(f));
+        self
+    }
+
     fn on_config<F: FnMut(&O, &Arc<C>) + Send + 'static>(self, mut hook: F) -> Self {
         trace!("Adding config hook at runtime");
         let mut hooks = self.hooks.lock();
@@ -455,6 +474,7 @@ pub struct Builder<O = Empty, C = Empty> {
     config: C,
     config_loader: CfgBuilder,
     config_hooks: Vec<Box<FnMut(&O, &Arc<C>) + Send>>,
+    config_mutators: Vec<Box<FnMut(&mut C) + Send>>,
     config_validators: Vec<Box<FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, Error> + Send>>,
     opts: PhantomData<O>,
     sig_hooks: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
@@ -602,6 +622,18 @@ impl<O, C> Extensible for Builder<O, C> {
             config_validators: validators,
             ..self
         })
+    }
+
+    fn config_mutator<F>(self, f: F) -> Self
+    where
+        F: FnMut(&mut C) + Send + 'static,
+    {
+        let mut mutators = self.config_mutators;
+        mutators.push(Box::new(f));
+        Self {
+            config_mutators: mutators,
+            ..self
+        }
     }
 
     fn on_config<F: FnMut(&O, &Arc<C>) + Send + 'static>(self, hook: F) -> Self {
@@ -770,6 +802,7 @@ where
             hooks: Mutex::new(Hooks {
                 config: self.config_hooks,
                 config_loader: loader,
+                config_mutators: self.config_mutators,
                 config_validators: self.config_validators,
                 sigs: self.sig_hooks,
                 singletons: self.singletons,

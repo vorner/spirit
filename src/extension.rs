@@ -96,6 +96,11 @@ pub trait Extensible: Sized {
         F: FnMut(&Arc<Self::Config>, &Arc<Self::Config>, &Self::Opts) -> Result<Action, Error>,
         F: Send + 'static;
 
+    // XXX
+    fn config_mutator<F>(self, f: F) -> Self
+    where
+        F: FnMut(&mut Self::Config) + Send + 'static;
+
     /// Adds a callback for notification about new configurations.
     ///
     /// The callback is called once a new configuration is loaded and successfully validated.
@@ -261,6 +266,13 @@ where
         F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), Error> + Send + 'static,
     {
         self.and_then(|c| c.before_config(cback))
+    }
+
+    fn config_mutator<F>(self, f: F) -> Self
+    where
+        F: FnMut(&mut Self::Config) + Send + 'static,
+    {
+        self.map(|c| c.config_mutator(f))
     }
 
     fn config_validator<F>(self, f: F) -> Result<Self::Ok, Error>
