@@ -261,7 +261,7 @@ where
     type Ok = C;
     const STARTED: bool = C::STARTED;
 
-    fn before_config<F>(self, cback: F) -> Result<Self::Ok, Error>
+    fn before_config<F>(self, cback: F) -> Result<<Self as Extensible>::Ok, Error>
     where
         F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), Error> + Send + 'static,
     {
@@ -275,7 +275,7 @@ where
         self.map(|c| c.config_mutator(f))
     }
 
-    fn config_validator<F>(self, f: F) -> Result<Self::Ok, Error>
+    fn config_validator<F>(self, f: F) -> Result<<Self as Extensible>::Ok, Error>
     where
         F: FnMut(&Arc<Self::Config>, &Arc<Self::Config>, &Self::Opts) -> Result<Action, Error>,
         F: Send + 'static,
@@ -290,7 +290,7 @@ where
         self.map(|c| c.on_config(hook))
     }
 
-    fn on_signal<F>(self, signal: libc::c_int, hook: F) -> Result<Self::Ok, Error>
+    fn on_signal<F>(self, signal: libc::c_int, hook: F) -> Result<<Self as Extensible>::Ok, Error>
     where
         F: FnMut() + Send + 'static,
     {
@@ -304,14 +304,14 @@ where
         self.map(|c| c.on_terminate(hook))
     }
 
-    fn run_before<B>(self, body: B) -> Result<Self::Ok, Error>
+    fn run_before<B>(self, body: B) -> Result<<Self as Extensible>::Ok, Error>
     where
         B: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>) -> Result<(), Error> + Send + 'static,
     {
         self.and_then(|c| c.run_before(body))
     }
 
-    fn run_around<W>(self, wrapper: W) -> Result<Self::Ok, Error>
+    fn run_around<W>(self, wrapper: W) -> Result<<Self as Extensible>::Ok, Error>
     where
         W: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>, InnerBody) -> Result<(), Error>
             + Send
@@ -320,9 +320,9 @@ where
         self.and_then(|c| c.run_around(wrapper))
     }
 
-    fn with<E>(self, ext: E) -> Result<Self::Ok, Error>
+    fn with<E>(self, ext: E) -> Result<<Self as Extensible>::Ok, Error>
     where
-        E: Extension<Self::Ok>,
+        E: Extension<<Self as Extensible>::Ok>,
     {
         self.and_then(|c| c.with(ext))
     }
@@ -335,9 +335,9 @@ where
             .unwrap_or_default()
     }
 
-    fn with_singleton<T>(self, singleton: T) -> Result<Self::Ok, Error>
+    fn with_singleton<T>(self, singleton: T) -> Result<<Self as Extensible>::Ok, Error>
     where
-        T: Extension<Self::Ok> + 'static,
+        T: Extension<<Self as Extensible>::Ok> + 'static,
     {
         self.and_then(|c| c.with_singleton(singleton))
     }
