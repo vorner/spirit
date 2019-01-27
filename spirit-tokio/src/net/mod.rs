@@ -520,7 +520,7 @@ pub struct TcpListen<ExtraCfg = Empty, TcpStreamConfigure = TcpConfig> {
     #[serde(flatten)]
     tcp_config: TcpStreamConfigure,
     #[serde(flatten)]
-    extra_cfg: ExtraCfg,
+    pub extra_cfg: ExtraCfg,
 }
 
 impl<ExtraCfg, TcpConfig> Stackable for TcpListen<ExtraCfg, TcpConfig> {}
@@ -584,7 +584,7 @@ pub struct UdpListen<ExtraCfg = Empty> {
     #[serde(flatten)]
     listen: Listen,
     #[serde(flatten)]
-    extra_cfg: ExtraCfg,
+    pub extra_cfg: ExtraCfg,
 }
 
 impl<ExtraCfg> Stackable for UdpListen<ExtraCfg> {}

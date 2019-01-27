@@ -64,17 +64,15 @@ msg = "Hello world"
 
 fn hello(
     spirit: &Arc<Spirit<Empty, Config>>,
-    //cfg: &Arc<HttpServer<Signature>>,
+    cfg: &Arc<HttpServer<Signature>>,
     _req: Request<Body>,
 ) -> Response<Body> {
     // Get some global configuration
     let mut msg = format!("{}\n", spirit.config().ui.msg);
-    /*
     // Get some listener-local configuration.
-    if let Some(ref signature) = cfg.extra().signature {
+    if let Some(ref signature) = cfg.transport.listener.extra_cfg.signature {
         msg.push_str(&format!("Brought to you by {}\n", signature));
     }
-    */
     Response::new(Body::from(msg))
 }
 
@@ -86,11 +84,13 @@ fn main() {
         .with_singleton(Runtime::default())
         .run(|spirit| {
             let spirit_srv = Arc::clone(spirit);
-            let build_server = move |builder: Builder<_>, _: &HttpServer<Signature>, _: &'static str| {
+            let build_server = move |builder: Builder<_>, cfg: &HttpServer<Signature>, _: &'static str| {
                 let spirit = Arc::clone(&spirit_srv);
+                let cfg = Arc::new(cfg.clone());
                 builder.serve(move || {
                     let spirit = Arc::clone(&spirit);
-                    service_fn_ok(move |req| hello(&spirit, req))
+                    let cfg = Arc::clone(&cfg);
+                    service_fn_ok(move |req| hello(&spirit, &cfg, req))
                 })
             };
             spirit.with(

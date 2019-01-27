@@ -47,7 +47,7 @@ pub trait ListenLimits {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, StructDoc)]
 pub struct WithListenLimits<Listener, Limits> {
     #[serde(flatten)]
-    listener: Listener,
+    pub listener: Listener,
 
     #[serde(flatten)]
     limits: Limits,
