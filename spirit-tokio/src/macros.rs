@@ -11,12 +11,12 @@
 //! [`ResourceConfig`]: ::ResourceConfig
 //! [source code]: https://github.com/vorner/spirit/tree/master/spirit-tokio
 
+// XXX Get rid of this module?
+
 #[doc(hidden)]
 pub use failure::Error;
 #[doc(hidden)]
 pub use serde::de::DeserializeOwned;
-#[doc(hidden)]
-pub use spirit::extension::{CfgHelper, IteratedCfgHelper};
 #[doc(hidden)]
 pub use spirit::Builder;
 #[doc(hidden)]
