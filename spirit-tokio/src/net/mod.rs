@@ -31,10 +31,8 @@ use tokio::reactor::Handle;
 // use scaled::{Scale, Scaled};
 
 pub mod limits;
-/* XXX: Re-enable
 #[cfg(unix)]
 pub mod unix;
-*/
 
 /// Abstraction over endpoints that accept connections.
 ///

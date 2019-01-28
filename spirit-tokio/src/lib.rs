@@ -203,7 +203,7 @@ pub mod installer;
 pub mod macros;
 pub mod net;
 pub mod runtime;
-// pub mod scaled; FIXME
+// pub mod scaled; XXX
 
 pub use base_traits::{ExtraCfgCarrier, Name};
 pub use handlers::{HandleListener, HandleListenerInit, HandleSocket};

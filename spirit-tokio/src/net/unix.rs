@@ -14,15 +14,14 @@ use std::os::unix::net::{UnixDatagram as StdUnixDatagram, UnixListener as StdUni
 use std::path::PathBuf;
 
 use failure::{Error, ResultExt};
-use spirit::validation::Results as ValidationResults;
+use spirit::fragment::driver::TrivialDriver;
+use spirit::fragment::{Fragment, Stackable};
 use spirit::Empty;
 use tokio::net::unix::{Incoming, UnixDatagram, UnixListener, UnixStream};
 use tokio::reactor::Handle;
 
-use base_traits::ResourceConfig;
-use net::limits::WithListenLimits;
-use net::{ConfiguredStreamListener, IntoIncoming, StreamConfig};
-use scaled::{Scale, Scaled};
+use net::limits::WithLimits;
+use net::{ConfiguredStreamListener, IntoIncoming};
 
 /// Configuration of where to bind a unix domain socket.
 ///
@@ -96,57 +95,51 @@ impl IntoIncoming for UnixListener {
 /// [`net::Listen`]: ::net::Listen
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
-pub struct UnixListen<ExtraCfg = Empty, ScaleMode = Scale, UnixStreamConfig = UnixConfig> {
+pub struct UnixListen<ExtraCfg = Empty, UnixStreamConfig = UnixConfig> {
     #[serde(flatten)]
     listen: Listen,
     #[serde(flatten)]
-    scale: ScaleMode,
-    #[serde(flatten)]
-    extra_cfg: ExtraCfg,
-    #[serde(flatten)]
     unix_config: UnixStreamConfig,
+    #[serde(flatten)]
+    pub extra_cfg: ExtraCfg,
 }
 
-impl<ExtraCfg, ScaleMode, UnixStreamConfig, O, C> ResourceConfig<O, C>
-    for UnixListen<ExtraCfg, ScaleMode, UnixStreamConfig>
+impl<ExtraCfg, UnixStreamConfig> Stackable for UnixListen<ExtraCfg, UnixStreamConfig> {}
+
+impl<ExtraCfg, UnixStreamConfig> Fragment for UnixListen<ExtraCfg, UnixStreamConfig>
 where
-    ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
-    ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static,
-    UnixStreamConfig: Clone + Debug + PartialEq + Send + Sync + StreamConfig<UnixStream> + 'static,
+    ExtraCfg: Clone + Debug,
+    UnixStreamConfig: Clone + Debug,
 {
+    type Driver = TrivialDriver; // FIXME: This won't work. We need eq on the listen part.
+    type Installer = ();
     type Seed = StdUnixListener;
     type Resource = ConfiguredStreamListener<UnixListener, UnixStreamConfig>;
-    fn create(&self, name: &str) -> Result<StdUnixListener, Error> {
+    fn make_seed(&self, name: &str) -> Result<StdUnixListener, Error> {
         self.listen
             .create_listener()
-            .with_context(|_| format!("Failed to create socket {}/{:?}", name, self))
+            .with_context(|_| format!("Failed to create unix stream socket {}/{:?}", name, self))
             .map_err(Error::from)
     }
-    fn fork(&self, seed: &StdUnixListener, name: &str) -> Result<Self::Resource, Error> {
+    fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<Self::Resource, Error> {
         let config = self.unix_config.clone();
         seed.try_clone() // Another copy of the listener
             // std → tokio socket conversion
             .and_then(|listener| UnixListener::from_std(listener, &Handle::default()))
-            .with_context(|_| format!("Failed to fork socket {}/{:?}", name, self))
+            .with_context(|_| format!("Failed to fork unix streamsocket {}/{:?}", name, self))
             .map_err(Error::from)
             .map(|listener| ConfiguredStreamListener::new(listener, config))
-    }
-    fn scaled(&self, name: &str) -> (usize, ValidationResults) {
-        self.scale.scaled(name)
-    }
-    fn is_similar(&self, other: &Self, _: &str) -> bool {
-        self.listen == other.listen
     }
 }
 
 /// Type alias for [`UnixListen`] without any unnecessary configuration options.
-pub type MinimalUnixListen<ExtraCfg = Empty> = UnixListen<ExtraCfg, Empty, Empty>;
+pub type MinimalUnixListen<ExtraCfg = Empty> = UnixListen<ExtraCfg, Empty>;
 
 /// Wrapped [`UnixListen`] for use with the [`per_connection`] [`ResourceConsumer`]
 ///
 /// [`ResourceConsumer`]: ::ResourceConsumer
-pub type UnixListenWithLimits<ExtraCfg = Empty, ScaleMode = Scale, UnixStreamConfig = UnixConfig> =
-    WithListenLimits<UnixListen<ExtraCfg, ScaleMode, UnixStreamConfig>>;
+pub type UnixListenWithLimits<ExtraCfg = Empty, UnixStreamConfig = UnixConfig> =
+    WithLimits<UnixListen<ExtraCfg, UnixStreamConfig>>;
 
 /// A [`ResourceConfig`] for unix datagram sockets
 ///
@@ -159,57 +152,34 @@ pub type UnixListenWithLimits<ExtraCfg = Empty, ScaleMode = Scale, UnixStreamCon
 /// [`net::Listen`]: ::net::Listen
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
-pub struct DatagramListen<ExtraCfg = Empty, ScaleMode = Scale> {
+pub struct DatagramListen<ExtraCfg = Empty> {
     #[serde(flatten)]
     listen: Listen,
-    #[serde(flatten)]
-    scale: ScaleMode,
     #[serde(flatten)]
     extra_cfg: ExtraCfg,
 }
 
-impl<ExtraCfg, ScaleMode, O, C> ResourceConfig<O, C> for DatagramListen<ExtraCfg, ScaleMode>
+impl<ExtraCfg> Stackable for DatagramListen<ExtraCfg> {}
+
+impl<ExtraCfg> Fragment for DatagramListen<ExtraCfg>
 where
-    ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
-    ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static,
+    ExtraCfg: Debug,
 {
+    type Driver = TrivialDriver; // FIXME: Caching by similar
+    type Installer = ();
     type Seed = StdUnixDatagram;
     type Resource = UnixDatagram;
-    fn create(&self, name: &str) -> Result<StdUnixDatagram, Error> {
+    fn make_seed(&self, name: &str) -> Result<Self::Seed, Error> {
         self.listen
             .create_datagram()
-            .with_context(|_| format!("Failed to create socket {}/{:?}", name, self))
+            .with_context(|_| format!("Failed to create unix datagram socket {}/{:?}", name, self))
             .map_err(Error::from)
     }
-    fn fork(&self, seed: &StdUnixDatagram, name: &str) -> Result<UnixDatagram, Error> {
+    fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<UnixDatagram, Error> {
         seed.try_clone() // Another copy of the socket
             // std → tokio socket conversion
             .and_then(|socket| UnixDatagram::from_std(socket, &Handle::default()))
-            .with_context(|_| format!("Failed to fork socket {}/{:?}", name, self))
+            .with_context(|_| format!("Failed to fork unix datagram socket {}/{:?}", name, self))
             .map_err(Error::from)
     }
-    fn scaled(&self, name: &str) -> (usize, ValidationResults) {
-        self.scale.scaled(name)
-    }
-    fn is_similar(&self, other: &Self, _: &str) -> bool {
-        self.listen == other.listen
-    }
-}
-
-extra_cfg_impl! {
-    UnixListen<ExtraCfg, ScaleMode, UnixStreamConfig>::extra_cfg: ExtraCfg;
-    DatagramListen<ExtraCfg, ScaleMode>::extra_cfg: ExtraCfg;
-}
-
-cfg_helpers! {
-    impl helpers for UnixListen <ExtraCfg, ScaleMode, UnixStreamConfig>
-    where
-        ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
-        ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static,
-        UnixStreamConfig: Debug + PartialEq + Send + Sync + 'static;
-
-    impl helpers for DatagramListen <ExtraCfg, ScaleMode>
-    where
-        ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
-        ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static;
 }
