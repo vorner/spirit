@@ -14,7 +14,7 @@ use std::os::unix::net::{UnixDatagram as StdUnixDatagram, UnixListener as StdUni
 use std::path::PathBuf;
 
 use failure::{Error, ResultExt};
-use spirit::fragment::driver::TrivialDriver;
+use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};
 use spirit::Empty;
 use tokio::net::unix::{Incoming, UnixDatagram, UnixListener, UnixStream};
@@ -106,12 +106,28 @@ pub struct UnixListen<ExtraCfg = Empty, UnixStreamConfig = UnixConfig> {
 
 impl<ExtraCfg, UnixStreamConfig> Stackable for UnixListen<ExtraCfg, UnixStreamConfig> {}
 
+impl<ExtraCfg, UnixStreamConfig> Comparable for UnixListen<ExtraCfg, UnixStreamConfig>
+where
+    ExtraCfg: PartialEq,
+    UnixStreamConfig: PartialEq,
+{
+    fn compare(&self, other: &Self) -> Comparison {
+        if self.listen != other.listen {
+            Comparison::Dissimilar
+        } else if self != other {
+            Comparison::Similar
+        } else {
+            Comparison::Same
+        }
+    }
+}
+
 impl<ExtraCfg, UnixStreamConfig> Fragment for UnixListen<ExtraCfg, UnixStreamConfig>
 where
-    ExtraCfg: Clone + Debug,
-    UnixStreamConfig: Clone + Debug,
+    ExtraCfg: Clone + Debug + PartialEq,
+    UnixStreamConfig: Clone + Debug + PartialEq,
 {
-    type Driver = TrivialDriver; // FIXME: This won't work. We need eq on the listen part.
+    type Driver = CacheSimilar<Self>;
     type Installer = ();
     type Seed = StdUnixListener;
     type Resource = ConfiguredStreamListener<UnixListener, UnixStreamConfig>;
@@ -161,11 +177,23 @@ pub struct DatagramListen<ExtraCfg = Empty> {
 
 impl<ExtraCfg> Stackable for DatagramListen<ExtraCfg> {}
 
+impl<ExtraCfg: PartialEq> Comparable for DatagramListen<ExtraCfg> {
+    fn compare(&self, other: &Self) -> Comparison {
+        if self.listen != other.listen {
+            Comparison::Dissimilar
+        } else if self != other {
+            Comparison::Similar
+        } else {
+            Comparison::Same
+        }
+    }
+}
+
 impl<ExtraCfg> Fragment for DatagramListen<ExtraCfg>
 where
-    ExtraCfg: Debug,
+    ExtraCfg: Clone + Debug + PartialEq,
 {
-    type Driver = TrivialDriver; // FIXME: Caching by similar
+    type Driver = CacheSimilar<Self>;
     type Installer = ();
     type Seed = StdUnixDatagram;
     type Resource = UnixDatagram;

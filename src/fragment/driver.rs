@@ -54,6 +54,18 @@ pub enum CacheInstruction<Resource> {
     Install { id: CacheId, resource: Resource },
 }
 
+impl<Resource> CacheInstruction<Resource> {
+    fn replace(resource: Resource) -> Vec<Self> {
+        vec![
+            CacheInstruction::DropAll,
+            CacheInstruction::Install {
+                id: CacheId::dummy(),
+                resource,
+            },
+        ]
+    }
+}
+
 pub trait Driver<F: Fragment> {
     type SubFragment: Fragment;
     fn instructions<T, I>(
@@ -88,13 +100,7 @@ impl<F: Fragment> Driver<F> for TrivialDriver {
             .create(name)
             .and_then(|r| transform.transform(r, fragment, name))
             .map_err(|e| vec![e])?;
-        Ok(vec![
-            CacheInstruction::DropAll,
-            CacheInstruction::Install {
-                id: CacheId::dummy(),
-                resource,
-            },
-        ])
+        Ok(CacheInstruction::replace(resource))
     }
     fn confirm(&mut self) {}
     fn abort(&mut self) {}
@@ -103,10 +109,144 @@ impl<F: Fragment> Driver<F> for TrivialDriver {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum Comparison {
+    Dissimilar,
+    Similar,
+    Same,
+}
+
+pub trait Comparable<RHS = Self> {
+    fn compare(&self, other: &RHS) -> Comparison;
+}
+
+#[derive(Debug)]
+enum Proposition<F: Fragment + ToOwned> {
+    Nothing,
+    ReplaceFragment(F::Owned),
+    ReplaceBoth {
+        fragment: F::Owned,
+        seed: F::Seed,
+    }
+}
+
+impl<F: Fragment + ToOwned> Proposition<F> {
+    fn active(&self) -> bool {
+        match self {
+            Proposition::Nothing => false,
+            _ => true,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct CacheSimilar<F: Fragment + ToOwned> {
+    previous: Option<F::Owned>,
+    seed: Option<F::Seed>,
+    proposition: Proposition<F>,
+}
+
+impl<F: Fragment + ToOwned> Default for CacheSimilar<F> {
+    fn default() -> Self {
+        CacheSimilar {
+            previous: None,
+            seed: None,
+            proposition: Proposition::Nothing,
+        }
+    }
+}
+
+impl<F> CacheSimilar<F>
+where
+    F: Debug + Fragment + ToOwned + Comparable<<F as ToOwned>::Owned>,
+{
+    fn compare(&self, fragment: &F) -> Comparison {
+        self.previous
+            .as_ref()
+            .map(|prev| fragment.compare(prev))
+            .unwrap_or(Comparison::Dissimilar)
+    }
+}
+
+impl<F> Driver<F> for CacheSimilar<F>
+where
+    F: Debug + Fragment + ToOwned + Comparable<<F as ToOwned>::Owned>,
+{
+    type SubFragment = F;
+    fn instructions<T, I>(
+        &mut self,
+        fragment: &F,
+        transform: &mut T,
+        name: &'static str,
+    ) -> Result<Vec<CacheInstruction<T::OutputResource>>, Vec<Error>>
+    where
+        T: Transformation<F::Resource, I, F>,
+    {
+        assert!(!self.proposition.active(), "Unclosed transaction");
+
+        match self.compare(fragment) {
+            Comparison::Dissimilar => {
+                trace!("Completely new config {:?} for {}, recreating from scratch", fragment, name);
+                let mut new_seed = fragment.make_seed(name).map_err(|e| vec![e])?;
+                let resource = fragment.make_resource(&mut new_seed, name)
+                    .and_then(|r| transform.transform(r, fragment, name))
+                    .map_err(|e| vec![e])?;
+                self.proposition = Proposition::ReplaceBoth {
+                    seed: new_seed,
+                    fragment: fragment.to_owned(),
+                };
+
+                Ok(CacheInstruction::replace(resource))
+            }
+            Comparison::Similar => {
+                trace!("A similar config {:?} for {}, recreating from previous seed", fragment, name);
+                let resource = fragment
+                    .make_resource(self.seed.as_mut().expect("Missing previous seed"), name)
+                    .and_then(|r| transform.transform(r, fragment, name))
+                    .map_err(|e| vec![e])?;
+                self.proposition = Proposition::ReplaceFragment(fragment.to_owned());
+
+                Ok(CacheInstruction::replace(resource))
+            }
+            Comparison::Same => {
+                trace!("The {} stays the same on {:?}, keeping previous resource", name, fragment);
+                Ok(Vec::new())
+            }
+        }
+    }
+    fn abort(&mut self) {
+        self.proposition = Proposition::Nothing;
+    }
+    fn confirm(&mut self) {
+        let mut proposition = Proposition::Nothing;
+        mem::swap(&mut proposition, &mut self.proposition);
+        match proposition {
+            Proposition::Nothing => (),
+            Proposition::ReplaceFragment(f) => self.previous = Some(f),
+            Proposition::ReplaceBoth { fragment, seed } => {
+                self.seed = Some(seed);
+                self.previous = Some(fragment);
+            }
+        }
+    }
+    fn maybe_cached(&self, fragment: &F) -> bool {
+        self.compare(fragment) != Comparison::Dissimilar
+    }
+}
+
+#[derive(Debug)]
 pub struct CacheEq<Fragment: ToOwned> {
     previous: Option<Fragment::Owned>,
     proposition: Option<Fragment::Owned>,
+}
+
+impl<F: ToOwned> Default for CacheEq<F> {
+    fn default() -> Self {
+        CacheEq {
+            previous: None,
+            proposition: None,
+        }
+    }
 }
 
 impl<F> Driver<F> for CacheEq<F>
@@ -146,17 +286,13 @@ where
         }
     }
     fn abort(&mut self) {
-        assert!(
-            self.proposition.take().is_some(),
-            "Abort called without previous instructions"
-        );
+        // Note: we don't theck if anything is in here, because in case these were the same we
+        // didn't fill in the proposition.
     }
     fn confirm(&mut self) {
-        assert!(
-            self.proposition.is_some(),
-            "Confirm called without previous instructions"
-        );
-        self.previous = self.proposition.take();
+        if let Some(proposition) = self.proposition.take() {
+            self.previous = Some(proposition);
+        }
     }
     fn maybe_cached(&self, fragment: &F) -> bool {
         // Option doesn't implement parametrized PartialEq :-(
@@ -167,6 +303,8 @@ where
         }
     }
 }
+
+
 
 #[derive(Clone, Debug, Default)]
 // TODO: Use some kind of immutable/persistent data structures? Or not, this is likely to be small?

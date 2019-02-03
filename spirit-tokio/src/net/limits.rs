@@ -7,6 +7,7 @@
 //!
 //! This module provides tools to address these problems.
 
+use std::fmt::Debug;
 use std::io::{Error as IoError, Read, Write};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -19,7 +20,7 @@ use futures::{Async, Poll, Stream};
 use serde::de::DeserializeOwned;
 use serde::ser::Serializer;
 use spirit::extension::Extensible;
-use spirit::fragment::driver::TrivialDriver;
+use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};
 use structopt::StructOpt;
 use tk_listen::{ListenExt, SleepOnError};
@@ -60,12 +61,27 @@ where
     Listener: Stackable
 {}
 
+impl<Listener, Limits> Comparable for WithListenLimits<Listener, Limits>
+where
+    Listener: Comparable,
+    Limits: PartialEq,
+{
+    fn compare(&self, other: &Self) -> Comparison {
+        let listener_cmp = self.listener.compare(&other.listener);
+        if listener_cmp == Comparison::Same && self.limits != other.limits {
+            Comparison::Similar
+        } else {
+            listener_cmp
+        }
+    }
+}
+
 impl<Listener, Limits> Fragment for WithListenLimits<Listener, Limits>
 where
-    Listener: Fragment,
-    Limits: ListenLimits,
+    Listener: Clone + Debug + Fragment + Comparable,
+    Limits: Clone + Debug + ListenLimits + PartialEq,
 {
-    type Driver = TrivialDriver; // XXX Some real one
+    type Driver = CacheSimilar<Self>;
     type Installer = ();
     type Seed = Listener::Seed;
     type Resource = LimitedListener<Listener::Resource>;

@@ -21,7 +21,7 @@ use net2::{TcpBuilder, UdpBuilder};
 use serde::de::{Deserialize, Deserializer, Error as DeError, Unexpected};
 use serde::ser::{Serialize, Serializer};
 use serde_humantime;
-use spirit::fragment::driver::TrivialDriver;
+use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};
 use spirit::Empty;
 use tokio::net::tcp::Incoming;
@@ -523,12 +523,24 @@ pub struct TcpListen<ExtraCfg = Empty, TcpStreamConfigure = TcpConfig> {
 
 impl<ExtraCfg, TcpConfig> Stackable for TcpListen<ExtraCfg, TcpConfig> {}
 
+impl<ExtraCfg: PartialEq, TcpConfig: PartialEq> Comparable for TcpListen<ExtraCfg, TcpConfig> {
+    fn compare(&self, other: &Self) -> Comparison {
+        if self.listen != other.listen {
+            Comparison::Dissimilar
+        } else if self != other {
+            Comparison::Similar
+        } else {
+            Comparison::Same
+        }
+    }
+}
+
 impl<ExtraCfg, TcpConfig> Fragment for TcpListen<ExtraCfg, TcpConfig>
 where
-    ExtraCfg: Clone + Debug,
-    TcpConfig: Clone + Debug,
+    ExtraCfg: Clone + Debug + PartialEq,
+    TcpConfig: Clone + Debug + PartialEq,
 {
-    type Driver = TrivialDriver; // FIXME: This won't work. We need eq on the listen part.
+    type Driver = CacheSimilar<Self>;
     type Installer = ();
     type Seed = StdTcpListener;
     type Resource = ConfiguredStreamListener<TcpListener, TcpConfig>;
@@ -587,11 +599,23 @@ pub struct UdpListen<ExtraCfg = Empty> {
 
 impl<ExtraCfg> Stackable for UdpListen<ExtraCfg> {}
 
+impl<ExtraCfg: PartialEq> Comparable for UdpListen<ExtraCfg> {
+    fn compare(&self, other: &Self) -> Comparison {
+        if self.listen != other.listen {
+            Comparison::Dissimilar
+        } else if self != other {
+            Comparison::Similar
+        } else {
+            Comparison::Same
+        }
+    }
+}
+
 impl<ExtraCfg> Fragment for UdpListen<ExtraCfg>
 where
-    ExtraCfg: Debug,
+    ExtraCfg: Clone + Debug + PartialEq,
 {
-    type Driver = TrivialDriver; // FIXME: Caching by similar
+    type Driver = CacheSimilar<Self>;
     type Installer = ();
     type Seed = StdUdpSocket;
     type Resource = UdpSocket;

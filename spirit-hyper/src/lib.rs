@@ -78,6 +78,7 @@ extern crate structdoc;
 extern crate tokio;
 
 use std::error::Error as EError;
+use std::fmt::Debug;
 use std::io::Error as IoError;
 
 use failure::{Error, Fail};
@@ -88,7 +89,7 @@ use hyper::server::{Builder, Server};
 use hyper::service::{MakeServiceRef, Service};
 use hyper::Body;
 use spirit::Empty;
-use spirit::fragment::driver::TrivialDriver;
+use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable, Transformation};
 use spirit_tokio::installer::FutureInstaller;
 use spirit_tokio::net::limits::WithLimits;
@@ -133,6 +134,31 @@ struct HttpModeWorkaround {
     http_mode: HttpMode,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
+#[serde(rename_all = "kebab-case")]
+struct HyperCfg {
+    /// The HTTP keepalive.
+    ///
+    /// https://en.wikipedia.org/wiki/HTTP_persistent_connection.
+    ///
+    /// Default is on, can be turned off.
+    #[serde(default = "default_on")]
+    http1_keepalive: bool,
+
+    /// Vectored writes of headers.
+    ///
+    /// This is a low-level optimization setting. Using the vectored writes saves some copying of
+    /// data around, but can be slower on some systems or transports.
+    ///
+    /// Default is on, can be turned off.
+    #[serde(default = "default_on")]
+    http1_writev: bool,
+
+    #[serde(default, flatten)]
+    http_mode: HttpModeWorkaround,
+}
+
 /// A [`ResourceConfig`] for hyper servers.
 ///
 /// This is a wrapper around a `Transport` [`ResourceConfig`]. It takes something that accepts
@@ -162,46 +188,42 @@ pub struct HyperServer<Transport> {
     #[serde(flatten)]
     pub transport: Transport,
 
-    /// The HTTP keepalive.
-    ///
-    /// https://en.wikipedia.org/wiki/HTTP_persistent_connection.
-    ///
-    /// Default is on, can be turned off.
-    #[serde(default = "default_on")]
-    http1_keepalive: bool,
-
-    /// Vectored writes of headers.
-    ///
-    /// This is a low-level optimization setting. Using the vectored writes saves some copying of
-    /// data around, but can be slower on some systems or transports.
-    ///
-    /// Default is on, can be turned off.
-    #[serde(default = "default_on")]
-    http1_writev: bool,
-
-    #[serde(default, flatten)]
-    http_mode: HttpModeWorkaround,
+    #[serde(flatten)]
+    inner: HyperCfg,
 }
 
 impl<Transport: Default> Default for HyperServer<Transport> {
     fn default() -> Self {
         HyperServer {
             transport: Transport::default(),
-            http1_keepalive: true,
-            http1_writev: true,
-            http_mode: HttpModeWorkaround {
-                http_mode: HttpMode::Both,
-            },
+            inner: HyperCfg {
+                http1_keepalive: true,
+                http1_writev: true,
+                http_mode: HttpModeWorkaround {
+                    http_mode: HttpMode::Both,
+                },
+            }
+        }
+    }
+}
+
+impl<Transport: Comparable> Comparable for HyperServer<Transport> {
+    fn compare(&self, other: &Self) -> Comparison {
+        let transport_cmp = self.transport.compare(&other.transport);
+        if transport_cmp == Comparison::Same && self.inner != other.inner {
+            Comparison::Similar
+        } else {
+            transport_cmp
         }
     }
 }
 
 impl<Transport> Fragment for HyperServer<Transport>
 where
-    Transport: Fragment,
+    Transport: Fragment + Debug + Clone + Comparable,
     Transport::Resource: IntoIncoming,
 {
-    type Driver = TrivialDriver; // XXX
+    type Driver = CacheSimilar<Self>;
     type Installer = ();
     type Seed = Transport::Seed;
     type Resource = Builder<<<Transport as Fragment>::Resource as IntoIncoming>::Incoming>;
@@ -212,15 +234,15 @@ where
         -> Result<Self::Resource, Error>
     {
         debug!("Creating HTTP server {}", name);
-        let (h1_only, h2_only) = match self.http_mode.http_mode {
+        let (h1_only, h2_only) = match self.inner.http_mode.http_mode {
             HttpMode::Both => (false, false),
             HttpMode::Http1Only => (true, false),
             HttpMode::Http2Only => (false, true),
         };
         let transport = self.transport.make_resource(seed, name)?;
         let builder = Server::builder(transport.into_incoming())
-            .http1_keepalive(self.http1_keepalive)
-            .http1_writev(self.http1_writev)
+            .http1_keepalive(self.inner.http1_keepalive)
+            .http1_writev(self.inner.http1_writev)
             .http1_only(h1_only)
             .http2_only(h2_only);
         Ok(builder)
