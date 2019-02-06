@@ -2,8 +2,14 @@
 
 use std::io::{BufRead, Error as IoError, Read, Seek, SeekFrom, Write};
 
+use failure::Error;
 use futures::future::Either as FutEither;
 use futures::{Async, Future, Poll, Sink, StartSend, Stream};
+use serde::de::DeserializeOwned;
+use spirit::extension::Extensible;
+use spirit::fragment::driver::{CacheInstruction, Driver};
+use spirit::fragment::{Fragment, Installer, Transformation};
+use structopt::StructOpt;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use base_traits::ExtraCfgCarrier;
@@ -383,5 +389,188 @@ where
 {
     fn shutdown(&mut self) -> Result<Async<()>, IoError> {
         either!(self, v => v.shutdown()).into_inner()
+    }
+}
+
+impl<A, B> Fragment for Either<A, B>
+where
+    A: Fragment,
+    A::Driver: Driver<A, SubFragment = A>,
+    B: Fragment,
+    B::Driver: Driver<B, SubFragment = B>,
+{
+    type Driver = EitherDriver<A, B>;
+    type Installer = EitherInstaller<A::Installer, B::Installer>;
+    type Seed = Either<A::Seed, B::Seed>;
+    type Resource = Either<A::Resource, B::Resource>;
+    fn make_seed(&self, name: &'static str) -> Result<Self::Seed, Error> {
+        match self {
+            Either::A(a) => Ok(Either::A(a.make_seed(name)?)),
+            Either::B(b) => Ok(Either::B(b.make_seed(name)?)),
+        }
+    }
+    fn make_resource(&self, seed: &mut Self::Seed, name: &'static str) -> Result<Self::Resource, Error> {
+        match (self, seed) {
+            (Either::A(a), Either::A(sa)) => Ok(Either::A(a.make_resource(sa, name)?)),
+            (Either::B(b), Either::B(sb)) => Ok(Either::B(b.make_resource(sb, name)?)),
+            _ => unreachable!("Seed vs. fragment mismatch"),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct EitherInstaller<A, B>(A, B);
+
+impl<A, B, RA, RB, O, C> Installer<Either<RA, RB>, O, C> for EitherInstaller<A, B>
+where
+    A: Installer<RA, O, C>,
+    B: Installer<RB, O, C>,
+{
+    type UninstallHandle = Either<A::UninstallHandle, B::UninstallHandle>;
+    fn install(&mut self, resource: Either<RA, RB>, name: &'static str) -> Self::UninstallHandle {
+        match resource {
+            Either::A(ra) => Either::A(self.0.install(ra, name)),
+            Either::B(rb) => Either::B(self.1.install(rb, name)),
+        }
+    }
+    fn init<E: Extensible<Opts = O, Config = C, Ok = E>>(
+        &mut self,
+        builder: E,
+        name: &'static str,
+    ) -> Result<E, Error>
+    where
+        E::Config: DeserializeOwned + Send + Sync + 'static,
+        E::Opts: StructOpt + Send + Sync + 'static,
+    {
+        let builder = self.0.init(builder, name)?;
+        let builder = self.1.init(builder, name)?;
+        Ok(builder)
+    }
+}
+
+#[derive(Debug)]
+pub struct EitherDriver<A, B>
+where
+    A: Fragment,
+    B: Fragment,
+{
+    driver: Either<A::Driver, B::Driver>,
+    new_driver: Option<Either<A::Driver, B::Driver>>,
+}
+
+impl<A, B> Default for EitherDriver<A, B>
+where
+    A: Fragment,
+    A::Driver: Default,
+    B: Fragment,
+{
+    fn default() -> Self {
+        EitherDriver {
+            driver: Either::A(Default::default()),
+            new_driver: None,
+        }
+    }
+}
+
+// TODO: This is a bit limiting
+impl<A, B> Driver<Either<A, B>> for EitherDriver<A, B>
+where
+    A: Fragment,
+    A::Driver: Driver<A, SubFragment = A> + Default,
+    B: Fragment,
+    B::Driver: Driver<B, SubFragment = B> + Default,
+{
+    type SubFragment = Either<A, B>;
+    fn instructions<T, I>(
+        &mut self,
+        fragment: &Either<A, B>,
+        transform: &mut T,
+        name: &'static str,
+    ) -> Result<Vec<CacheInstruction<T::OutputResource>>, Vec<Error>>
+    where
+        T: Transformation<<Self::SubFragment as Fragment>::Resource, I, Self::SubFragment>,
+    {
+        assert!(self.new_driver.is_none(), "Unclosed transaction");
+
+        // Shape adaptor for the transformation ‒ we need to first wrap in A or B before feeding it
+        // into the either-transformation.
+        //
+        // Note that due to the lifetimes, we cache the outer fragment, not the inner part that the
+        // transformation gets. It should be the same one.
+        //
+        // T: Transformation on the either
+        // F: The original configuration fragment (eg Either<A, B>)
+        // W: Wrapping function (Either::A or Either::B)
+        struct Wrap<'a, T, F, W>(&'a mut T, &'a F, W);
+
+        impl<'a, T, I, Fi, Fo, W> Transformation<Fi::Resource, I, Fi> for Wrap<'a, T, Fo, W>
+        where
+            Fi: Fragment,
+            Fi::Driver: Driver<Fi, SubFragment = Fi>,
+            Fo: Fragment,
+            W: Fn(Fi::Resource) -> Fo::Resource,
+            T: Transformation<Fo::Resource, I, Fo>
+        {
+            type OutputResource = T::OutputResource;
+            type OutputInstaller = T::OutputInstaller;
+            fn installer(&mut self, in_installer: I, name: &'static str) -> T::OutputInstaller {
+                self.0.installer(in_installer, name)
+            }
+            fn transform(
+                &mut self,
+                resource: Fi::Resource,
+                _fragment: &Fi,
+                name: &'static str,
+            ) -> Result<Self::OutputResource, Error> {
+                self.0.transform((self.2)(resource), self.1, name)
+            }
+        }
+
+        match (&mut self.driver, fragment) {
+            (Either::A(da), Either::A(a)) => {
+                da.instructions(a, &mut Wrap(transform, fragment, Either::A), name)
+            }
+            (Either::B(db), Either::B(b)) => {
+                db.instructions(b, &mut Wrap(transform, fragment, Either::B), name)
+            }
+            (Either::B(_), Either::A(a)) => {
+                let mut da = A::Driver::default();
+                let result = da.instructions(a, &mut Wrap(transform, fragment, Either::A), name);
+                self.new_driver = Some(Either::A(da));
+                result
+            }
+            (Either::A(_), Either::B(b)) => {
+                let mut db = B::Driver::default();
+                let result = db.instructions(b, &mut Wrap(transform, fragment, Either::B), name);
+                self.new_driver = Some(Either::B(db));
+                result
+            }
+        }
+    }
+    fn confirm(&mut self) {
+        if let Some(new) = self.new_driver.take() {
+            self.driver = new;
+        }
+        match &mut self.driver {
+            Either::A(a) => a.confirm(),
+            Either::B(b) => b.confirm(),
+        }
+    }
+    fn abort(&mut self) {
+        if self.new_driver.is_some() {
+            self.new_driver.take();
+        } else {
+            match &mut self.driver {
+                Either::A(a) => a.abort(),
+                Either::B(b) => b.abort(),
+            }
+        }
+    }
+    fn maybe_cached(&self, fragment: &Either<A, B>) -> bool {
+        match (&self.driver, fragment) {
+            (Either::A(da), Either::A(a)) => da.maybe_cached(a),
+            (Either::B(db), Either::B(b)) => db.maybe_cached(b),
+            _ => false,
+        }
     }
 }
