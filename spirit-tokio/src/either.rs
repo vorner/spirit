@@ -7,8 +7,8 @@ use futures::future::Either as FutEither;
 use futures::{Async, Future, Poll, Sink, StartSend, Stream};
 use serde::de::DeserializeOwned;
 use spirit::extension::Extensible;
-use spirit::fragment::driver::{CacheInstruction, Driver};
-use spirit::fragment::{Fragment, Installer, Transformation};
+use spirit::fragment::driver::{CacheInstruction, Comparable, Comparison, Driver};
+use spirit::fragment::{Fragment, Installer, Stackable, Transformation};
 use structopt::StructOpt;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -389,6 +389,26 @@ where
 {
     fn shutdown(&mut self) -> Result<Async<()>, IoError> {
         either!(self, v => v.shutdown()).into_inner()
+    }
+}
+
+impl<A, B> Stackable for Either<A, B>
+where
+    A: Stackable,
+    B: Stackable,
+{}
+
+impl<A, B, AR, BR> Comparable<Either<AR, BR>> for Either<A, B>
+where
+    A: Comparable<AR>,
+    B: Comparable<BR>,
+{
+    fn compare(&self, rhs: &Either<AR, BR>) -> Comparison {
+        match (self, rhs) {
+            (Either::A(s), Either::A(r)) => s.compare(r),
+            (Either::B(s), Either::B(r)) => s.compare(r),
+            _ => Comparison::Dissimilar,
+        }
     }
 }
 

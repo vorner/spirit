@@ -12,18 +12,20 @@
 use std::sync::Arc;
 
 use hyper::{Body, Request, Response};
+use hyper::server::Builder;
+use hyper::service::service_fn_ok;
 use log::{debug, trace};
 use serde::{Deserialize, Serialize};
-use spirit::Spirit;
+use spirit::prelude::*;
 use spirit_cfg_helpers::Opts as CfgOpts;
 use spirit_daemonize::{Daemon, Opts as DaemonOpts};
-use spirit_hyper::HyperServer;
-use spirit_log::{Cfg as Logging, Opts as LogOpts};
+use spirit_hyper::{BuildServer, HyperServer};
+use spirit_log::{Cfg as Logging, CfgAndOpts as LogBoth, Opts as LogOpts};
 use spirit_tokio::either::Either;
-use spirit_tokio::net::limits::WithListenLimits;
+use spirit_tokio::net::limits::WithLimits;
 #[cfg(unix)]
 use spirit_tokio::net::unix::UnixListen;
-use spirit_tokio::{ExtraCfgCarrier, TcpListen};
+use spirit_tokio::{TcpListen, Runtime};
 use structdoc::StructDoc;
 use structopt::StructOpt;
 
@@ -59,9 +61,6 @@ struct Opts {
 }
 
 impl Opts {
-    fn daemon(&self) -> &DaemonOpts {
-        &self.daemon
-    }
     fn logging(&self) -> LogOpts {
         self.log.clone()
     }
@@ -106,10 +105,25 @@ struct Signature {
 ///
 /// We also bundle the optional signature inside of that thing.
 #[cfg(unix)]
-type ListenSocket = WithListenLimits<Either<TcpListen<Signature>, UnixListen<Signature>>>;
+type ListenSocket = WithLimits<Either<TcpListen<Signature>, UnixListen<Signature>>>;
+
 #[cfg(not(unix))]
-type ListenSocket = WithListenLimits<TcpListen<Signature>>;
+type ListenSocket = WithLimits<TcpListen<Signature>>;
+
 type Server = HyperServer<ListenSocket>;
+
+#[cfg(unix)]
+fn extract_signature(listen: &Server) -> &Option<String> {
+    match &listen.transport.listener {
+        Either::A(tcp) => &tcp.extra_cfg.signature,
+        Either::B(unix) => &unix.extra_cfg.signature,
+    }
+}
+
+#[cfg(not(unix))]
+fn extract_signature(listen: &Server) -> &Option<String> {
+    &listen.transport.listener.extra_cfg.signature
+}
 
 /// Putting the whole configuration together.
 ///
@@ -141,9 +155,6 @@ struct Cfg {
 }
 
 impl Cfg {
-    fn daemon(&self) -> Daemon {
-        self.daemon.clone()
-    }
     fn logging(&self) -> Logging {
         self.log.clone()
     }
@@ -175,6 +186,7 @@ http-mode = "http1-only"
 backlog = 256
 scale = 2
 signature = "IPv4"
+reuse-addr = true
 
 [[listen]]
 port = 5678
@@ -185,6 +197,7 @@ scale = 2
 only-v6 = true
 signature = "IPv6"
 max-conn = 20
+reuse-addr = true
 
 [[listen]]
 # This one will be rejected on Windows, because it'll turn off the unix domain socket support.
@@ -207,15 +220,15 @@ fn hello(
     spirit: &Arc<Spirit<Opts, Cfg>>,
     cfg: &Arc<Server>,
     req: Request<Body>,
-) -> Result<Response<Body>, std::io::Error> {
+) -> Response<Body> {
     trace!("Handling request {:?}", req);
     // Get some global configuration
     let mut msg = format!("{}\n", spirit.config().ui.msg);
     // Get some listener-local configuration.
-    if let Some(ref signature) = cfg.extra().signature {
+    if let Some(ref signature) = extract_signature(cfg) {
         msg.push_str(&format!("Brought to you by {}\n", signature));
     }
-    Ok(Response::new(Body::from(msg)))
+    Response::new(Body::from(msg))
 }
 
 /// Putting it all together and starting.
@@ -236,29 +249,43 @@ fn main() {
         // Plug in the daemonization configuration and command line arguments. The library will
         // make it alive ‒ it'll do the actual daemonization based on the config, it only needs to
         // be told it should do so this way.
-        .config_helper(
-            Cfg::daemon,
-            spirit_daemonize::with_opts(Opts::daemon),
-            "daemon",
-        )
+        .with(Daemon::extension(|cfg: &Cfg, opts: &Opts| opts.daemon.transform(cfg.daemon.clone())))
         // Similarly with logging.
-        .config_helper(Cfg::logging, Opts::logging, "logging")
-        // And with config help
-        .with(CfgOpts::helper(Opts::cfg_opts))
-        // And with the HTTP servers. We pass the handler of one request, so it knows what to do
-        // with it.
-        .config_helper(
-            Cfg::listen,
-            spirit_hyper::server_configured(hello),
-            "listen",
+        .with(
+            Pipeline::new("logging").extract(|opts: &Opts, cfg: &Cfg| LogBoth {
+                cfg: cfg.logging(),
+                opts: opts.logging(),
+            }),
         )
+        // And with config help
+        .with(CfgOpts::extension(Opts::cfg_opts))
         // A custom callback ‒ when a new config is loaded, we want to print it to logs.
         .on_config(|cmd_line, new_cfg| {
             debug!("Current cmdline: {:?} and config {:?}", cmd_line, new_cfg);
         })
+        // Make sure we have tokio runtime (the server pipeline would make sure it is available,
+        // but we plug it in quite late).
+        .with_singleton(Runtime::default())
         // And run the application.
         //
         // Empty body here is fine. The rest of the work will happen afterwards, inside the HTTP
         // server.
-        .run(|_spirit| Ok(()));
+        .run(|spirit| {
+            let spirit_srv = Arc::clone(spirit);
+            let build_server = move |builder: Builder<_>, cfg: &Server, _: &'static str| {
+                let spirit = Arc::clone(&spirit_srv);
+                let cfg = Arc::new(cfg.clone());
+                builder.serve(move || {
+                    let spirit = Arc::clone(&spirit);
+                    let cfg = Arc::clone(&cfg);
+                    service_fn_ok(move |req| hello(&spirit, &cfg, req))
+                })
+            };
+            spirit.with(
+                Pipeline::new("listen")
+                    .extract_cfg(Cfg::listen)
+                    .transform(BuildServer(build_server))
+            )?;
+             Ok(())
+        });
 }
