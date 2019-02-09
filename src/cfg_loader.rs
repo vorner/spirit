@@ -54,6 +54,7 @@ use log::{debug, trace};
 use serde::de::DeserializeOwned;
 use structopt::clap::App;
 use structopt::StructOpt;
+use toml::Value;
 
 #[derive(StructOpt)]
 struct CommonOpts {
@@ -411,9 +412,15 @@ impl Loader {
                 format!("Failed to push override {}={} into config", key, value)
             })?;
         }
-        let result = config
-            .try_into()
-            .context("Failed to decode configuration")?;
+
+        // A hack: the config crate has a lot of glitches when it comes to deserializing ‒
+        // unhelpful error messages, enums as keys can't be decoded, etc. So we turn it into
+        // toml::Value (which should not fail) and then use that one to do the actual decoding. The
+        // latter is much better quality, so we get better error messages.
+        let intermediate: Value = config.try_into().context("Failed to decode configuration")?;
+
+        let result = intermediate.try_into().context("Failed to decode configuration")?;
+
         Ok(result)
     }
 }
