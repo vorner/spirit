@@ -19,7 +19,6 @@ members = [
     "spirit-log",
     "spirit-reqwest",
     "spirit-tokio",
-    "examples/hws-complete",
 ]
 
 [badges]
@@ -51,4 +50,11 @@ structopt = "~0.2"
 
 [dev-dependencies]
 lazy_static = "~1"
+hyper = "~0.12"
+spirit-cfg-helpers = { path = "spirit-cfg-helpers" }
+spirit-daemonize = { path = "spirit-daemonize" }
+spirit-hyper = { path = "spirit-hyper" }
+spirit-log = { path = "spirit-log" }
+spirit-tokio = { path = "spirit-tokio" }
+structdoc = "~0.1"
 version-sync = "~0.6"

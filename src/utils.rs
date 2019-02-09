@@ -143,12 +143,13 @@ pub fn log_error(level: Level, target: &str, e: &Error, format: ErrorLogFormat) 
 /// ```rust
 /// # use failure::{Error, ResultExt};
 /// # use spirit::utils;
-/// # fn try_to_do_stuff() -> Error<(), Error> { Ok(()) }
+/// # fn try_to_do_stuff() -> Result<(), Error> { Ok(()) }
 ///
-/// log_errors(module_path!(), || {
+/// let result = utils::log_errors(module_path!(), || {
 ///     try_to_do_stuff().context("Didn't manage to do stuff")?;
 ///     Ok(())
-/// })
+/// });
+/// # let _result = result;
 /// ```
 pub fn log_errors<R, F>(target: &str, f: F) -> Result<R, Error>
 where

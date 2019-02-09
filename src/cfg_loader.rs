@@ -13,9 +13,10 @@
 //! 1. Create a [`Builder`][crate::cfg_loader::Builder] with
 //!    [`Builder::new`][crate::cfg_loader::Builder::new].
 //! 2. Configure the it.
-//! 3. Parse the command line and prepare the loader with [`build`][Builder::build] (or,
-//!    alternatively [`build_no_opts`][crate::cfg_loader::Builder::build_no_opts] if command line
-//!    should not be considered).
+//! 3. Parse the command line and prepare the loader with
+//!    [`build`][crate::cfg_loader::Builder::build] (or, alternatively
+//!    [`build_no_opts`][crate::cfg_loader::Builder::build_no_opts] if command line should not be
+//!    considered).
 //! 4. Load (even as many times as needed) the configuration using
 //!    [`load`][crate::cfg_loader::Loader::load].
 //!

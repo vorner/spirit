@@ -22,7 +22,6 @@ use log::{debug, error, info, warn};
 use serde::Deserialize;
 use spirit::extension;
 use spirit::prelude::*;
-use spirit::validation::Result as ValidationResult;
 use spirit::ArcSwap;
 
 // In this part, we define how our configuration looks like. Just like with the `config` crate
@@ -115,7 +114,6 @@ fn start_threads() -> Result<(), Error> {
 
 fn main() -> Result<(), Error> {
     let (term_send, term_recv) = mpsc::channel();
-    let mut initial = true;
     let _spirit = Spirit::<spirit::Empty, Config>::new()
         // Keep the current config accessible through a global variable
         .with(extension::cfg_store(&*CONFIG))
@@ -134,17 +132,7 @@ fn main() -> Result<(), Error> {
         // Therefore we simply warn about a change that doesn't take an effect.
         //
         // The hws example in spirit-tokio has a working update of listening ports.
-        .config_validator(move |old, new, _| {
-            let mut results = Vec::new();
-            if !initial && old.listen != new.listen {
-                // Sorry, not implemented yet :-(
-                results.push(ValidationResult::warning(
-                    "Can't change listening ports at runtime",
-                ))
-            }
-            initial = false;
-            results
-        })?
+        .with(extension::immutable_cfg(|cfg: &Config| &cfg.listen, "listen ports"))
         .on_terminate(move || {
             // This unfortunately cuts all the listening threads right away.
             term_send.send(()).unwrap();
