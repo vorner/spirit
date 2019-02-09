@@ -179,8 +179,6 @@ pub use crate::empty::Empty;
 pub use crate::extension::Extensible;
 pub use crate::spirit::{Builder, Spirit, SpiritBuilder};
 pub use crate::fragment::pipeline::Pipeline;
-#[deprecated(note = "Moved to spirit::utils")]
-pub use crate::utils::{key_val, log_error, log_errors, log_errors_named, MissingEquals};
 
 pub mod prelude {
     pub use super::{ConfigBuilder, Empty, Extensible, Pipeline, Spirit, SpiritBuilder};

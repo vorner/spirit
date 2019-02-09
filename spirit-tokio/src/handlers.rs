@@ -3,7 +3,9 @@ use std::io::Error as IoError;
 
 use failure::{Error, Fail};
 use futures::{Async, Future, IntoFuture, Poll, Stream};
+use log::Level;
 use spirit::fragment::Transformation;
+use spirit::utils::{self, ErrorLogFormat};
 
 use installer::FutureInstaller;
 use net::IntoIncoming;
@@ -80,7 +82,12 @@ where
         loop {
             let incoming = self.incoming.poll().map_err(|e| {
                 let e = e.context("Listening socket terminated unexpectedly").into();
-                spirit::utils::log_error(module_path!(), &e);
+                utils::log_error(
+                    Level::Error,
+                    module_path!(),
+                    &e,
+                    ErrorLogFormat::Multiline,
+                );
             });
             let connection = try_ready!(incoming);
             if let Some(conn) = connection {
@@ -91,7 +98,12 @@ where
                         let e = e
                             .into()
                             .context(format!("Failed to handle connection on {}", name));
-                        spirit::utils::log_error(module_path!(), &e.into());
+                        utils::log_error(
+                            Level::Error,
+                            module_path!(),
+                            &e.into(),
+                            ErrorLogFormat::Multiline,
+                        );
                     });
                 tokio::spawn(future);
             } else {

@@ -218,7 +218,7 @@ pub struct Opts {
     #[structopt(
         short = "L",
         long = "log-module",
-        parse(try_from_str = "spirit::key_val"),
+        parse(try_from_str = "spirit::utils::key_val"),
         raw(number_of_values = "1")
     )]
     log_modules: Vec<(String, LevelFilter)>,

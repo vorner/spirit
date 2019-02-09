@@ -11,7 +11,8 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use failure::{Error, Fail};
-use log::{debug, error, log_enabled, warn, Level};
+use itertools::Itertools;
+use log::{debug, log, log_enabled, warn, Level};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
@@ -80,17 +81,49 @@ where
     Ok((opt[..pos].parse()?, opt[pos + 1..].parse()?))
 }
 
-/// Log one error
+/// How to format errors in logs.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum ErrorLogFormat {
+    /// Multi-cause error will span multiple log messages.
+    Multiline,
+
+    /// The error is formatted on a single line.
+    ///
+    /// The causes are separated by semicolons.
+    ///
+    /// If present, trace is printed on debug level.
+    SingleLine,
+
+    /// Like [SingleLine][ErrorLogFormat::SingleLine], but without the backtrace.
+    SingleLineWithoutBacktrace,
+
+    #[doc(hidden)]
+    #[allow(non_camel_case_types)]
+    _NON_EXHAUSTIVE,
+}
+
+/// Log one error on given log level.
 ///
 /// It is printed to the log with all the causes and optionally a backtrace (if it is available and
 /// debug logging is enabled).
-// TODO: Provide a macro, so user doesn't have to provide the target matually
-pub fn log_error(target: &str, e: &Error) {
+///
+/// This is the low-level version with full customization. You might also be interested in
+/// [`log_errors`].
+pub fn log_error(level: Level, target: &str, e: &Error, format: ErrorLogFormat) {
     // Note: one of the causes is the error itself
-    for cause in e.iter_chain() {
-        error!(target: target, "{}", cause);
+    match format {
+        ErrorLogFormat::Multiline => {
+            for cause in e.iter_chain() {
+                log!(target: target, level, "{}", cause);
+            }
+        }
+        ErrorLogFormat::SingleLine |
+        ErrorLogFormat::SingleLineWithoutBacktrace => {
+            log!(target: target, level, "{}", e.iter_chain().join("; "));
+        }
+        _ => unreachable!("Non-exhaustive sentinel should not be used"),
     }
-    if log_enabled!(Level::Debug) {
+    if log_enabled!(Level::Debug) && format != ErrorLogFormat::SingleLineWithoutBacktrace {
         let bt = format!("{}", e.backtrace());
         if !bt.is_empty() {
             debug!(target: target, "{}", bt);
@@ -98,22 +131,34 @@ pub fn log_error(target: &str, e: &Error) {
     }
 }
 
-/// Same as [`log_errors`](fn.log_errors), but with an explicit `target` to log into.
-pub fn log_errors_named<R, F>(target: &str, f: F) -> Result<R, Error>
+/// A wrapper around a fallible function, logging any returned errors.
+///
+/// The errors will be logged in the provided target. You may want to provide `module_path!` as the
+/// target.
+///
+/// If the error has multiple levels (causes), they are printed in multi-line fashion.
+///
+/// # Examples
+///
+/// ```rust
+/// # use failure::{Error, ResultExt};
+/// # use spirit::utils;
+/// # fn try_to_do_stuff() -> Error<(), Error> { Ok(()) }
+///
+/// log_errors(module_path!(), || {
+///     try_to_do_stuff().context("Didn't manage to do stuff")?;
+///     Ok(())
+/// })
+/// ```
+pub fn log_errors<R, F>(target: &str, f: F) -> Result<R, Error>
 where
     F: FnOnce() -> Result<R, Error>,
 {
     let result = f();
     if let Err(ref e) = result {
-        log_error(target, e);
+        log_error(Level::Error, target, e, ErrorLogFormat::Multiline);
     }
     result
-}
-
-/// A wrapper around a fallible function that logs any returned errors, with all the causes and
-/// optionally the backtrace.
-pub fn log_errors<R, F: FnOnce() -> Result<R, Error>>(f: F) -> Result<R, Error> {
-    log_errors_named("spirit", f)
 }
 
 /// A wrapper to hide a configuration field from logs.

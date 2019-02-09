@@ -88,9 +88,11 @@ use hyper::body::Payload;
 use hyper::server::{Builder, Server};
 use hyper::service::{MakeServiceRef, Service};
 use hyper::Body;
+use log::Level;
 use spirit::Empty;
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable, Transformation};
+use spirit::utils::{self, ErrorLogFormat};
 use spirit_tokio::installer::FutureInstaller;
 use spirit_tokio::net::limits::WithLimits;
 use spirit_tokio::net::IntoIncoming;
@@ -296,7 +298,12 @@ where
                 .server
                 .with_graceful_shutdown(inner.receiver)
                 .map_err(move |e| {
-                    spirit::log_error(module_path!(), &e.context(format!("HTTP server {} failed", name)).into());
+                    utils::log_error(
+                        Level::Error,
+                        module_path!(),
+                        &e.context(format!("HTTP server {} failed", name)).into(),
+                        ErrorLogFormat::Multiline,
+                    );
                 });
             tokio::spawn(server);
         }

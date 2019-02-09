@@ -3,9 +3,6 @@
 * Why C needs to be Debug?
 * config_exts_all?
 * Maybe log-errors as a macro?
-* The TcpListen, UdpListen, UnixListen and DatagramListen look very similar ‒
-  share the code somehow? Macro?
-* Get rid of the deprecated methods
 
 * Error logging: allow specifying the level, allow single-line format
 * Where are all the errors if validation of config fails? One of them seems to

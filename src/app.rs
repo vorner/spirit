@@ -44,7 +44,7 @@ where
     where
         B: FnOnce() -> Result<(), Error> + Send + 'static,
     {
-        if utils::log_errors_named("top-level", || self.run(body)).is_err() {
+        if utils::log_errors("top-level", || self.run(body)).is_err() {
             process::exit(1);
         }
     }
