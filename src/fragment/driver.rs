@@ -11,6 +11,7 @@ use log::{trace, warn};
 use super::{Fragment, Transformation};
 
 // XXX: Rename stuff so we don't have Driver in everything
+// XXX: Logging and tests
 
 #[derive(Debug)]
 pub struct IdGen(u128);
@@ -77,9 +78,9 @@ pub trait Driver<F: Fragment> {
     where
         T: Transformation<<Self::SubFragment as Fragment>::Resource, I, Self::SubFragment>;
     // XXX: Names here too?
-    fn confirm(&mut self);
-    fn abort(&mut self);
-    fn maybe_cached(&self, frament: &F) -> bool;
+    fn confirm(&mut self, name: &'static str);
+    fn abort(&mut self, name: &'static str);
+    fn maybe_cached(&self, frament: &F, name: &'static str) -> bool;
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -96,15 +97,19 @@ impl<F: Fragment> Driver<F> for TrivialDriver {
     where
         T: Transformation<F::Resource, I, F>,
     {
+        trace!(
+            "Creating resource {}, generating a replace instruction for any possible previous",
+            name,
+        );
         let resource = fragment
             .create(name)
             .and_then(|r| transform.transform(r, fragment, name))
             .map_err(|e| vec![e])?;
         Ok(CacheInstruction::replace(resource))
     }
-    fn confirm(&mut self) {}
-    fn abort(&mut self) {}
-    fn maybe_cached(&self, _: &F) -> bool {
+    fn confirm(&mut self, _name: &'static str) {}
+    fn abort(&mut self, _name: &'static str) {}
+    fn maybe_cached(&self, _: &F, _name: &'static str) -> bool {
         false
     }
 }
@@ -214,10 +219,12 @@ where
             }
         }
     }
-    fn abort(&mut self) {
+    fn abort(&mut self, name: &'static str) {
+        trace!("Aborting {}", name);
         self.proposition = Proposition::Nothing;
     }
-    fn confirm(&mut self) {
+    fn confirm(&mut self, name: &'static str) {
+        trace!("Confirming {}", name);
         let mut proposition = Proposition::Nothing;
         mem::swap(&mut proposition, &mut self.proposition);
         match proposition {
@@ -229,7 +236,7 @@ where
             }
         }
     }
-    fn maybe_cached(&self, fragment: &F) -> bool {
+    fn maybe_cached(&self, fragment: &F, _name: &'static str) -> bool {
         self.compare(fragment) != Comparison::Dissimilar
     }
 }
@@ -265,7 +272,7 @@ where
     {
         assert!(self.proposition.is_none(), "Unclosed transaction");
         // maybe_cached means *is* cached for us
-        if self.maybe_cached(fragment) {
+        if self.maybe_cached(fragment, name) {
             trace!(
                 "The {} stays the same on {:?}, keeping previous",
                 name,
@@ -285,16 +292,18 @@ where
             )
         }
     }
-    fn abort(&mut self) {
-        // Note: we don't theck if anything is in here, because in case these were the same we
+    fn abort(&mut self, name: &'static str) {
+        trace!("Aborting {}", name);
+        // Note: we don't check if anything is in here, because in case these were the same we
         // didn't fill in the proposition.
     }
-    fn confirm(&mut self) {
+    fn confirm(&mut self, name: &'static str) {
+        trace!("Confirming {}", name);
         if let Some(proposition) = self.proposition.take() {
             self.previous = Some(proposition);
         }
     }
-    fn maybe_cached(&self, fragment: &F) -> bool {
+    fn maybe_cached(&self, fragment: &F, _name: &'static str) -> bool {
         // Option doesn't implement parametrized PartialEq :-(
         if let Some(prev) = self.previous.as_ref() {
             fragment == prev
@@ -307,7 +316,6 @@ where
 
 
 #[derive(Clone, Debug, Default)]
-// TODO: Use some kind of immutable/persistent data structures? Or not, this is likely to be small?
 pub struct IdMapping {
     mapping: HashMap<CacheId, CacheId>,
 }
@@ -375,27 +383,6 @@ struct ItemDriver<Driver> {
     new: bool,
 }
 
-#[derive(Debug)]
-pub struct SeqDriver<Item, SlaveDriver> {
-    id_gen: IdGen,
-    sub_drivers: Vec<ItemDriver<SlaveDriver>>,
-    transaction_open: bool,
-    // TODO: Can we actually get rid of this?
-    _item: PhantomData<fn(&Item)>,
-}
-
-// The derived Default balks on Item: !Default, but we *don't* need that
-impl<Item, SlaveDriver> Default for SeqDriver<Item, SlaveDriver> {
-    fn default() -> Self {
-        Self {
-            id_gen: IdGen::new(),
-            sub_drivers: Vec::new(),
-            transaction_open: false,
-            _item: PhantomData,
-        }
-    }
-}
-
 #[derive(Debug, Default)]
 pub struct RefDriver<Inner>(Inner);
 
@@ -418,18 +405,39 @@ impl<'a, F: Fragment, Inner: Driver<F>> Driver<&'a F> for RefDriver<Inner> {
     {
         self.0.instructions(*fragment, transform, name)
     }
-    fn confirm(&mut self) {
-        self.0.confirm();
+    fn confirm(&mut self, name: &'static str) {
+        self.0.confirm(name);
     }
-    fn abort(&mut self) {
-        self.0.abort();
+    fn abort(&mut self, name: &'static str) {
+        self.0.abort(name);
     }
-    fn maybe_cached(&self, fragment: &&F) -> bool {
-        self.0.maybe_cached(*fragment)
+    fn maybe_cached(&self, fragment: &&F, name: &'static str) -> bool {
+        self.0.maybe_cached(*fragment, name)
     }
 }
 
-// TODO: This one is complex enough, this calls for bunch of trace and debug logging!
+#[derive(Debug)]
+pub struct SeqDriver<Item, SlaveDriver> {
+    id_gen: IdGen,
+    sub_drivers: Vec<ItemDriver<SlaveDriver>>,
+    transaction_open: bool,
+    // TODO: Can we actually get rid of this?
+    _item: PhantomData<fn(&Item)>,
+}
+
+// The derived Default balks on Item: !Default, but we *don't* need that
+impl<Item, SlaveDriver> Default for SeqDriver<Item, SlaveDriver> {
+    fn default() -> Self {
+        Self {
+            id_gen: IdGen::new(),
+            sub_drivers: Vec::new(),
+            transaction_open: false,
+            _item: PhantomData,
+        }
+    }
+}
+
+// TODO: This might use some nice tests.
 impl<F, I, SlaveDriver> Driver<F> for SeqDriver<I, SlaveDriver>
 where
     F: Fragment,
@@ -448,6 +456,7 @@ where
         T: Transformation<<Self::SubFragment as Fragment>::Resource, Ins, Self::SubFragment>,
     {
         assert!(!self.transaction_open);
+        trace!("Updating sequence {}", name);
         self.transaction_open = true;
         let mut instructions = Vec::new();
         let mut errors = Vec::new();
@@ -456,11 +465,13 @@ where
             let existing = self
                 .sub_drivers
                 .iter_mut()
-                .find(|d| !d.used && d.driver.maybe_cached(sub));
+                .find(|d| !d.used && d.driver.maybe_cached(sub, name));
             // unwrap_or_else angers the borrow checker here
             let slot = if let Some(existing) = existing {
+                trace!("Found existing version of instance in {}", name);
                 existing
             } else {
+                trace!("Previous version of instance in {} not found, creating a new one", name);
                 self.sub_drivers.push(ItemDriver::default());
                 let slot = self.sub_drivers.last_mut().unwrap();
                 slot.new = true;
@@ -485,11 +496,12 @@ where
         if errors.is_empty() {
             Ok(instructions)
         } else {
-            self.abort();
+            self.abort(name);
             Err(errors)
         }
     }
-    fn confirm(&mut self) {
+    fn confirm(&mut self, name: &'static str) {
+        trace!("Confirming the whole sequence {}", name);
         assert!(self.transaction_open);
         self.transaction_open = false;
         // Get rid of the unused ones
@@ -497,14 +509,15 @@ where
         // Confirm all the used ones, accept proposed mappings and mark everything as old for next
         // round.
         for sub in &mut self.sub_drivers {
-            sub.driver.confirm();
+            sub.driver.confirm(name);
             if let Some(mapping) = sub.proposed_mapping.take() {
                 sub.id_mapping = mapping;
             }
             sub.new = false;
         }
     }
-    fn abort(&mut self) {
+    fn abort(&mut self, name: &'static str) {
+        trace!("Aborting the whole sequence of {}", name);
         assert!(self.transaction_open);
         self.transaction_open = false;
         // Get rid of the new ones completely
@@ -512,7 +525,7 @@ where
         // Abort anything we touched before
         for sub in &mut self.sub_drivers {
             if sub.used {
-                sub.driver.abort();
+                sub.driver.abort(name);
                 sub.proposed_mapping.take();
                 sub.used = false;
             }
@@ -522,11 +535,11 @@ where
             );
         }
     }
-    fn maybe_cached(&self, fragment: &F) -> bool {
+    fn maybe_cached(&self, fragment: &F, name: &'static str) -> bool {
         fragment.into_iter().any(|s| {
             self.sub_drivers
                 .iter()
-                .any(|slave| slave.driver.maybe_cached(s))
+                .any(|slave| slave.driver.maybe_cached(s, name))
         })
     }
 }
@@ -577,11 +590,11 @@ where
             TrivialDriver.instructions(fragment, transform, name)
         }
     }
-    fn confirm(&mut self) {
+    fn confirm(&mut self, _name: &'static str) {
         assert!(self.loaded.is_some(), "Confirm called before instructions");
         self.initial = false;
     }
-    fn abort(&mut self) {
+    fn abort(&mut self, _name: &'static str) {
         if self.initial {
             // Keep initial to true in such case
             assert!(
@@ -592,7 +605,7 @@ where
         // else - we still keep the thing that was set, because this must have been from previous
         // round
     }
-    fn maybe_cached(&self, fragment: &F) -> bool {
+    fn maybe_cached(&self, fragment: &F, _name: &'static str) -> bool {
         self.loaded
             .as_ref()
             .map(|l| fragment == l)

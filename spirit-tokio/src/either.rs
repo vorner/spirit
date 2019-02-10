@@ -567,29 +567,29 @@ where
             }
         }
     }
-    fn confirm(&mut self) {
+    fn confirm(&mut self, name: &'static str) {
         if let Some(new) = self.new_driver.take() {
             self.driver = new;
         }
         match &mut self.driver {
-            Either::A(a) => a.confirm(),
-            Either::B(b) => b.confirm(),
+            Either::A(a) => a.confirm(name),
+            Either::B(b) => b.confirm(name),
         }
     }
-    fn abort(&mut self) {
+    fn abort(&mut self, name: &'static str) {
         if self.new_driver.is_some() {
             self.new_driver.take();
         } else {
             match &mut self.driver {
-                Either::A(a) => a.abort(),
-                Either::B(b) => b.abort(),
+                Either::A(a) => a.abort(name),
+                Either::B(b) => b.abort(name),
             }
         }
     }
-    fn maybe_cached(&self, fragment: &Either<A, B>) -> bool {
+    fn maybe_cached(&self, fragment: &Either<A, B>, name: &'static str) -> bool {
         match (&self.driver, fragment) {
-            (Either::A(da), Either::A(a)) => da.maybe_cached(a),
-            (Either::B(db), Either::B(b)) => db.maybe_cached(b),
+            (Either::A(da), Either::A(a)) => da.maybe_cached(a, name),
+            (Either::B(db), Either::B(b)) => db.maybe_cached(b, name),
             _ => false,
         }
     }

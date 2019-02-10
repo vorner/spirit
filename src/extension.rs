@@ -525,7 +525,7 @@ pub trait Extension<B> {
     ///
     /// And yes, it is possible to do multiple primitive transformations inside one extension (this
     /// is what makes extensions useful for 3rd party crates, they can integrate with just one call
-    /// of [`with`][Extension::with]).
+    /// of [`with`][Extensible::with]).
     fn apply(self, builder: B) -> Result<B, Error>;
 }
 

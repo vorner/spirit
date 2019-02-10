@@ -2,6 +2,7 @@ use std::collections::{BTreeSet, BinaryHeap, HashSet, LinkedList};
 use std::hash::{BuildHasher, Hash};
 
 use failure::Error;
+use log::trace;
 use serde::de::DeserializeOwned;
 use structopt::StructOpt;
 
@@ -10,8 +11,6 @@ use crate::extension::Extensible;
 
 pub mod driver;
 pub mod pipeline;
-
-// XXX: Add logging/trace logs?
 
 pub trait Installer<Resource, O, C> {
     type UninstallHandle: Send + 'static;
@@ -73,6 +72,7 @@ pub trait Fragment: Sized {
     fn make_resource(&self, seed: &mut Self::Seed, name: &'static str)
         -> Result<Self::Resource, Error>;
     fn create(&self, name: &'static str) -> Result<Self::Resource, Error> {
+        trace!("End to end creation of {}", name);
         let mut seed = self.make_seed(name)?;
         self.make_resource(&mut seed, name)
     }

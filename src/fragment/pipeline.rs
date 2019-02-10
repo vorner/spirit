@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use failure::Error;
+use log::{debug, trace};
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use structopt::StructOpt;
@@ -146,6 +147,7 @@ impl Pipeline<(), (), (), (), ()> {
         NopTransformation,
         (O, C),
     > {
+        trace!("Configured extractor on pipeline {}", self.name);
         Pipeline {
             name: self.name,
             _fragment: PhantomData,
@@ -165,6 +167,7 @@ impl Pipeline<(), (), (), (), ()> {
         E: FnMut(&'static C) -> R,
         R: Fragment,
     {
+        trace!("Configured extractor on pipeline {}", self.name);
         Pipeline {
             name: self.name,
             _fragment: PhantomData,
@@ -184,6 +187,7 @@ where
     where
         T: Transformation<<ND::SubFragment as Fragment>::Resource, F::Installer, ND::SubFragment>,
     {
+        trace!("Overriding the driver on pipeline {}", self.name);
         Pipeline {
             driver,
             name: self.name,
@@ -208,6 +212,7 @@ where
     where
         NT: Transformation<T::OutputResource, T::OutputInstaller, D::SubFragment>,
     {
+        trace!("Adding a transformation to pipeline {}", self.name);
         Pipeline {
             name: self.name,
             _fragment: PhantomData,
@@ -222,6 +227,7 @@ where
     where
         I: Installer<T::OutputResource, O, C>,
     {
+        trace!("Setting installer to pipeline {}", self.name);
         Pipeline {
             name: self.name,
             _fragment: PhantomData,
@@ -287,15 +293,22 @@ where
         let mut me_lock = me.lock();
         let fragment = me_lock.extractor.extract(opts, config);
         let (name, transform, driver) = me_lock.explode();
+        debug!("Running pipeline {}", name);
         let instructions = driver.instructions(&fragment, transform, name)?;
         let me_f = Arc::clone(&me);
         let failure = move || {
-            me_f.lock().driver.abort();
+            debug!("Rolling back pipeline {}", name);
+            me_f.lock().driver.abort(name);
         };
         let me_s = Arc::clone(&me);
         let success = move || {
+            debug!(
+                "Success for pipeline {}, performing {} install instructions",
+                name,
+                instructions.len(),
+            );
             let mut me = me_s.lock();
-            me.driver.confirm();
+            me.driver.confirm(name);
             let name = me.name;
             for ins in instructions {
                 me.install_cache.interpret(ins, name);
@@ -333,6 +346,7 @@ where
     // TODO: There seems to be a lot of mutexes that are not really necessary here.
     // TODO: This would use some tests
     fn apply(self, mut builder: B) -> Result<B, Error> {
+        trace!("Inserting pipeline {}", self.name);
         let mut transformation = self.transformation;
         let mut installer = transformation.installer(Default::default(), self.name);
         builder = F::init(builder, self.name)?;
