@@ -167,6 +167,7 @@ impl MultiLog {
         self.max_level = cmp::max(max_level, self.max_level);
         self.loggers.push(logger);
     }
+    // TODO: Document the relation with init(), maybe panic if hasn't been called yet?
     pub fn install(mut self) {
         debug!("Installing loggers");
         log::set_max_level(self.max_level);
@@ -754,7 +755,7 @@ impl Cfg {
     pub fn init_extension<E: Extensible>() -> impl Extension<E> {
         |mut e: E| {
             if e.singleton::<Configured>() {
-                log_panics::init();
+                init();
                 let logger = Logger {
                     destination: LogDestination::StdErr,
                     level: LevelFilterSerde(LevelFilter::Warn),
@@ -763,12 +764,16 @@ impl Cfg {
                     time_format: cmdline_time_format(),
                     format: Format::Short,
                 };
-                let _ = log_reroute::init();
                 create(iter::once(&logger)).unwrap().install();
             }
             e
         }
     }
+}
+
+pub fn init() {
+    log_panics::init();
+    let _ = log_reroute::init();
 }
 
 impl Fragment for Cfg {

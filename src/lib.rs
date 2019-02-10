@@ -52,8 +52,6 @@
 //! functionality. In some cases, it is possible to combine the approaches cross-tiers too and
 //! having parts of your application fully managed, while others handled manually.
 //!
-//! TODO: Each one section could use an example.
-//!
 //! ## Loading of configuration
 //!
 //! The first tier helps with configuration loading. You specify the structures that should be
@@ -64,6 +62,40 @@
 //! You can also ask it to reload the configuration later on, to see if it changed.
 //!
 //! This basic configuration loading lives in the [`cfg_loader`][crate::cfg_loader] module.
+//!
+//! ```rust
+//! use failure::Error;
+//! use serde::Deserialize;
+//! use spirit::{ConfigBuilder, Empty};
+//! use spirit::cfg_loader::Builder;
+//!
+//! #[derive(Debug, Default, Deserialize)]
+//! struct Cfg {
+//!     message: String,
+//! }
+//!
+//! static DEFAULT_CFG: &str = r#"
+//! message = "hello"
+//! "#;
+//!
+//! fn main() -> Result<(), Error> {
+//!     // Don't care about command line options - there are none in addition to specifying the
+//!     // configuration. If we wanted some more config options, we would use a StructOpt
+//!     // structure instead of Empty.
+//!     //
+//!     // If the user specifies invalid options, a help is printed and the application exits.
+//!     let (Empty {}, mut loader) = Builder::new()
+//!         .config_defaults(DEFAULT_CFG)
+//!         .build();
+//!
+//!     // This can be done as many times as needed, to load fresh configuration.
+//!     let cfg: Cfg = loader.load()?;
+//!
+//!     // The interesting stuff of your application.
+//!     println!("{}", cfg.message);
+//!     Ok(())
+//! }
+//! ```
 //!
 //! ## Prefabricated fragments of configuration
 //!
@@ -95,7 +127,65 @@
 //! can be configured and what values would be used after combining all configuration sources
 //! together.
 //!
-//! You can create your own fragment and, if it's something others could use, share them.
+//! You can create your own fragments and, if it's something others could use, share them.
+//!
+//! ```rust
+//! use failure::Error;
+//! use log::info;
+//! use serde::Deserialize;
+//! use spirit::cfg_loader::{Builder, ConfigBuilder};
+//! use spirit::fragment::Fragment;
+//! use spirit_log::{Cfg as LogCfg, CfgAndOpts as Logging, Opts as LogOpts};
+//! use structopt::StructOpt;
+//!
+//! #[derive(Debug, Default, Deserialize)]
+//! struct Cfg {
+//!     message: String,
+//!     // Some configuration options to configure logging.
+//!     #[serde(flatten)]
+//!     logging: LogCfg,
+//! }
+//!
+//! #[derive(Clone, Debug, StructOpt)]
+//! struct Opts {
+//!     // And some command line switches to also interact with logging.
+//!     #[structopt(flatten)]
+//!     logging: LogOpts,
+//! }
+//!
+//! static DEFAULT_CFG: &str = r#"
+//! message = "hello"
+//! "#;
+//!
+//! fn main() -> Result<(), Error> {
+//!     // Here we added
+//!     let (opts, mut loader): (Opts, _) = Builder::new()
+//!         .config_defaults(DEFAULT_CFG)
+//!         .build();
+//!     let cfg: Cfg = loader.load()?;
+//!
+//!     // We put them together (speciality of the logging fragments ‒ some other fragments come
+//!     // only in the configuration).
+//!     let logging = Logging {
+//!         cfg: cfg.logging,
+//!         opts: opts.logging,
+//!     };
+//!     // This enables log-panics and sets up the global logger so it can be exchanged at runtime.
+//!     // This is a prerequisite of the bellow logger.install();
+//!     spirit_log::init();
+//!     // And here we get ready-made top level logger we can use.
+//!     // (the "logging" string helps to identify fragments in logs ‒ when stuff gets complex,
+//!     // naming things helps).
+//!     //
+//!     // This can configure multiple loggers at once (STDOUT, files, network…).
+//!     let logger = logging.create("logging")?;
+//!     logger.install();
+//!
+//!     // The interesting stuff of your application.
+//!     info!("{}", cfg.message);
+//!     Ok(())
+//! }
+//! ```
 //!
 //! ## Application lifetime management
 //!
@@ -118,6 +208,71 @@
 //! Note that the functionality of these is provided through several traits. It is recommended to
 //! import the [`spirit::prelude::*`][crate::prelude] to get all the relevant traits.
 //!
+//! ```rust
+//! use std::time::Duration;
+//! use std::thread;
+//!
+//! use log::{debug, info};
+//! use serde::Deserialize;
+//! use spirit::prelude::*;
+//! use spirit::fragment::Fragment;
+//! use spirit::validation::Action;
+//! use spirit_log::{Cfg as LogCfg, CfgAndOpts as Logging, Opts as LogOpts};
+//! use structopt::StructOpt;
+//!
+//! #[derive(Debug, Default, Deserialize)]
+//! struct Cfg {
+//!     message: String,
+//!     sleep: u64,
+//!     #[serde(flatten)]
+//!     logging: LogCfg,
+//! }
+//!
+//! #[derive(Clone, Debug, StructOpt)]
+//! struct Opts {
+//!     // And some command line switches to also interact with logging.
+//!     #[structopt(flatten)]
+//!     logging: LogOpts,
+//! }
+//!
+//! static DEFAULT_CFG: &str = r#"
+//! message = "hello"
+//! sleep = 2
+//! "#;
+//!
+//! fn main() {
+//!     spirit_log::init();
+//!     Spirit::<Opts, Cfg>::new()
+//!         // Provide default values for the configuration
+//!         .config_defaults(DEFAULT_CFG)
+//!         // If the program is passed a directory, load files with these extensions from there
+//!         .config_exts(&["toml", "ini", "json"])
+//!         .on_terminate(|| debug!("Asked to terminate"))
+//!         .config_validator(|_old_cfg, cfg, opts| {
+//!             let logging = Logging {
+//!                 opts: opts.logging.clone(),
+//!                 cfg: cfg.logging.clone(),
+//!             };
+//!             // Whenever there's a new configuration, create new logging
+//!             let logger = logging.create("logging")?;
+//!             // But postpone the installation until the whole config has been validated and
+//!             // accepted.
+//!             Ok(Action::new().on_success(|| logger.install()))
+//!         })
+//!         // Run the closure, logging the error nicely if it happens (note: no error happens
+//!         // here)
+//!         .run(|spirit: &_| {
+//!             while !spirit.is_terminated() {
+//!                 let cfg = spirit.config(); // Get a new version of config every round
+//!                 thread::sleep(Duration::from_secs(cfg.sleep));
+//!                 info!("{}", cfg.message);
+//! #               spirit.terminate(); // Just to make sure the doc-test terminates
+//!             }
+//!             Ok(())
+//!         });
+//! }
+//! ```
+//!
 //! ## Extensions and pipelines
 //!
 //! The crates with fragments actually allow their functionality to happen almost automatically.
@@ -135,6 +290,89 @@
 //! a `Vec` of them), removing stale ones, rolling back the configuration in case something in it
 //! is broken, etc.
 //!
+//! Note that some pipelines and extensions are better registered right away, into the [`Builder`]
+//! (daemonization, logging), you might want to register others only when you are ready for them ‒
+//! you may want to start listening on HTTP only once you've loaded all data. In that case you'd
+//! register it into the [`Spirit`] inside the [`run`][crate::SpiritBuilder::run] method.
+//!
+//! ```rust
+//! use std::time::Duration;
+//! use std::thread;
+//!
+//! use log::{debug, info};
+//! use serde::{Serialize, Deserialize};
+//! use spirit::prelude::*;
+//! use spirit_cfg_helpers::Opts as CfgOpts;
+//! use spirit_daemonize::{Daemon, Opts as DaemonOpts};
+//! use spirit_log::{Cfg as LogCfg, CfgAndOpts as Logging, Opts as LogOpts};
+//! use structdoc::StructDoc;
+//! use structopt::StructOpt;
+//!
+//! #[derive(Debug, Default, Deserialize, Serialize, StructDoc)]
+//! struct Cfg {
+//!     /// The message to print every now and then.
+//!     message: String,
+//!
+//!     /// How long to wait in between messages, in seconds.
+//!     sleep: u64,
+//!
+//!     #[serde(flatten)]
+//!     logging: LogCfg,
+//!
+//!     /// How to switch into the background.
+//!     #[serde(default)]
+//!     daemon: Daemon,
+//! }
+//!
+//! #[derive(Clone, Debug, StructOpt)]
+//! struct Opts {
+//!     #[structopt(flatten)]
+//!     logging: LogOpts,
+//!     #[structopt(flatten)]
+//!     daemon: DaemonOpts,
+//!     #[structopt(flatten)]
+//!     cfg_opts: CfgOpts,
+//! }
+//!
+//! static DEFAULT_CFG: &str = r#"
+//! message = "hello"
+//! sleep = 2
+//! "#;
+//!
+//! fn main() {
+//!     Spirit::<Opts, Cfg>::new()
+//!         // Provide default values for the configuration
+//!         .config_defaults(DEFAULT_CFG)
+//!         // If the program is passed a directory, load files with these extensions from there
+//!         .config_exts(&["toml", "ini", "json"])
+//!         .on_terminate(|| debug!("Asked to terminate"))
+//!         // All the validation, etc, is done for us behind the scene here.
+//!         // Even the spirit_log::init is not needed, the pipeline handles that.
+//!         .with(Pipeline::new("logging").extract(|opts: &Opts, cfg: &Cfg| Logging {
+//!             cfg: cfg.logging.clone(),
+//!             opts: opts.logging.clone(),
+//!         }))
+//!         // Also add daemonization
+//!         .with(Daemon::extension(|cfg: &Cfg, opts: &Opts| opts.daemon.transform(cfg.daemon.clone())))
+//!         // Let's provide some --config-help and --config-dump options. These get the
+//!         // information from the documentation strings we provided inside the structures. It
+//!         // also uses the `Serialize` trait to provide the dump.
+//!         .with(CfgOpts::extension(|opts: &Opts| &opts.cfg_opts))
+//!         // And some help
+//!         // Run the closure, logging the error nicely if it happens (note: no error happens
+//!         // here)
+//!         .run(|spirit: &_| {
+//!             while !spirit.is_terminated() {
+//!                 let cfg = spirit.config(); // Get a new version of config every round
+//!                 thread::sleep(Duration::from_secs(cfg.sleep));
+//!                 info!("{}", cfg.message);
+//! #               spirit.terminate(); // Just to make sure the doc-test terminates
+//!             }
+//!             Ok(())
+//!         });
+//! }
+//! ```
+//!
 //! # Features
 //!
 //! There are several features that can tweak functionality. Currently, they are all *on* by
@@ -151,57 +389,12 @@
 //!
 //! In this kind of library, only API documentation is not really enough.
 //!
-//! There are examples scattered through the [repository] ‒ each subcrate has its own.
+//! There are examples scattered through the [repository] ‒ each subcrate has its own and there are
+//! some commons. Look at them and play with them a little (try running them, sending SIGHUP to
+//! them, etc).
 //!
 //! There's an **outdated** [tutorial] ‒ while the API isn't the same any more, it might provide the
 //! feel of the library. Bringing it up to date is a TODO item (and help will be appreciated).
-//!
-//! # Examples
-//!
-//! ```rust
-//! use std::time::Duration;
-//! use std::thread;
-//!
-//! use log::{debug, info};
-//! use serde::Deserialize;
-//! use spirit::prelude::*;
-//!
-//! #[derive(Debug, Default, Deserialize)]
-//! struct Cfg {
-//!     message: String,
-//!     sleep: u64,
-//! }
-//!
-//! static DEFAULT_CFG: &str = r#"
-//! message = "hello"
-//! sleep = 2
-//! "#;
-//!
-//! fn main() {
-//!     Spirit::<Empty, Cfg>::new()
-//!         // Provide default values for the configuration
-//!         .config_defaults(DEFAULT_CFG)
-//!         // If the program is passed a directory, load files with these extensions from there
-//!         .config_exts(&["toml", "ini", "json"])
-//!         .on_terminate(|| debug!("Asked to terminate"))
-//!         .on_config(|_opts, cfg| debug!("New config loaded: {:?}", cfg))
-//!         // Run the closure, logging the error nicely if it happens (note: no error happens
-//!         // here)
-//!         .run(|spirit: &_| {
-//!             while !spirit.is_terminated() {
-//!                 let cfg = spirit.config(); // Get a new version of config every round
-//!                 thread::sleep(Duration::from_secs(cfg.sleep));
-//!                 info!("{}", cfg.message);
-//! #               spirit.terminate(); // Just to make sure the doc-test terminates
-//!             }
-//!             Ok(())
-//!         });
-//! }
-//! ```
-//!
-//! # Common patterns
-//!
-//! TODO
 //!
 //! [`Spirit`]: crate::Spirit
 //! [`Builder`]: crate::Builder
