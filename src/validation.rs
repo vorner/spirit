@@ -1,17 +1,9 @@
 //! Helpers for configuration validation.
 //!
-//! See [`config_validator`](../struct.Builder.html#method.config_validator).
+//! See [`config_validator`][crate::Extensible::config_validator].
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
 use failure::{Backtrace, Error, Fail};
-
-/// An unknown-type validation error.
-///
-/// If the validation callback returns error with only a description, not a proper typed exception,
-/// the description is turned into this if bundled into [`Error`](struct.Error.html).
-#[derive(Debug, Fail)]
-#[fail(display = "{}", _0)]
-pub struct UntypedError(String);
 
 /// An error caused by failed validation.
 ///
@@ -22,6 +14,16 @@ pub struct UntypedError(String);
 pub struct MultiError(pub Vec<Error>);
 
 impl MultiError {
+    /// Creates a multi-error.
+    ///
+    /// Depending on if one error is passed or multiple, the error is either propagated through
+    /// (without introducing another layer of indirection) or all the errors are wrapped into a
+    /// `MultiError`.
+    ///
+    /// # Panics
+    ///
+    /// If the `errs` passed is empty (eg. then there are no errors, so it logically makes no sense
+    /// to call it an error).
     pub fn wrap(mut errs: Vec<Error>) -> Error {
         match errs.len() {
             0 => panic!("No errors in multi-error"),
@@ -53,11 +55,44 @@ impl Fail for MultiError {
     }
 }
 
-/// A validation result.
+/// A validation action.
 ///
-/// The validator (see [`config_validator`](../struct.Builder.html#method.config_validator)) is
-/// supposed to return an arbitrary number of these results. Each one can hold a message (with
-/// varying severity) and optionally a success and failure actions.
+/// The validator (see [`config_validator`][crate::Extensible::config_validator]) is
+/// supposed to either return an error or an action to be taken once validation completes.
+///
+/// By default, the [`Action`] is empty, but an [`on_success`][Action::on_success] and
+/// [`on_abort`][Action::on_abort] callbacks can be attached to it. These'll execute once the
+/// validation completes (only one of them will be called, depending on the result of validation).
+///
+/// # Examples
+///
+/// ```rust
+/// use spirit::prelude::*;
+/// use spirit::validation::Action;
+/// # fn create_something<T>(_cfg: T) -> Result<Empty, failure::Error> { Ok(Empty {}) }
+/// # fn install_something(_empty: Empty) {}
+/// # let _ =
+/// Spirit::<Empty, Empty>::new()
+///     .config_validator(|_old_cfg, new_cfg, _opts| {
+///         let something = create_something(new_cfg)?;
+///         Ok(Action::new().on_success(move || install_something(something)))
+///     });
+/// ```
+///
+/// Or, if you want to only check the configuration:
+///
+/// ```rust
+/// use failure::ensure;
+/// use spirit::prelude::*;
+/// use spirit::validation::Action;
+/// # fn looks_good<T>(_cfg: T) -> bool { true }
+/// # let _ =
+/// Spirit::<Empty, Empty>::new()
+///     .config_validator(|_old_cfg, new_cfg, _opts| {
+///         ensure!(looks_good(new_cfg), "Configuration is broken");
+///         Ok(Action::new())
+///     });
+/// ```
 #[derive(Default)]
 pub struct Action {
     pub(crate) on_abort: Option<Box<FnMut()>>,
@@ -65,7 +100,7 @@ pub struct Action {
 }
 
 impl Action {
-    /// Creates actions without both hooks empty.
+    /// Creates actions wit both hooks empty.
     pub fn new() -> Self {
         Self::default()
     }

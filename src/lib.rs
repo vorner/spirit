@@ -413,7 +413,7 @@
 //! [tutorial]: https://vorner.github.io/2018/12/09/Spirit-Tutorial.html
 
 pub mod app;
-mod bodies;
+pub mod bodies;
 pub mod cfg_loader;
 mod empty;
 pub mod extension;
@@ -424,13 +424,19 @@ pub mod validation;
 
 pub use arc_swap::ArcSwap;
 
-pub use crate::bodies::{InnerBody, WrapBody};
 pub use crate::cfg_loader::ConfigBuilder;
 pub use crate::empty::Empty;
 pub use crate::extension::Extensible;
 pub use crate::spirit::{Builder, Spirit, SpiritBuilder};
 pub use crate::fragment::pipeline::Pipeline;
 
+/// The prelude.
+///
+/// To use the spirit libraries effectively, a lot of traits and types need to be imported. Instead
+/// of importing them one by one manually, the [`prelude`][crate::prelude] contains the most
+/// commonly used imports that are used around application runtime management.
+///
+/// This can be imported as `use spirit::prelude::*`.
 pub mod prelude {
     pub use super::{ConfigBuilder, Empty, Extensible, Pipeline, Spirit, SpiritBuilder};
 }

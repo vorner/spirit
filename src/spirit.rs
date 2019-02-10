@@ -61,7 +61,7 @@ impl<O, C> Default for Hooks<O, C> {
 /// Note that the functionality of the library is not disturbed by dropping this, you simply lose
 /// the ability to control the library.
 ///
-/// By creating this (with the build pattern), you start a background thread that keeps track of
+/// By creating this (with the builder pattern), you start a background thread that keeps track of
 /// signals, reloading configuration and other bookkeeping work.
 ///
 /// The passed callbacks are run in the service threads if they are caused by the signals. They,
@@ -74,7 +74,13 @@ impl<O, C> Default for Hooks<O, C> {
 ///
 /// Only one callback is allowed to run at any given time. This makes it easier to write the
 /// callbacks (eg. transitioning between configurations at runtime), but if you ever invoke a
-/// method that contains callbacks from within a callback, you'll get a deadlock.
+/// method that contains callbacks or registers from within a callback, you'll get a deadlock.
+///
+/// # Interface
+///
+/// A lot of the methods on this are provided through the [`Extensible`] trait. You want to bring
+/// that into scope (possibly with `use spirit::prelude::*`) and you want to have a look at the
+/// methods on that trait.
 ///
 /// # Examples
 ///
@@ -101,26 +107,23 @@ pub struct Spirit<O = Empty, C = Empty> {
 
 impl<O, C> Spirit<O, C>
 where
-    C: Default + DeserializeOwned + Send + Sync,
+    C: DeserializeOwned + Send + Sync,
     O: StructOpt,
 {
-    /// A constructor with default initial config.
+    /// A constructor of the [`Builder`] with default initial config.
     ///
     /// Before the application successfully loads the first config, there still needs to be
     /// something (passed, for example, to validation callbacks) This puts the default value in
     /// there.
     #[allow(clippy::new_ret_no_self)]
-    pub fn new() -> Builder<O, C> {
+    pub fn new() -> Builder<O, C>
+    where
+        C: Default
+    {
         Spirit::with_initial_config(C::default())
     }
-}
 
-impl<O, C> Spirit<O, C>
-where
-    C: DeserializeOwned + Send + Sync,
-    O: StructOpt,
-{
-    /// Similar to [`new`](#method.new), but with specific initial config value
+    /// Similar to [`new`][Spirit::new], but with specific initial config value
     pub fn with_initial_config(config: C) -> Builder<O, C> {
         Builder {
             before_bodies: Vec::new(),
@@ -137,9 +140,10 @@ where
             terminate_hooks: Vec::new(),
         }
     }
+
     /// Access the parsed command line.
     ///
-    /// This gives the access to the type declared when creating `Spirit`. The content doesn't
+    /// This gives the access to the command line options structure. The content doesn't
     /// change (the command line is parsed just once) and it does not contain the options added by
     /// Spirit itself.
     pub fn cmd_opts(&self) -> &O {
@@ -173,9 +177,8 @@ where
     ///
     /// # Notes
     ///
-    /// If created with the [`with_config_storage`](#method.with_config_storage), the current
-    /// configuration is also available through that storage. This allows, for example, having the
-    /// configuration in a global variable, for example.
+    /// It is also possible to hook an external configuration storage into [`Spirit`] (or
+    /// [`Builder`]) through the [`cfg_store`][crate::extension::cfg_store] extension.
     pub fn config(&self) -> Lease<Arc<C>> {
         self.config.lease()
     }
@@ -202,7 +205,7 @@ where
     /// The Spirit allows to run only one callback at a time (even from multiple threads), to make
     /// reasoning about configuration transitions and such easier (and to make sure the callbacks
     /// don't have to by `Sync`). That, however, means that you can't call `config_reload` or
-    /// [`terminate`](#method.terminate) from any callback (that would lead to a deadlock).
+    /// [`terminate`][Spirit::terminate] from any callback as that would lead to a deadlock.
     pub fn config_reload(&self) -> Result<(), Error> {
         let mut new = self.load_config().context("Failed to load configuration")?;
         // The lock here is across the whole processing, to avoid potential races in logic
@@ -255,7 +258,7 @@ where
     /// This can be used if the daemon does some kind of periodic work, every loop it can check if
     /// the application should shut down.
     ///
-    /// The other option is to hook into [`on_terminate`](struct.Builder.html#method.on_terminate)
+    /// The other option is to hook into [`on_terminate`][Extensible::on_terminate]
     /// and shut things down (like drop some futures and make the tokio event loop empty).
     ///
     /// # Examples
@@ -289,10 +292,12 @@ where
     /// The termination does this:
     ///
     /// * Calls the `on_terminate` callbacks.
-    /// * Sets the [`is_terminated`](#method.is_terminated) flag is set.
+    /// * Sets the [`is_terminated`][Spirit::is_terminated] flag is set.
     /// * Drops all callbacks from spirit. This allows destruction/termination of parts of program
     ///   by dropping remote handles or similar things.
     /// * The background thread terminates.
+    ///
+    /// Note that it is still up to the rest of your application to terminate as a result of this.
     ///
     /// # Warning
     ///
@@ -444,7 +449,7 @@ where
             + 'static,
     {
         // XXX: Link to some documentation/help how to resolve
-        panic!("Wrapping body while already running is not possible, move this to the builder");
+        panic!("Wrapping body while already running is not possible, move this to the builder (see https://docs.rs/spirit/*/extension/trait.Extensible.html#method.run_around");
     }
 
     fn with_singleton<T>(mut self, singleton: T) -> Result<Self, Error>
@@ -459,13 +464,18 @@ where
     }
 }
 
-// TODO: Implement for non-ref Arc
-//
-// TODO: Document some of the quirks of specific implementations.
-
-/// The builder of [`Spirit`](struct.Spirit.html).
+/// The builder of [`Spirit`].
 ///
-/// This is returned by the [`Spirit::new`](struct.Spirit.html#new).
+/// This is returned by the [`Spirit::new`].
+///
+/// # Interface
+///
+/// Most of the methods are available through the following traits. You want to bring them into
+/// scope (possibly by `use spirit::prelude::*`) and look at their methods.
+///
+/// * [`ConfigBuilder`] to specify how configuration should be loaded.
+/// * [`Extensible`] to register callbacks.
+/// * [`SpiritBuilder`] to turn the builder into [`Spirit`].
 #[must_use = "The builder is inactive without calling `run` or `build`"]
 pub struct Builder<O = Empty, C = Empty> {
     before_bodies: Vec<SpiritBody<O, C>>,
@@ -487,7 +497,6 @@ where
     C: DeserializeOwned + Send + Sync + 'static,
     O: StructOpt + Sync + Send + 'static,
 {
-
     /// Sets the inner config loader.
     ///
     /// Instead of configuring the configuration loading on the spirit [`Builder`], the inner
@@ -501,11 +510,6 @@ where
 }
 
 impl<O, C> ConfigBuilder for Builder<O, C> {
-    /// Sets the configuration paths in case the user doesn't provide any.
-    ///
-    /// This replaces any previously set default paths. If none are specified and the user doesn't
-    /// specify any either, no config is loaded (but it is not an error, simply the defaults will
-    /// be used, if available).
     fn config_default_paths<P, I>(self, paths: I) -> Self
     where
         I: IntoIterator<Item = P>,
@@ -517,10 +521,6 @@ impl<O, C> ConfigBuilder for Builder<O, C> {
         }
     }
 
-    /// Specifies the default configuration.
-    ///
-    /// This „loads“ the lowest layer of the configuration from the passed string. The expected
-    /// format is TOML.
     fn config_defaults<D: Into<String>>(self, config: D) -> Self {
         Self {
             config_loader: self.config_loader.config_defaults(config),
@@ -528,44 +528,6 @@ impl<O, C> ConfigBuilder for Builder<O, C> {
         }
     }
 
-    /// Enables loading configuration from environment variables.
-    ///
-    /// If this is used, after loading the normal configuration files, the environment of the
-    /// process is examined. Variables with the provided prefix are merged into the configuration.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use failure::Error;
-    /// use serde::Deserialize;
-    /// use spirit::prelude::*;
-    ///
-    /// #[derive(Default, Deserialize)]
-    /// struct Cfg {
-    ///     message: String,
-    /// }
-    ///
-    /// const DEFAULT_CFG: &str = r#"
-    /// message = "Hello"
-    /// "#;
-    ///
-    /// fn main() {
-    ///     Spirit::<Empty, Cfg>::new()
-    ///         .config_defaults(DEFAULT_CFG)
-    ///         .config_env("HELLO")
-    ///         .run(|spirit| -> Result<(), Error> {
-    ///             println!("{}", spirit.config().message);
-    ///             Ok(())
-    ///         });
-    /// }
-    /// ```
-    ///
-    /// If run like this, it'll print `Hi`. The environment takes precedence ‒ even if there was
-    /// configuration file and it set the `message`, the `Hi` here would win.
-    ///
-    /// ```sh
-    /// HELLO_MESSAGE="Hi" ./hello
-    /// ```
     fn config_env<E: Into<String>>(self, env: E) -> Self {
         Self {
             config_loader: self.config_loader.config_env(env),
@@ -573,21 +535,6 @@ impl<O, C> ConfigBuilder for Builder<O, C> {
         }
     }
 
-    /// Sets a configuration dir filter.
-    ///
-    /// If the user passes a directory path instead of a file path, the directory is traversed
-    /// (every time the configuration is reloaded, so if files are added or removed, it is
-    /// reflected) and files passing this filter are merged into the configuration, in the
-    /// lexicographical order of their file names.
-    ///
-    /// There's ever only one filter and the default one passes no files (therefore, directories
-    /// are ignored by default).
-    ///
-    /// The filter has no effect on files, only on loading directories. Only files directly in the
-    /// directory are loaded ‒ subdirectories are not traversed.
-    ///
-    /// For more convenient ways to set the filter, see [`config_ext`](#method.config_ext) and
-    /// [`config_exts`](#method.config_exts).
     fn config_filter<F: FnMut(&Path) -> bool + Send + 'static>(self, filter: F) -> Self {
         Self {
             config_loader: self.config_loader.config_filter(filter),
@@ -709,6 +656,30 @@ impl<O, C> Extensible for Builder<O, C> {
     }
 }
 
+/// An interface to turn the spirit [`Builder`] into a [`Spirit`] and possibly run it.
+///
+/// It is a trait to support a little trick. The [`run`][SpiritBuilder::run] method has the ability
+/// to handle errors by logging them and then terminating the application with a non-zero exit
+/// code. It is convenient to include even the setup errors in this logging.
+///
+/// Therefore, the trait is implemented both on [`Builder`] and `Result<Builder, Error>` (and the
+/// other traits on [`Builder`] also support this trick). That way all the errors can be just
+/// transparently gathered and handled uniformly, without any error handling on the user side.
+///
+/// # Examples
+///
+/// ```rust
+/// use spirit::prelude::*;
+/// // This returns Builder
+/// Spirit::<Empty, Empty>::new()
+///     // This method returns Result<Builder, Error>, but we don't handle the possible error with
+///     // ?.
+///     .run_before(|_| Ok(()))
+///     // The run lives both on Builder and Result<Builder, Error>. Here we call the latter.
+///     // If we get an error from above, the body here isn't run at all, but the error is handled
+///     // similarly as any errors from within the body.
+///     .run(|_| Ok(()))
+/// ```
 pub trait SpiritBuilder: ConfigBuilder + Extensible {
     /// Finish building the Spirit.
     ///
@@ -720,26 +691,18 @@ pub trait SpiritBuilder: ConfigBuilder + Extensible {
     /// This starts listening for signals, loads the configuration for the first time and starts
     /// the background thread.
     ///
-    /// This version returns the spirit (or error) and error handling is up to the caller. If you
+    /// This version returns the [`App`] (or error) and error handling is up to the caller. If you
     /// want spirit to take care of nice error logging (even for your application's top level
-    /// errors), use [`run`](#method.run).
-    ///
-    /// # Result
-    ///
-    /// On success, this returns three things:
-    ///
-    /// * The `spirit` handle, allowing to manipulate it (shutdown, read configuration, ...)
-    /// * The before-body hooks (see [`before_body`](#method.before_body).
-    /// * The body wrappers ([`body_wrapper`](#method.body_wrapper)).
-    ///
-    /// The two latter ones are often set by helpers, so you should not ignore them.
+    /// errors), use [`run`] instead.
     ///
     /// # Warning
     ///
     /// If asked to go to background (when you're using the
     /// [`spirit-daemonize`](https://crates.io/crates/spirit-daemonize) crate, this uses `fork`.
-    /// Therefore, start any threads after you call `build` (or from within [`run`](#method.run)),
+    /// Therefore, start any threads after you call `build` (or from within [`run`]),
     /// or you'll lose them ‒ only the thread doing fork is preserved across it.
+    ///
+    /// [`run`]: SpiritBuilder::run
     // TODO: The new return value
     fn build(self, background_thread: bool) -> Result<App<Self::Opts, Self::Config>, Error>;
 
@@ -750,10 +713,8 @@ pub trait SpiritBuilder: ConfigBuilder + Extensible {
     /// stderr if the error happens before logging is initialized ‒ for example if configuration
     /// can't be read). The application then terminates with failure exit code.
     ///
-    /// It first wraps all the calls in the provided wrappers
-    /// ([`body_wrapper`](#method.body_wrapper)) and runs the before body hooks
-    /// ([`before_body`](#method.before_body)) before starting the real body provided as parameter.
-    /// These are usually provided by helpers.
+    /// This mostly just wraps whatever the [`App::run_term`] does, but also handles the errors
+    /// that already happened on the [`Builder`].
     ///
     /// ```rust
     /// use std::thread;

@@ -7,8 +7,8 @@ use structopt::StructOpt;
 /// by this library) or it doesn't need any command line options of its own, this struct can be
 /// used to plug the type parameter.
 ///
-/// Other places (eg. around helpers) may use this to plug a type parameter that isn't needed, do
-/// nothing or something like that.
+/// Other places (eg. around extensions) may use this to plug a type parameter that isn't needed,
+/// do nothing or something like that.
 #[derive(
     Copy,
     Clone,

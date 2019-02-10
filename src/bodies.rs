@@ -1,3 +1,8 @@
+//! Utility body wrapper types.
+//!
+//! There are some problems with `Box<FnOnce()>` types in Rust. The types here are less convenient
+//! but actually usable types with similar function.
+
 use std::sync::Arc;
 
 use failure::Error;
@@ -17,11 +22,10 @@ impl<F: FnOnce(Param) -> Result<(), Error> + Send, Param> Body<Param> for Option
 /// A workaround type for `Box<FnOnce() -> Result<(), Error>`.
 ///
 /// Since it is not possible to use the aforementioned type in any meaningful way in Rust yet, this
-/// works around the problem. The type has a [`run`](#method.run) method which does the same thing.
+/// works around the problem. The type has a [`run`][InnerBody::run] method which does the same thing.
 ///
-/// This is passed as parameter to the [`body_wrapper`](struct.Builder.html#method.body_wrapper).
-///
-/// It is also returned as part of the [`build`](struct.Builder.html#method.build)'s result.
+/// This is passed as parameter to the closure passed to
+/// [`run_around`][crate::Extensible::run_around], representing the body to be run inside.
 pub struct InnerBody(pub(crate) Box<Body<()>>);
 
 impl InnerBody {
@@ -32,17 +36,11 @@ impl InnerBody {
 }
 
 /// A wrapper around a body.
-///
-/// These are essentially boxed closures submitted by
-/// [`body_wrapper`](struct.Builder.html#method.body_wrapper) (or all of them folded together), but
-/// in a form that is usable (in contrast to `Box<FnOnce(InnerBody) -> Result(), Error>`). It
-/// is part of the return value of [`build`](struct.Builder.html#method.build) and the caller
-/// should call it eventually.
-pub struct WrapBody(pub(crate) Box<Body<InnerBody>>);
+pub(crate) struct WrapBody(pub(crate) Box<Body<InnerBody>>);
 
 impl WrapBody {
     /// Call the closure inside.
-    pub fn run(mut self, inner: InnerBody) -> Result<(), Error> {
+    pub(crate) fn run(mut self, inner: InnerBody) -> Result<(), Error> {
         self.0.run(inner)
     }
 }

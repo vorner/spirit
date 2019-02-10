@@ -1,7 +1,7 @@
 //! Various utilities.
 //!
-//! All the little things that are useful through the spirits code, can be useful to users and
-//! don't logically fit anywhere else.
+//! All the little things that are useful through the spirit's or user's code, and don't really fit
+//! anywhere else.
 
 use std::env;
 use std::ffi::OsStr;
@@ -24,8 +24,8 @@ use serde::{Deserialize, Serialize};
 /// The function never fails. However, the substeps (finding current directory to make it absolute
 /// and canonization) might fail. In such case, the failing step is skipped.
 ///
-/// The motivation is parsing command line arguments using the `structopt` crate. Users are used to
-/// passing relative paths to command line (as opposed to configuration files). However, if the
+/// The motivation is parsing command line arguments using the [`structopt`] crate. Users are used
+/// to passing relative paths to command line (as opposed to configuration files). However, if the
 /// daemon changes the current directory (for example during daemonization), the relative paths now
 /// point somewhere else.
 ///
@@ -60,7 +60,7 @@ pub fn absolute_from_os_str(path: &OsStr) -> PathBuf {
     }
 }
 
-/// An error returned when the user passes a key-value option without equal sign.
+/// An error returned when the user passes a key-value option without the equal sign.
 ///
 /// Some internal options take a key-value pairs on the command line. If such option is expected,
 /// but it doesn't contain the equal sign, this is the used error.
@@ -69,7 +69,24 @@ pub fn absolute_from_os_str(path: &OsStr) -> PathBuf {
 pub struct MissingEquals;
 
 /// A helper for deserializing map-like command line arguments.
-// TODO: In some future version, move to utils
+///
+/// # Examples
+///
+/// ```rust
+/// # use structopt::StructOpt;
+/// #[derive(Debug, StructOpt)]
+/// struct MyOpts {
+///     #[structopt(
+///         short = "D",
+///         long = "define",
+///         parse(try_from_str = "spirit::utils::key_val"),
+///         raw(number_of_values = "1"),
+///     )]
+///     defines: Vec<(String, String)>,
+/// }
+///
+/// # fn main() {}
+/// ```
 pub fn key_val<K, V>(opt: &str) -> Result<(K, V), Error>
 where
     K: FromStr,
@@ -136,7 +153,8 @@ pub fn log_error(level: Level, target: &str, e: &Error, format: ErrorLogFormat) 
 /// The errors will be logged in the provided target. You may want to provide `module_path!` as the
 /// target.
 ///
-/// If the error has multiple levels (causes), they are printed in multi-line fashion.
+/// If the error has multiple levels (causes), they are printed in multi-line fashion, as multiple
+/// separate log messages.
 ///
 /// # Examples
 ///
@@ -165,7 +183,7 @@ where
 /// A wrapper to hide a configuration field from logs.
 ///
 /// This acts in as much transparent way as possible towards the field inside. It only replaces the
-/// [`Debug`] implementation with returning `"******"`.
+/// [`Debug`] and [`Serialize`] implementations with returning `"******"`.
 ///
 /// The idea is if the configuration contains passwords, they shouldn't leak into the logs.
 /// Therefore, wrap them in this, eg:

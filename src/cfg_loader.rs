@@ -12,7 +12,7 @@
 //!
 //! 1. Create a [`Builder`][crate::cfg_loader::Builder] with
 //!    [`Builder::new`][crate::cfg_loader::Builder::new].
-//! 2. Configure the it.
+//! 2. Configure the it, using the methods on it.
 //! 3. Parse the command line and prepare the loader with
 //!    [`build`][crate::cfg_loader::Builder::build] (or, alternatively
 //!    [`build_no_opts`][crate::cfg_loader::Builder::build_no_opts] if command line should not be
@@ -105,12 +105,23 @@ pub struct InvalidFileType(PathBuf);
 #[fail(display = "Configuration path {:?} does not exist", _0)]
 pub struct MissingFile(PathBuf);
 
+/// Interface for configuring configuration loading options.
+///
+/// This is the common interface of [`cfg_loader::Builder`][Builder] and [spirit
+/// `Builder`][crate::Builder] for configuring how and where from should configuration be loaded.
+/// The methods are available on both and do the same thing.
+///
+/// The interface is also implemented on `Result<ConfigBuilder, Error>`. This is both for
+/// convenience and for gathering errors to be handled within
+/// [`SpiritBuilder::run`][crate::SpiritBuilder::run] in uniform way.
 pub trait ConfigBuilder: Sized {
     /// Sets the configuration paths in case the user doesn't provide any.
     ///
     /// This replaces any previously set default paths. If none are specified and the user doesn't
-    /// specify any either, no config is loaded (but it is not an error, simply the defaults will
-    /// be used, if available).
+    /// specify any either, no config is loaded (but it is not an error in itself, simply the
+    /// defaults will be used, if available).
+    ///
+    /// This has no effect if the user does provide configuration paths on the command line.
     fn config_default_paths<P, I>(self, paths: I) -> Self
     where
         I: IntoIterator<Item = P>,
@@ -120,6 +131,8 @@ pub trait ConfigBuilder: Sized {
     ///
     /// This „loads“ the lowest layer of the configuration from the passed string. The expected
     /// format is TOML.
+    ///
+    /// Any user-provided configuration will be layered on top of it.
     fn config_defaults<D: Into<String>>(self, config: D) -> Self;
 
     /// Enables loading configuration from environment variables.
@@ -199,8 +212,8 @@ pub trait ConfigBuilder: Sized {
     /// There's ever only one filter and the default one passes no files (therefore, directories
     /// are ignored by default).
     ///
-    /// The filter has no effect on files, only on loading directories. Only files directly in the
-    /// directory are loaded ‒ subdirectories are not traversed.
+    /// The filter has no effect on files passed directly, only on loading directories. Only files
+    /// directly in the directory are loaded ‒ subdirectories are not traversed.
     ///
     /// For more convenient ways to set the filter, see [`config_ext`](#method.config_ext) and
     /// [`config_exts`](#method.config_exts).
@@ -229,9 +242,9 @@ impl<C: ConfigBuilder, Error> ConfigBuilder for Result<C, Error> {
     }
 }
 
-/// A builder for [`Loader`].
+/// A builder for the [`Loader`].
 ///
-/// See the [module documentation](index.html) for details about the use.
+/// See the [module documentation][crate::cfg_loader] for details about the use.
 pub struct Builder {
     default_paths: Vec<PathBuf>,
     defaults: Option<String>,
@@ -256,7 +269,7 @@ impl Builder {
         }
     }
 
-    /// Turn the builder into the [`Loader`].
+    /// Turns the builder into the [`Loader`].
     ///
     /// This parses the command line options ‒ the ones specified by the type parameter, enriched
     /// by options related to configuration (paths to config files and config overrides).
@@ -286,7 +299,8 @@ impl Builder {
     /// Turns this into the [`Loader`], without command line parsing.
     ///
     /// It is similar to [`build`][Builder::build], but doesn't parse the command line, therefore
-    /// only the [`default_paths`][Builder::default_paths] are used to find the config files.
+    /// only the [`config_default_paths`][ConfigBuilder::config_default_paths] are used to
+    /// find the config files.
     ///
     /// This is likely useful for tests.
     pub fn build_no_opts(self) -> Loader {
@@ -338,7 +352,8 @@ impl ConfigBuilder for Builder {
 
 /// The loader of configuration.
 ///
-/// This is created by the [`Builder`]. See the [module documentation](index.html) for details.
+/// This is created by the [`Builder`]. See the [module documentation][crate::cfg_loader] for
+/// details.
 pub struct Loader {
     files: Vec<PathBuf>,
     defaults: Option<String>,
@@ -348,8 +363,13 @@ pub struct Loader {
 }
 
 impl Loader {
-    /// Load configuration according to parameters configured on the originating [`Builder`] and on
+    /// Loads configuration according to parameters configured on the originating [`Builder`] and on
     /// the command line.
+    ///
+    /// Note that it is possible to load the configuration multiple times during the lifetime of
+    /// the [`Loader`]. Each time all the sources are loaded from scratch (even new files in
+    /// directories are discovered), so this can be used to reflect configuration changes at
+    /// runtime.
     pub fn load<C: DeserializeOwned>(&mut self) -> Result<C, Error> {
         debug!("Loading configuration");
         let mut config = Config::new();
