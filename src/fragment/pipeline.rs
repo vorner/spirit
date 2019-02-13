@@ -1,3 +1,14 @@
+//! The home of the [`Pipeline`].
+//!
+//! The high level overview of what a [`Pipeline`] is and how it works is in the
+//! [`fragment`][crate::fragment] module.
+//!
+//! The rest of the things here is mostly support plumbing and would optimally be hidden out of the
+//! public interface, but it needs to be public due to limitations of Rust. The user doesn't need
+//! to care much about the other types. Despite all that, the types are not hidden from the
+//! documentation to provide some guidance and clickable links.
+//!
+//! [`Pipeline`]: crate::fragment::pipeline::Pipeline
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -8,7 +19,7 @@ use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use structopt::StructOpt;
 
-use super::driver::{CacheId, CacheInstruction, Driver};
+use super::driver::{CacheId, Instruction, Driver};
 use super::{Extractor, Fragment, Installer, Transformation};
 use crate::extension::{Extensible, Extension};
 use crate::validation::{Action, MultiError};
@@ -30,11 +41,11 @@ where
             _type: PhantomData,
         }
     }
-    fn interpret(&mut self, instruction: CacheInstruction<R>, name: &'static str) {
+    fn interpret(&mut self, instruction: Instruction<R>, name: &'static str) {
         match instruction {
-            CacheInstruction::DropAll => self.cache.clear(),
-            CacheInstruction::DropSpecific(id) => assert!(self.cache.remove(&id).is_some()),
-            CacheInstruction::Install { id, resource } => {
+            Instruction::DropAll => self.cache.clear(),
+            Instruction::DropSpecific(id) => assert!(self.cache.remove(&id).is_some()),
+            Instruction::Install { id, resource } => {
                 let handle = self.installer.install(resource, name);
                 assert!(self.cache.insert(id, handle).is_none());
             }
@@ -42,9 +53,10 @@ where
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct NopTransformation;
-
+/// A wrapper to turn a `FnMut(Config) -> R` into an [`Extractor`].
+///
+/// This isn't used by the user directly, it is constructed through the
+/// [`extract_cfg`][Pipeline::extract_cfg] method.
 pub struct CfgExtractor<F>(F);
 
 impl<'a, O, C: 'a, F, R> Extractor<'a, O, C> for CfgExtractor<F>
@@ -58,6 +70,12 @@ where
     }
 }
 
+/// A [`Transformation`] that does nothing.
+///
+/// This is used at the beginning of constructing a [`Pipeline`] to plug the type parameter.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NopTransformation;
+
 impl<R: 'static, I, S> Transformation<R, I, S> for NopTransformation {
     type OutputResource = R;
     type OutputInstaller = I;
@@ -69,6 +87,10 @@ impl<R: 'static, I, S> Transformation<R, I, S> for NopTransformation {
     }
 }
 
+/// A wrapper that composes two [`Transformation`]s into one.
+///
+/// This applies first the transformation `A`, then `B`. It is used internally to compose things
+/// together when the [`transform`][Pipeline::transform] is called.
 pub struct ChainedTransformation<A, B>(A, B);
 
 impl<A, B, R, I, S> Transformation<R, I, S> for ChainedTransformation<A, B>
@@ -93,6 +115,9 @@ where
     }
 }
 
+/// A [`Transformation`] that replaces the [`Installer`] of a pipeline.
+///
+/// Used internally to implement the [`install`][Pipeline::install].
 pub struct SetInstaller<T, I>(T, Option<I>);
 
 impl<T, I, R, OI, S> Transformation<R, OI, S> for SetInstaller<T, I>
@@ -116,6 +141,61 @@ where
     }
 }
 
+/// The [`Pipeline`] itself.
+///
+/// The high-level idea behind the [`Pipeline`] is described as part of the [`fragment`][super]
+/// module documentation.
+///
+/// # Limitations
+///
+/// In a sense, the code here moves close to what is possible to do with the Rust type system. This
+/// is needed to make the interface flexible ‒ the [`Pipeline`] can describe a lot of different use
+/// cases on top of completely different types and [`Resource`]s.
+///
+/// That, however, brigs certain limitations that you might want to know about:
+///
+/// * All the methods and types here are very rich in terms of type parameters and trait bounds.
+/// * The error messages are quite long and hard to read as a result.
+/// * Sometimes, `rustc` even gives up on producing the helpful hints as a result of the above.
+///   There's a workaround for that in the form of the [`check`][Pipeline::check] method.
+/// * As of rust stable 1.32, extracting references (through the [`extract`][Pipeline::extract] and
+///   [`extract_cfg`][Pipeline::extract_cfg]) doesn't work. Either use a newer compiler or extract
+///   only owned types (eg. `clone` ‒ it should be generally cheap, because these are parts of
+///   configuration the user have written and it needs to be extracted only when reloading the
+///   configuration).
+/// * As the pipeline is being constructed through the builder pattern, it is possible the types
+///   don't line up during the construction. If you do not make it align by the end, it will not be
+///   possible to use the pipeline inside the
+///   [`Extensible::with`][crate::extension::Extensible::with].
+///
+/// In general, each [`Fragment`] comes with an example containing its *canonical* pipeline.
+/// Copy-pasting and possibly modifying that is probably the easiest way to overcome the above
+/// limitations.
+///
+/// # Creation order
+///
+/// The pipeline describes a mostly linear process that happens every time a configuration is
+/// loaded. Therefore, it helps readability if the builder pattern of the [`Pipeline`] is written
+/// in the same order as the operations happen. In addition, not all orders of the builder pattern
+/// will be accepted, due to how the trait bounds are composed.
+///
+/// While not all steps are needed every time, the ones present should be written in this order:
+///
+/// * [`new`][Pipeline::new]: This is the constructor and sets the name of the pipeline.
+/// * [`extract`][Pipeline::extract] or [`extract_cfg`][Pipeline::extract_cfg]: This sets the
+///   closure (or other [`Extractor`]) the pipeline will use. This also sets the [`Fragment`] tied
+///   to the pipeline and presets the [`Driver`] and the [`Installer`] (though the [`Installer`]
+///   maybe something useless, since not all [`Fragment`]s create something directly installable).
+/// * [`set_driver`][Pipeline::set_driver]: This overrides the default [`Driver`] provided by the
+///   [`Fragment`] to something user-provided. It is generally rare to use this.
+/// * [`transform`][Pipeline::transform]: This applies (another) transformation. It makes sense to
+///   call multiple times to chain multiple transformations together. They are applied in the same
+///   order as they are added.
+/// * [`install`][Pipeline::install]: Sets or overrides the [`Installer`] the pipeline uses. This
+///   is sometimes necessary, but sometimes either the [`Fragment`] or one of the
+///   [`Transformation`]s provides one.
+///
+/// [`Resource`]: Fragment::Resource
 pub struct Pipeline<Fragment, Extractor, Driver, Transformation, SpiritType> {
     name: &'static str,
     _fragment: PhantomData<Fn(Fragment)>,
@@ -126,6 +206,11 @@ pub struct Pipeline<Fragment, Extractor, Driver, Transformation, SpiritType> {
 }
 
 impl Pipeline<(), (), (), (), ()> {
+    /// Starts creating a new pipeline.
+    ///
+    /// This initializes a completely useless and empty pipeline. It only sets the name, but other
+    /// properties (at least the [`Extractor`]) need to be set for the [`Pipeline`] to be of any
+    /// practical use.
     pub fn new(name: &'static str) -> Self {
         Self {
             name,
@@ -137,6 +222,19 @@ impl Pipeline<(), (), (), (), ()> {
         }
     }
 
+    /// Sets the [`Extractor`].
+    ///
+    /// This ties the [`Pipeline`] to an extractor. In addition, it also sets the type of config
+    /// and command line options structures, the [`Fragment`] this pipeline works with and sets the
+    /// default [`Driver`] and [`Installer`] as provided by the [`Fragment`].
+    ///
+    /// Depending on the [`Fragment`], this might make the [`Pipeline`] usable ‒ or not, as some
+    /// [`Fragment`]s can't provide reasonable (working) [`Installer`].
+    ///
+    /// As of `rustc` 1.32, it is not possible to return references (or types containing them) into
+    /// the config or command line structures (it is unable to prove some of the trait bounds). You
+    /// can either return an owned version of the type (eg. with `.clone()`) or use a newer version
+    /// of the compiler.
     pub fn extract<O, C, E: for<'e> Extractor<'e, O, C>>(
         self,
         e: E,
@@ -158,6 +256,11 @@ impl Pipeline<(), (), (), (), ()> {
         }
     }
 
+    /// Sets the [`Extractor`] to a closure taking only the configuration.
+    ///
+    /// This is a convenience wrapper around [`extract`][Pipeline::extract]. It acts the same way,
+    /// only the closure has just one parameter ‒ the configuration. Most of the extracted
+    /// configuration fragments come from configuration anyway.
     pub fn extract_cfg<O, C: 'static, R, E>(
         self,
         e: E,
@@ -183,6 +286,11 @@ impl<F, E, D, T, O, C> Pipeline<F, E, D, T, (O, C)>
 where
     F: Fragment,
 {
+    /// Overwrites the [`Driver`] of this pipeline.
+    ///
+    /// Most of the time, the [`Driver`] provided by the [`Fragment`] set through the
+    /// [`extract`][Pipeline::extract] method is good enough, so it is rare the user would need to
+    /// call this.
     pub fn set_driver<ND: Driver<F>>(self, driver: ND) -> Pipeline<F, E, ND, T, (O, C)>
     where
         T: Transformation<<ND::SubFragment as Fragment>::Resource, F::Installer, ND::SubFragment>,
@@ -205,6 +313,15 @@ where
     D: Driver<F>,
     T: Transformation<<D::SubFragment as Fragment>::Resource, F::Installer, D::SubFragment>,
 {
+    /// Applies a transformation to the [`Resource`][Fragment::Resource].
+    ///
+    /// This puts another transformation to the end of the transformation chain.
+    ///
+    /// Transformations can to quite arbitrary things with the [`Resource`], including changing its
+    /// type (or changing the [`Installer`] ‒ which might actually be needed when changing the
+    /// type).
+    ///
+    /// [`Resource`]: Fragment::Resource
     pub fn transform<NT>(
         self,
         transform: NT,
@@ -223,6 +340,10 @@ where
         }
     }
 
+    /// Sets the [`Installer`] used by the pipeline.
+    ///
+    /// The pipeline will end with the given [`Installer`] and use it to install the created
+    /// [`Resource`][Fragment::Resource]s.
     pub fn install<I>(self, installer: I) -> Pipeline<F, E, D, SetInstaller<T, I>, (O, C)>
     where
         I: Installer<T::OutputResource, O, C>,
@@ -238,6 +359,16 @@ where
         }
     }
 
+    /// A workaround for missing trait hints in error messages.
+    ///
+    /// Sometimes, `rustc` gives up on the complexity of the trait bounds and simply says the
+    /// [`Extension`] trait is not implemented ‒ but one would need a lot of guessing to know *why*
+    /// it is not implemented.
+    ///
+    /// The `check` method doesn't change the pipeline in any way, but it has a *subset* of the
+    /// trait bounds on it. Usually, the missing or broken part is detected by these trait bounds,
+    /// but they are also significantly simpler than the full set, so `rustc` is willing to issue
+    /// the hints.
     pub fn check(self) -> Self
     where
         D::SubFragment: Fragment,
@@ -249,6 +380,13 @@ where
     // TODO: add_installer
 }
 
+/// An internal intermediate type.
+///
+/// This is used internally to represent the [`Pipeline`] after it has been inserted into the
+/// [`Extensible`][crate::Extensible].
+///
+/// While it is quite useless (and impossible to get hands on), it will probably be possible to
+/// construct one explicitly and use to run the pipeline in a manual way one day.
 pub struct CompiledPipeline<O, C, T, I, D, E, R, H> {
     name: &'static str,
     transformation: T,
@@ -266,7 +404,20 @@ impl<O, C, T, I, D, E, R, H> CompiledPipeline<O, C, T, I, D, E, R, H> {
     }
 }
 
+/// Trait alias for one concrete lifetime of a [`Pipeline`].
+///
+/// Pipelines are fed with only references to the configuration and command line options and a lot
+/// of the processing can happen through references only. As a result, most of the trait bounds in
+/// around the pipelines are [HRTBs](https://doc.rust-lang.org/nomicon/hrtb.html).
+///
+/// This is an internal trait alias, describing the [`Pipeline`] bounds for a single concrete
+/// lifetime. This makes the bounds of the [`Extension`] implementation actually almost manageable
+/// instead of completely crackpot insane.
+///
+/// However, as the user is not able to get the hands on any instance implementing this trait, it
+/// is quite useless and is public only through the trait bounds.
 pub trait BoundedCompiledPipeline<'a, O, C> {
+    /// Performs one iteration of the lifetime.
     fn run(me: &Arc<Mutex<Self>>, opts: &'a O, config: &'a C)
         -> Result<Action, Vec<Error>>;
 }

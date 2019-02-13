@@ -7,7 +7,7 @@ use futures::future::Either as FutEither;
 use futures::{Async, Future, Poll, Sink, StartSend, Stream};
 use serde::de::DeserializeOwned;
 use spirit::extension::Extensible;
-use spirit::fragment::driver::{CacheInstruction, Comparable, Comparison, Driver};
+use spirit::fragment::driver::{Instruction, Comparable, Comparison, Driver};
 use spirit::fragment::{Fragment, Installer, Stackable, Transformation};
 use structopt::StructOpt;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -506,7 +506,7 @@ where
         fragment: &Either<A, B>,
         transform: &mut T,
         name: &'static str,
-    ) -> Result<Vec<CacheInstruction<T::OutputResource>>, Vec<Error>>
+    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<Error>>
     where
         T: Transformation<<Self::SubFragment as Fragment>::Resource, I, Self::SubFragment>,
     {

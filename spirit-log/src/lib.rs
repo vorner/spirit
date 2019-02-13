@@ -153,7 +153,7 @@ use log::{LevelFilter, Log, Metadata, Record};
 use serde::de::{Deserialize, Deserializer, Error as DeError};
 use serde::ser::{Serialize, Serializer};
 use spirit::extension::{Extensible, Extension};
-use spirit::fragment::driver::TrivialDriver;
+use spirit::fragment::driver::Trivial as TrivialDriver;
 use spirit::fragment::{Fragment, Installer};
 use structopt::StructOpt;
 
