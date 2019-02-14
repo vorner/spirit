@@ -7,8 +7,8 @@
 
 //! Spirit configuration helpers
 //!
-//! These helpers are meant to integrate into the [spirit] configuration framework. They aim at
-//! making the user experience around application's configuration more smooth for the user.
+//! These extensions are meant to integrate into the [`spirit`] configuration framework. They aim at
+//! making the user experience around application's configuration more smooth.
 //! Specifically, they allow dumping the configuration collected through all the config files and
 //! environment variables and printing help about all the configuration options the application
 //! accepts.
@@ -20,8 +20,6 @@
 //!
 //! * `toml` and `json` features enable dumping in the respective formats.
 //! * `cfg-help` enables the printing of configuration help.
-//!
-//! [spirit]: https://crates.io/crates/spirit
 
 use std::fmt::Debug;
 use std::process;
@@ -37,7 +35,7 @@ use spirit::validation::Action;
 use spirit::Builder;
 use structopt::StructOpt;
 
-/// A helper to log changes of configuration every time it is reloaded.
+/// An extension to log changes of configuration every time it is reloaded.
 ///
 /// This is useful when examining logs, to know with which configuration a problem happened.
 ///
@@ -55,7 +53,7 @@ use structopt::StructOpt;
 ///
 /// ```rust
 /// use log::Level;
-/// use spirit::{Empty, Spirit};
+/// use spirit::prelude::*;
 ///
 /// fn main() {
 ///     Spirit::<Empty, Empty>::new()
@@ -133,7 +131,7 @@ impl FromStr for DumpFormat {
     }
 }
 
-/// A command line fragment add `--dump-config` to allow showing loaded configuration.
+/// A command line fragment to add `--dump-config` to allow showing loaded configuration.
 ///
 /// When this is added into the command line options structure, the `--dump-config` and
 /// `--dump-config-as` options are added.
@@ -146,7 +144,7 @@ impl FromStr for DumpFormat {
 /// application would use.
 ///
 /// The fragment can be either used manually with the [`dump`][CfgDump::dump] method or
-/// automatically by registering its [`helper`][CfgDump::helper].
+/// automatically by registering its [`extension`][CfgDump::extension].
 ///
 /// # Requirements
 ///
@@ -159,7 +157,7 @@ impl FromStr for DumpFormat {
 ///
 /// ```rust
 /// use serde_derive::{Deserialize, Serialize};
-/// use spirit::Spirit;
+/// use spirit::prelude::*;
 /// use spirit_cfg_helpers::CfgDump;
 /// use structopt::StructOpt;
 ///
@@ -182,7 +180,7 @@ impl FromStr for DumpFormat {
 ///
 /// fn main() {
 ///     Spirit::<Opts, Cfg>::new()
-///         .with(CfgDump::helper(Opts::dump))
+///         .with(CfgDump::extension(Opts::dump))
 ///         .run(|_| Ok(()));
 /// }
 /// ```
@@ -208,7 +206,8 @@ impl CfgDump {
     /// options don't specify that, it does nothing.
     ///
     /// This can be used manually. However, the common way is to register the
-    /// [`helper`][CfgDump::helper] within a [`Builder`] and let it do everything automatically.
+    /// [`extension`][CfgDump::extension] within an [`Extensible`] (either [`spirit::Spirit`] or
+    /// [`spirit::Buidler`]) and let it do everything automatically.
     pub fn dump<C: Serialize>(&self, cfg: &C) {
         if let Some(format) = self.dump_config_as {
             format.dump(cfg);
@@ -220,16 +219,17 @@ impl CfgDump {
         process::exit(0);
     }
 
-    /// A helper that can be registered with [`Builder::with`].
+    /// An extension that can be registered with [`Extensible::with`].
     ///
     /// The parameter is an extractor, a function that takes the whole command line options
     /// structure and returns a reference to just the [`CfgDump`] instance in there.
     ///
-    /// Note that for configuration to be dumped, it needs to be parsed first.
+    /// Note that for configuration to be dumped, it needs to be parsed first. Therefore it'll fail
+    /// to dump it if the configuration is invalid.
     ///
     /// Also, as this exits if the dumping is requested, it makes some sense to register it sooner
-    /// than later. It registers itself as a [`config_validator`][Builder::config_validator] and it
-    /// is not needed to validate parts of the configuration only to throw it out on the exit.
+    /// than later. It registers itself as a [`config_validator`][Extensible::config_validator] and
+    /// it is not needed to validate parts of the configuration only to throw it out on the exit.
     pub fn extension<E, F>(extract: F) -> impl Extension<E>
     where
         E: Extensible<Ok = E>,
@@ -272,13 +272,14 @@ mod cfg_help {
     /// application exits.
     ///
     /// The fragment can be used either manually with the [`help`][CfgHelp::help] method or by
-    /// registering the [`helper`][CfgHelp::helper] within a [`Builder`][Builder::with].
+    /// registering the [`extension`][CfgHelp::extension] within an
+    /// [`Extensible`][Extensible::with].
     ///
     /// # Examples
     ///
     /// ```rust
     /// use serde_derive::Deserialize;
-    /// use spirit::Spirit;
+    /// use spirit::prelude::*;
     /// use spirit_cfg_helpers::CfgHelp;
     /// use structdoc::StructDoc;
     /// use structopt::StructOpt;
@@ -304,7 +305,7 @@ mod cfg_help {
     ///
     /// fn main() {
     ///     Spirit::<Opts, Cfg>::new()
-    ///         .with(CfgHelp::helper(Opts::help))
+    ///         .with(CfgHelp::extension(Opts::help))
     ///         .run(|_| Ok(()));
     /// }
     /// ```
@@ -326,7 +327,7 @@ mod cfg_help {
         /// Note that the `C` type is passed as type parameter, therefore this needs to be invoked
         /// with the turbofish syntax.
         ///
-        /// The preferred way is usually by registering the [`helper`][CfgHelp::helper].
+        /// The preferred way is usually by registering the [`extension`][CfgHelp::extension].
         ///
         /// # Examples
         ///
@@ -359,7 +360,7 @@ mod cfg_help {
             }
         }
 
-        /// A helper to be registered within a [`Builder`][Builder::with].
+        /// A helper to be registered within an [`Extensible`][Extensible::with].
         ///
         /// The extractor should take the whole command line options structure and provide
         /// reference to just the [`CfgHelp`] instance.
@@ -382,7 +383,7 @@ mod cfg_help {
     ///
     /// This is simply a combination of both fragments, providing the same options and
     /// functionality. Usually one wants to use both. This saves a bit of code, as only one field
-    /// and one helper needs to be registered.
+    /// and one extension needs to be registered.
     ///
     /// # Requirements
     ///
@@ -398,7 +399,7 @@ mod cfg_help {
     }
 
     impl Opts {
-        /// The helper to be registered within a [`Builder`][Builder::with].
+        /// The helper to be registered within an [`Extensible`][Extensible::with].
         pub fn extension<O, C, F>(extract: F) -> impl Extension<Builder<O, C>>
         where
             F: Fn(&O) -> &Self + Send + Sync + 'static,
