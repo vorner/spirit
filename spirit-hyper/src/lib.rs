@@ -5,7 +5,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-//! [Spirit] helper for Hyper
+//! [Spirit] extension for Hyper
 //!
 //! This allows having Hyper servers auto-spawned from configuration. It is possible to put them on
 //! top of arbitrary stream-style IO objects (TcpStream, UdsStream, these wrapped in SSL...).
@@ -22,8 +22,10 @@
 //! extern crate spirit_tokio;
 //!
 //! use hyper::{Body, Request, Response};
-//! use spirit::{Empty, Spirit};
-//! use spirit_hyper::HttpServer;
+//! use hyper::server::Builder;
+//! use hyper::service::service_fn_ok;
+//! use spirit::prelude::*;
+//! use spirit_hyper::{BuildServer, HttpServer};
 //!
 //! const DEFAULT_CONFIG: &str = r#"
 //! [server]
@@ -48,7 +50,16 @@
 //! fn main() {
 //!     Spirit::<Empty, Config>::new()
 //!         .config_defaults(DEFAULT_CONFIG)
-//!         .config_helper(Config::server, spirit_hyper::server_ok(request), "server")
+//!         .with(
+//!             // Let's build a http server as configured by the user
+//!             Pipeline::new("listen")
+//!                 .extract_cfg(Config::server)
+//!                 // This is where we teach the server what it serves. It is the usual stuff from
+//!                 // hyper.
+//!                 .transform(BuildServer(|builder: Builder<_>, _cfg: &_, _name: &str| {
+//!                     builder.serve(|| service_fn_ok(request))
+//!                 }))
+//!         )
 //!         .run(|spirit| {
 //! #           let spirit = std::sync::Arc::clone(spirit);
 //! #           std::thread::spawn(move || spirit.terminate());
@@ -125,17 +136,6 @@ impl Default for HttpMode {
     }
 }
 
-#[derive(
-    Copy, Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize,
-)]
-#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
-#[serde(rename_all = "kebab-case")]
-struct HttpModeWorkaround {
-    /// What HTTP mode (protocols) to support.
-    #[serde(default)]
-    http_mode: HttpMode,
-}
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
@@ -157,22 +157,17 @@ struct HyperCfg {
     #[serde(default = "default_on")]
     http1_writev: bool,
 
-    #[serde(default, flatten)]
-    http_mode: HttpModeWorkaround,
+    #[serde(default)]
+    http_mode: HttpMode,
 }
 
-/// A [`ResourceConfig`] for hyper servers.
+/// A [`Fragment`] for hyper servers.
 ///
-/// This is a wrapper around a `Transport` [`ResourceConfig`]. It takes something that accepts
-/// connections ‒ like [`TcpListen`] and adds configuration specific for HTTP server.
+/// This is a wrapper around a `Transport` [`Fragment`]. It takes something that accepts
+/// connections ‒ like [`TcpListen`] and adds configuration specific for a HTTP server.
 ///
-/// This can then be paired with one of the [`ResourceConsumer`]s created by `server` functions to
-/// spawn servers:
-///
-/// * [`server`]
-/// * [`server_configured`]
-/// * [`server_simple`]
-/// * [`server_ok`]
+/// The [`Fragment`] produces [hyper] [Builder]. The [`BuildServer`] transformation can be used to
+/// make it into a [`Server`] and install it into a tokio runtime.
 ///
 /// See also the [`HttpServer`] type alias.
 ///
@@ -187,6 +182,10 @@ struct HyperCfg {
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct HyperServer<Transport> {
+    /// The inner transport.
+    ///
+    /// This is accessible by the user in case it contains something of use to the
+    /// [`Transformation`]s.
     #[serde(flatten)]
     pub transport: Transport,
 
@@ -201,9 +200,7 @@ impl<Transport: Default> Default for HyperServer<Transport> {
             inner: HyperCfg {
                 http1_keepalive: true,
                 http1_writev: true,
-                http_mode: HttpModeWorkaround {
-                    http_mode: HttpMode::Both,
-                },
+                http_mode: HttpMode::default(),
             }
         }
     }
@@ -236,7 +233,7 @@ where
         -> Result<Self::Resource, Error>
     {
         debug!("Creating HTTP server {}", name);
-        let (h1_only, h2_only) = match self.inner.http_mode.http_mode {
+        let (h1_only, h2_only) = match self.inner.http_mode {
             HttpMode::Both => (false, false),
             HttpMode::Http1Only => (true, false),
             HttpMode::Http2Only => (false, true),
@@ -264,6 +261,12 @@ struct ActivateInner<Transport, MS> {
     receiver: Receiver<()>,
 }
 
+/// A plumbing helper type.
+///
+/// This is public mostly because of Rust's current lack of existential types in traits. It is
+/// basically a `impl Future<Item = (), Error = ()>`, but as a concrete type.
+///
+/// The user should not need to interact directly with this.
 pub struct Activate<Transport, MS> {
     inner: Option<ActivateInner<Transport, MS>>,
     sender: Option<Sender<()>>,
@@ -311,6 +314,17 @@ where
     }
 }
 
+/// A [`Transformation`] to turn a [`Builder`] into a [`Server`].
+///
+/// The value wrapped in this shall be a closure taking:
+/// * The [`Builder`]
+/// * The configuration fragment ([`HyperServer`])
+/// * A `&str` name
+///
+/// It shall produce a [`Server`]. This is usually done through the [`serve`][Server::serve]
+/// method. It also pairs the resource with an [`Installer`][spirit::fragment::Installer].
+///
+/// Note that a graceful shutdown of the [`Server`] is done as part of the automatic plumbing.
 pub struct BuildServer<BS>(pub BS);
 
 impl<Transport, Inst, BS, Incoming, S, B> Transformation<Builder<Incoming>, Inst, HyperServer<Transport>> for BuildServer<BS>
