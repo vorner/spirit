@@ -305,10 +305,10 @@ impl From<UserDaemon> for Daemon {
 /// This adds the `-d` (`--daemonize`) and `-f` (`--foreground`) flag to command line. These
 /// override whatever is written in configuration (if merged together with the configuration).
 ///
-/// This can be used to transform the [`Daemon`] before daemonization or before providing it to
-/// spirit.
+/// This can be used to transform the [`Daemon`] before daemonization.
 ///
-/// See the [example](index.html#Examples).
+/// The [`extension`] here can be used to automatically handle both configuration and command line.
+/// See the [crate example][index.html#examples].
 ///
 /// Flatten this into the top-level `StructOpt` structure.
 #[derive(Clone, Debug, StructOpt)]
@@ -329,8 +329,6 @@ impl Opts {
     }
 
     /// Modifies the [`daemon`](struct.Daemon.html) according to daemonization set.
-    ///
-    /// This is usually used internally from the [`with_opts`](fn.with_opts.html) function.
     pub fn transform(&self, daemon: Daemon) -> Daemon {
         Daemon {
             daemonize: self.daemonize(),
