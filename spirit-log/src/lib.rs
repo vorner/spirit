@@ -135,7 +135,6 @@ extern crate structdoc;
 extern crate structopt;
 extern crate syslog;
 
-use std::cmp;
 use std::collections::HashMap;
 use std::fmt::Arguments;
 use std::io::{self, Write};
@@ -149,60 +148,13 @@ use chrono::{Local, Utc};
 use failure::{Error, Fail};
 use fern::Dispatch;
 use itertools::Itertools;
-use log::{LevelFilter, Log, Metadata, Record};
+use log::LevelFilter;
 use serde::de::{Deserialize, Deserializer, Error as DeError};
 use serde::ser::{Serialize, Serializer};
 use spirit::extension::{Extensible, Extension};
 use spirit::fragment::driver::Trivial as TrivialDriver;
 use spirit::fragment::{Fragment, Installer};
 use structopt::StructOpt;
-
-pub struct MultiLog {
-    max_level: LevelFilter,
-    loggers: Vec<Box<Log>>,
-}
-
-impl MultiLog {
-    pub fn push(&mut self, logger: Box<Log>, max_level: LevelFilter) {
-        self.max_level = cmp::max(max_level, self.max_level);
-        self.loggers.push(logger);
-    }
-    // TODO: Document the relation with init(), maybe panic if hasn't been called yet?
-    pub fn install(mut self) {
-        debug!("Installing loggers");
-        log::set_max_level(self.max_level);
-        if self.loggers.len() == 1 {
-            log_reroute::reroute_boxed(self.loggers.pop().unwrap());
-        } else {
-            log_reroute::reroute(self);
-        }
-    }
-}
-
-impl Default for MultiLog {
-    fn default() -> Self {
-        MultiLog {
-            max_level: LevelFilter::Off,
-            loggers: Vec::new(),
-        }
-    }
-}
-
-impl Log for MultiLog {
-    fn enabled(&self, metadata: &Metadata) -> bool {
-        self.loggers.iter().any(|l| l.enabled(metadata))
-    }
-    fn log(&self, record: &Record) {
-        for sub in &self.loggers {
-            sub.log(record)
-        }
-    }
-    fn flush(&self) {
-        for sub in &self.loggers {
-            sub.flush()
-        }
-    }
-}
 
 /// A fragment for command line options.
 ///
@@ -627,20 +579,16 @@ impl Logger {
     }
 }
 
-fn create<'a, I>(logging: I) -> Result<MultiLog, Error>
+fn create<'a, I>(logging: I) -> Result<Dispatch, Error>
 where
     I: IntoIterator<Item = &'a Logger>,
 {
     debug!("Creating loggers");
-    let (max_level, logger) = logging
+    logging
         .into_iter()
         .map(Logger::create)
-        .fold_results(Dispatch::new(), Dispatch::chain)?
-        .into_log();
-    Ok(MultiLog {
-        max_level,
-        loggers: vec![logger],
-    })
+        .fold_results(Dispatch::new(), Dispatch::chain)
+        .map_err(Error::from)
 }
 
 /// A configuration fragment to set up logging.
@@ -764,7 +712,7 @@ impl Cfg {
                     time_format: cmdline_time_format(),
                     format: Format::Short,
                 };
-                create(iter::once(&logger)).unwrap().install();
+                install(create(iter::once(&logger)).unwrap());
             }
             e
         }
@@ -776,15 +724,23 @@ pub fn init() {
     let _ = log_reroute::init();
 }
 
+// TODO: Panic if init wasn't called yet
+pub fn install(logger: Dispatch) {
+    debug!("Installing loggers");
+    let (level, logger) = logger.into_log();
+    log::set_max_level(level);
+    log_reroute::reroute_boxed(logger);
+}
+
 impl Fragment for Cfg {
     type Driver = TrivialDriver;
     type Seed = ();
-    type Resource = MultiLog;
-    type Installer = MultiLogInstaller;
+    type Resource = Dispatch;
+    type Installer = LogInstaller;
     fn make_seed(&self, _name: &str) -> Result<(), Error> {
         Ok(())
     }
-    fn make_resource(&self, _: &mut (), _name: &str) -> Result<MultiLog, Error> {
+    fn make_resource(&self, _: &mut (), _name: &str) -> Result<Dispatch, Error> {
         create(&self.logging)
     }
     fn init<B: Extensible<Ok = B>>(builder: B, _name: &str) -> Result<B, Error> {
@@ -802,13 +758,13 @@ pub struct CfgAndOpts {
 impl Fragment for CfgAndOpts {
     type Driver = TrivialDriver;
     type Seed = ();
-    type Resource = MultiLog;
-    type Installer = MultiLogInstaller;
+    type Resource = Dispatch;
+    type Installer = LogInstaller;
     const RUN_BEFORE_CONFIG: bool = true;
     fn make_seed(&self, _name: &str) -> Result<(), Error> {
         Ok(())
     }
-    fn make_resource(&self, _: &mut (), _name: &str) -> Result<MultiLog, Error> {
+    fn make_resource(&self, _: &mut (), _name: &str) -> Result<Dispatch, Error> {
         create(self.cfg.logging.iter().chain(self.opts.logger_cfg().as_ref()))
     }
     fn init<B: Extensible<Ok = B>>(builder: B, _name: &str) -> Result<B, Error> {
@@ -817,11 +773,11 @@ impl Fragment for CfgAndOpts {
 }
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct MultiLogInstaller;
+pub struct LogInstaller;
 
-impl<O, C> Installer<MultiLog, O, C> for MultiLogInstaller {
+impl<O, C> Installer<Dispatch, O, C> for LogInstaller {
     type UninstallHandle = ();
-    fn install(&mut self, logger: MultiLog, _: &str) {
-        logger.install();
+    fn install(&mut self, logger: Dispatch, _: &str) {
+        install(logger);
     }
 }

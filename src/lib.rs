@@ -170,16 +170,15 @@
 //!         cfg: cfg.logging,
 //!         opts: opts.logging,
 //!     };
-//!     // This enables log-panics and sets up the global logger so it can be exchanged at runtime.
-//!     // This is a prerequisite of the bellow logger.install();
-//!     spirit_log::init();
 //!     // And here we get ready-made top level logger we can use.
 //!     // (the "logging" string helps to identify fragments in logs ‒ when stuff gets complex,
 //!     // naming things helps).
 //!     //
 //!     // This can configure multiple loggers at once (STDOUT, files, network…).
 //!     let logger = logging.create("logging")?;
-//!     logger.install();
+//!     // This apply is from the fern crate. It's one-time initialization. If you want to update
+//!     // logging at runtime, see the next section.
+//!     logger.apply()?;
 //!
 //!     // The interesting stuff of your application.
 //!     info!("{}", cfg.message);
@@ -241,6 +240,9 @@
 //! "#;
 //!
 //! fn main() {
+//!     // Sets up spirit_log ‒ it will register panic handler to log panics. It will also prepare
+//!     // the global logger so the actual logger can be replaced multiple times, using the
+//!     // spirit_log::install
 //!     spirit_log::init();
 //!     Spirit::<Opts, Cfg>::new()
 //!         // Provide default values for the configuration
@@ -257,7 +259,7 @@
 //!             let logger = logging.create("logging")?;
 //!             // But postpone the installation until the whole config has been validated and
 //!             // accepted.
-//!             Ok(Action::new().on_success(|| logger.install()))
+//!             Ok(Action::new().on_success(|| spirit_log::install(logger)))
 //!         })
 //!         // Run the closure, logging the error nicely if it happens (note: no error happens
 //!         // here)
