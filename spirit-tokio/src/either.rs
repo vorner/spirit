@@ -5,14 +5,17 @@ use std::io::{BufRead, Error as IoError, Read, Seek, SeekFrom, Write};
 use failure::Error;
 use futures::future::Either as FutEither;
 use futures::{Async, Future, Poll, Sink, StartSend, Stream};
+use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use spirit::extension::Extensible;
 use spirit::fragment::driver::{Instruction, Comparable, Comparison, Driver};
 use spirit::fragment::{Fragment, Installer, Stackable, Transformation};
+#[cfg(feature = "cfg-help")]
+use structdoc::StructDoc;
 use structopt::StructOpt;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use net::IntoIncoming;
+use crate::net::IntoIncoming;
 
 /// The [`Either`] type allows to wrap two similar [`ResourceConfig`]s and let the user choose
 /// which one will be used.

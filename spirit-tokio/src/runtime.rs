@@ -4,11 +4,11 @@ use std::sync::Arc;
 
 use failure::Error;
 use futures::future::{self, Future};
+use log::trace;
 use serde::de::DeserializeOwned;
+use spirit::extension::{Extensible, Extension};
 use structopt::StructOpt;
 use tokio::runtime;
-
-use spirit::extension::{Extensible, Extension};
 
 /// A body run on tokio runtime.
 ///

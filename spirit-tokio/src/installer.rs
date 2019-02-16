@@ -2,12 +2,13 @@ use failure::Error;
 use futures::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use futures::sync::oneshot::{self, Receiver, Sender};
 use futures::{Future, IntoFuture, Stream};
+use log::{debug, error, trace, warn};
 use serde::de::DeserializeOwned;
 use spirit::extension::Extensible;
 use spirit::fragment::Installer;
 use structopt::StructOpt;
 
-use runtime::Runtime;
+use crate::runtime::Runtime;
 
 // TODO: Make this publicly creatable
 pub struct RemoteDrop {

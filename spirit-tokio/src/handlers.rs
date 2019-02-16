@@ -2,13 +2,13 @@ use std::fmt::Debug;
 use std::io::Error as IoError;
 
 use failure::{Error, Fail};
-use futures::{Async, Future, IntoFuture, Poll, Stream};
-use log::Level;
+use futures::{try_ready, Async, Future, IntoFuture, Poll, Stream};
+use log::{trace, warn, Level};
 use spirit::fragment::Transformation;
 use spirit::utils::{self, ErrorLogFormat};
 
-use installer::FutureInstaller;
-use net::IntoIncoming;
+use crate::installer::FutureInstaller;
+use crate::net::IntoIncoming;
 
 #[derive(Clone, Debug)]
 pub struct HandleSocket<F>(pub F);

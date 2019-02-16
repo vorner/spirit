@@ -14,14 +14,15 @@ use std::os::unix::net::{UnixDatagram as StdUnixDatagram, UnixListener as StdUni
 use std::path::PathBuf;
 
 use failure::{Error, ResultExt};
+use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};
 use spirit::Empty;
 use tokio::net::unix::{Incoming, UnixDatagram, UnixListener, UnixStream};
 use tokio::reactor::Handle;
 
-use net::limits::WithLimits;
-use net::{ConfiguredStreamListener, IntoIncoming};
+use crate::net::limits::WithLimits;
+use crate::net::{ConfiguredStreamListener, IntoIncoming};
 
 /// Configuration of where to bind a unix domain socket.
 ///
@@ -42,7 +43,7 @@ use net::{ConfiguredStreamListener, IntoIncoming};
 ///   - It is any socket.
 ///   - Always.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
-#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
+#[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct Listen {
     /// The path on the FS where to create the unix domain socket.
@@ -94,7 +95,7 @@ impl IntoIncoming for UnixListener {
 /// [`unix::Listen`]: Listen
 /// [`net::Listen`]: ::net::Listen
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
-#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
+#[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 pub struct UnixListen<ExtraCfg = Empty, UnixStreamConfig = UnixConfig> {
     #[serde(flatten)]
     listen: Listen,
@@ -167,7 +168,7 @@ pub type UnixListenWithLimits<ExtraCfg = Empty, UnixStreamConfig = UnixConfig> =
 /// [`unix::Listen`]: Listen
 /// [`net::Listen`]: ::net::Listen
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
-#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
+#[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 pub struct DatagramListen<ExtraCfg = Empty> {
     #[serde(flatten)]
     listen: Listen,

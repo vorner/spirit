@@ -15,15 +15,19 @@ use std::time::Duration;
 
 use failure::{Error, ResultExt};
 use futures::{Async, Poll, Stream};
+use log::warn;
 #[cfg(unix)]
 use net2::unix::{UnixTcpBuilderExt, UnixUdpBuilderExt};
 use net2::{TcpBuilder, UdpBuilder};
-use serde::de::{Deserialize, Deserializer, Error as DeError, Unexpected};
-use serde::ser::{Serialize, Serializer};
+use serde::{Deserialize, Serialize};
+use serde::de::{Deserializer, Error as DeError, Unexpected};
+use serde::ser::Serializer;
 use serde_humantime;
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};
 use spirit::Empty;
+#[cfg(feature = "cfg-help")]
+use structdoc::StructDoc;
 use tokio::net::tcp::Incoming;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::reactor::Handle;

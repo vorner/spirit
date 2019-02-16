@@ -8,6 +8,7 @@ repository = "https://github.com/vorner/spirit"
 license = "Apache-2.0/MIT"
 readme = "README.md"
 keywords = ["async", "tokio", "service", "configuration", "spirit"]
+edition = "2018"
 
 [features]
 default = ["cfg-help"]

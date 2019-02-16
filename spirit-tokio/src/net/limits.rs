@@ -17,11 +17,14 @@ use std::time::Duration;
 use failure::Error;
 use futures::task::AtomicTask;
 use futures::{Async, Poll, Stream};
+use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use serde::ser::Serializer;
 use spirit::extension::Extensible;
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};
+#[cfg(feature = "cfg-help")]
+use structdoc::StructDoc;
 use structopt::StructOpt;
 use tk_listen::{ListenExt, SleepOnError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -394,7 +397,7 @@ mod tests {
     use tokio::timer::Delay;
 
     use super::*;
-    use net::{Listen, TcpListen};
+    use crate::net::{Listen, TcpListen};
 
     #[test]
     fn conn_limit() {
