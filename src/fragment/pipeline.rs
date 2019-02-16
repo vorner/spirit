@@ -141,6 +141,37 @@ where
     }
 }
 
+/// A [`Transformation`] than maps a [`Resource`] through a closure.
+///
+/// This is used internally, to implement the [`map`][Pipeline::map] method. The user should not
+/// have to come into direct contact with this.
+///
+/// [`Resource`]: Fragment::Resource
+pub struct Map<T, M>(T, M);
+
+impl<T, M, Rin, Rout, I, S> Transformation<Rin, I, S> for Map<T, M>
+where
+    T: Transformation<Rin, I, S>,
+    M: FnMut(T::OutputResource) -> Rout,
+    Rout: 'static,
+{
+    type OutputResource = Rout;
+    type OutputInstaller = T::OutputInstaller;
+    fn installer(&mut self, installer: I, name: &'static str) -> T::OutputInstaller {
+        self.0.installer(installer, name)
+    }
+    fn transform(
+        &mut self,
+        resource: Rin,
+        fragment: &S,
+        name: &'static str,
+    ) -> Result<Rout, Error> {
+        let r = self.0.transform(resource, fragment, name)?;
+        trace!("Mapping resource {}", name);
+        Ok((self.1)(r))
+    }
+}
+
 /// The [`Pipeline`] itself.
 ///
 /// The high-level idea behind the [`Pipeline`] is described as part of the [`fragment`][super]
@@ -337,6 +368,31 @@ where
             driver: self.driver,
             extractor: self.extractor,
             transformation: ChainedTransformation(self.transformation, transform),
+        }
+    }
+
+    /// Maps the [`Resource`] through a closure.
+    ///
+    /// This is somewhat similar to [`transform`] in that it can modify or replace the resource
+    /// while it goes through the pipeline. But it is much simpler ‒ only the [`Resource`] is
+    /// passed to the closure (not any configuration, names, etc). And the closure is not allowed
+    /// to fail. This is mostly for convenience, so in the simple case one does not have to build
+    /// the full [`Transformation`].
+    ///
+    /// [`transform`]: Pipeline::transform
+    /// [`Resource`]: Fragment::Resource.
+    pub fn map<M, R>(self, m: M) -> Pipeline<F, E, D, Map<T, M>, (O, C)>
+    where
+        M: FnMut(T::OutputResource) -> R,
+    {
+        trace!("Adding a map transformation to pipeline {}", self.name);
+        Pipeline {
+            name: self.name,
+            _fragment: PhantomData,
+            _spirit: PhantomData,
+            driver: self.driver,
+            extractor: self.extractor,
+            transformation: Map(self.transformation, m),
         }
     }
 
