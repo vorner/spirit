@@ -743,9 +743,6 @@ impl Fragment for Cfg {
     fn make_resource(&self, _: &mut (), _name: &str) -> Result<Dispatch, Error> {
         create(&self.logging)
     }
-    fn init<B: Extensible<Ok = B>>(builder: B, _name: &str) -> Result<B, Error> {
-        builder.with(Cfg::init_extension())
-    }
 }
 
 // TODO: Non-owned version too?
@@ -767,9 +764,6 @@ impl Fragment for CfgAndOpts {
     fn make_resource(&self, _: &mut (), _name: &str) -> Result<Dispatch, Error> {
         create(self.cfg.logging.iter().chain(self.opts.logger_cfg().as_ref()))
     }
-    fn init<B: Extensible<Ok = B>>(builder: B, _name: &str) -> Result<B, Error> {
-        builder.with(Cfg::init_extension())
-    }
 }
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -779,5 +773,8 @@ impl<O, C> Installer<Dispatch, O, C> for LogInstaller {
     type UninstallHandle = ();
     fn install(&mut self, logger: Dispatch, _: &str) {
         install(logger);
+    }
+    fn init<B: Extensible<Ok = B>>(&mut self, builder: B, _name: &str) -> Result<B, Error> {
+        builder.with(Cfg::init_extension())
     }
 }
