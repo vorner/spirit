@@ -198,16 +198,6 @@ impl ListenLimits for Limits {
     }
 }
 
-/* XXX
-delegate_resource_traits! {
-    delegate ExtraCfgCarrier to inner on WithListenLimits;
-}
-
-cfg_helpers! {
-    impl helpers for WithListenLimits<Listener> where;
-}
-*/
-
 /// Wrapper around a listener instance.
 ///
 /// This is a plumbing type the user shouldn't need to come into contact with. It implements the
@@ -397,7 +387,7 @@ mod tests {
     // tests
     use corona::coroutine::CleanupStrategy;
     use corona::prelude::*;
-    use spirit::Empty;
+    use spirit::prelude::*;
     use tokio::clock;
     use tokio::net::TcpStream;
     use tokio::prelude::FutureExt;
@@ -413,25 +403,25 @@ mod tests {
             .cleanup_strategy(CleanupStrategy::LeakOnPanic)
             .run(|| {
                 let incoming_cfg = WithListenLimits {
-                    inner: TcpListen {
+                    listener: TcpListen {
                         listen: Listen {
                             host: IpAddr::V4(Ipv4Addr::LOCALHOST),
                             ..Listen::default()
                         },
                         tcp_config: Empty {},
                         extra_cfg: Empty {},
-                        scale: Empty {},
                     },
-                    error_sleep: Duration::from_millis(100),
-                    max_conn: Some(2),
+                    limits: Limits {
+                        error_sleep: Duration::from_millis(100),
+                        max_conn: Some(2),
+                    }
                 };
-                let seed =
-                    ResourceConfig::<Empty, Empty>::create(&incoming_cfg, "test_listener").unwrap();
+                let mut seed = incoming_cfg.make_seed("test_listener").unwrap();
                 let addr = seed.local_addr().unwrap();
-                let mut incoming =
-                    ResourceConfig::<Empty, Empty>::fork(&incoming_cfg, &seed, "test_listener")
-                        .unwrap()
-                        .into_incoming();
+                let mut incoming = incoming_cfg
+                    .make_resource(&mut seed, "test_listener")
+                    .unwrap()
+                    .into_incoming();
                 assert_eq!(2, incoming.limit.max_conn);
                 assert_eq!(0, incoming.limit.active_cnt.load(Ordering::Relaxed));
 
