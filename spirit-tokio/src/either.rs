@@ -12,7 +12,6 @@ use spirit::fragment::{Fragment, Installer, Stackable, Transformation};
 use structopt::StructOpt;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use base_traits::ExtraCfgCarrier;
 use net::IntoIncoming;
 
 /// The [`Either`] type allows to wrap two similar [`ResourceConfig`]s and let the user choose
@@ -226,56 +225,6 @@ macro_rules! either {
         }
     };
 }
-
-impl<A, B> ExtraCfgCarrier for Either<A, B>
-where
-    A: ExtraCfgCarrier,
-    // For the user/extra config, it makes sense for them to be the same
-    B: ExtraCfgCarrier<Extra = A::Extra>,
-{
-    type Extra = A::Extra;
-    fn extra(&self) -> &Self::Extra {
-        either!(self, v => v.extra()).into_inner()
-    }
-}
-
-// XXX: Fragment instead?
-/*
-impl<A, B, O, C> ResourceConfig<O, C> for Either<A, B>
-where
-    A: ResourceConfig<O, C>,
-    B: ResourceConfig<O, C> + ExtraCfgCarrier<Extra = A::Extra>,
-{
-    type Seed = Either<A::Seed, B::Seed>;
-    type Resource = Either<A::Resource, B::Resource>;
-    fn create(&self, name: &str) -> Result<Self::Seed, Error> {
-        Ok(either!(self, v => v.create(name)?))
-    }
-    fn fork(&self, seed: &Self::Seed, name: &str) -> Result<Self::Resource, Error> {
-        let res = match (self, seed) {
-            (A(me), A(seed)) => A(me.fork(seed, name)?),
-            (B(me), B(seed)) => B(me.fork(seed, name)?),
-            _ => unreachable!("Someone mixed the seeds"),
-        };
-        Ok(res)
-    }
-    fn scaled(&self, name: &str) -> (usize, ValidationResults) {
-        either!(self, v => v.scaled(name)).into_inner()
-    }
-    fn is_similar(&self, other: &Self, name: &str) -> bool {
-        match (self, other) {
-            (A(me), A(other)) => me.is_similar(other, name),
-            (B(me), B(other)) => me.is_similar(other, name),
-            // Completely different kind of thing, not similar at all
-            _ => false,
-        }
-    }
-    fn install<N: Name>(builder: Builder<O, C>, name: &N) -> Builder<O, C> {
-        let builder = A::install(builder, name);
-        B::install(builder, name)
-    }
-}
-*/
 
 impl<A, B> IntoIncoming for Either<A, B>
 where

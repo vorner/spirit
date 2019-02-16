@@ -1,3 +1,4 @@
+// XXX This is currently disabled and not ported to the newer version of spirit.
 //! Scaling of resources.
 //!
 //! As described with the [`ResourceConfig`] trait, resources can be scaled into multiple
