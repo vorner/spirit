@@ -5,16 +5,15 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-//! This helps with configuring the [`reqwest`][reqwest_crate] [`Client`].
+//! This helps with configuring the [`reqwest`] [`Client`].
 //!
-//! This is part of the [`spirit`][spirit_crate] system.
+//! This is part of the [`spirit`] system.
 //!
 //! There are two levels of support. The first one is just letting the [`Spirit`] to load the
 //! [`ReqwestClient`] configuration fragment and calling [`create`] or [`builder`] on it manually.
 //!
 //! The other, more convenient way, is pairing an extractor function with the [`AtomicClient`] and
-//! letting [`Spirit`] keep an up to date version of [`Client`] in there at all times. Together,
-//! they form a [`CfgHelper`].
+//! letting [`Spirit`] keep an up to date version of [`Client`] in there at all times.
 //!
 //! # Examples
 //!
@@ -51,8 +50,6 @@
 //! }
 //! ```
 //!
-//! [reqwest_crate]: https://crates.io/crates/reqwest
-//! [spirit_crate]: https://crates.io/crates/spirit
 //! [`create`]: ReqwestClient::create
 //! [`builder`]: ReqwestClient::builder
 //! [`Spirit`]: spirit::Spirit
@@ -142,7 +139,7 @@ fn deserialize_opt_dur<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Duratio
 /// corresponds to default [`Client::new()`], but most things can be overridden.
 ///
 /// The client can be created either manually by methods here, or by pairing it with
-/// [`AtomicClient`] to form a [`CfgHelper`].
+/// [`AtomicClient`]. See the [crate example](index.html#examples)
 ///
 /// # Fields
 ///
