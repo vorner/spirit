@@ -5,29 +5,23 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-//! A spirit configuration helper for logging.
+//! A spirit fragments and helpers to configure and control logging.
 //!
-//! Set of configuration fragments and config helpers for the
-//! [`spirit`](https://crates.io/crates/spirit) configuration framework that configures logging for
-//! the [`log`](https://crates.io/crates/log) crate and updates it as the configuration changes
-//! (even at runtime).
+//! The [`Fragment`]s here allow to configure relatively complex logging (multiple loggers,
+//! different formats, different destinations), both from command line and the configuration. It
+//! allows runtime reloading of them.
 //!
-//! Currently, it also allows asking for log output on the command line and multiple logging
-//! destinations with different log levels set.
+//! Internally it is based on the [`fern`] crate and just adds the configuration and runtime
+//! reloading (through [`log-reroute`]).
 //!
-//! It assumes the application doesn't set the global logger (this crate sets it on its own). It
-//! also sets the panic hook through the [`log_panics`] crate. The `with-backtrace` cargo feature
-//! is propagated through.
-//!
-//! For details about added options, see the [`Opts`](struct.Opts.html) and
-//! [`Cfg`](struct.Cfg.html) configuration fragments.
+//! It assumes the application doesn't set the global logger itself. It also sets the panic hook
+//! through the [`log_panics`] crate. The `with-backtrace` cargo feature is propagated through.
 //!
 //! # Startup
 //!
 //! The logging is set in multiple steps:
 //!
-//! * As soon as the config helper is registered, a logging on the `WARN` level is sent to
-//!   `stderr`.
+//! * As soon as the pipeline is registered, a logging on the `WARN` level is sent to `stderr`.
 //! * After command line arguments are parsed the `stderr` logging is updated to reflect that (or
 //!   left on the `WARN` level if nothing is set by the user).
 //! * After configuration is loaded from the files, full logging is configured.
@@ -35,14 +29,14 @@
 //! # Integration with other loggers
 //!
 //! If you need something specific (for example [`sentry`](https://crates.io/crates/sentry)), you
-//! can provide functions to add additional loggers in parallel with the ones created in this
-//! crate. The crate will integrate them all together.
+//! can plug in additional loggers through the pipeline ‒ the [`Dispatch`] allows adding arbitrary
+//! loggers.
 //!
 //! # Performance warning
 //!
 //! This allows the user to create arbitrary number of loggers. Furthermore, the logging is
-//! synchronous and not buffered. When writing a lot of logs or sending them over the network, this
-//! could become a bottleneck.
+//! synchronous  by default and not buffered. When writing a lot of logs or sending them over the
+//! network, this could become a bottleneck.
 //!
 //! # Planned features
 //!
@@ -53,20 +47,56 @@
 //! * Colors on `stdout`/`stderr`.
 //! * Async and buffered logging and ability to drop log messages when logging doesn't keep up.
 //!
+//! # Usage without Pipelines
+//!
+//! It is possible to use without the [`Pipeline`][spirit::Pipeline], manually. However,
+//! certain care needs to be taken to initialize everything that needs to be initialized.
+//!
+//! It is either possible to just get the [`Dispatch`] object and call [`apply`][Dispatch::apply],
+//! that however is a single-shot initialization and the logger can't be replaced.
+//!
+//! The helper functions [`init`] and [`install`] can be used to gain the ability to replace
+//! [`Dispatch`] loggers multiple times.
+//!
 //! # Examples
 //!
-//! ```rust
-//! #[macro_use]
-//! extern crate log;
-//! extern crate spirit;
-//! extern crate spirit_log;
-//! #[macro_use]
-//! extern crate serde_derive;
-//! #[macro_use]
-//! extern crate structopt;
+//! ## Manual single use installation
 //!
-//! use spirit::Spirit;
-//! use spirit_log::{Cfg as LogCfg, Opts as LogOpts};
+//! ```rust
+//! use spirit::prelude::*;
+//! use spirit_log::Cfg;
+//!
+//! # fn main() -> Result<(), failure::Error> {
+//! // Well, you'd get it somewhere from configuration, but…
+//! let cfg = Cfg::default();
+//! let logger = cfg.create("logger")?;
+//! logger.apply()?;
+//! # Ok(()) }
+//! ```
+//!
+//! ## Manual multiple-use installation
+//!
+//! ```rust
+//! use spirit::prelude::*;
+//! use spirit_log::Cfg;
+//!
+//! # fn main() -> Result<(), failure::Error> {
+//! spirit_log::init();
+//! // This part can be done multiple times.
+//! let cfg = Cfg::default();
+//! let logger = cfg.create("logger")?;
+//! spirit_log::install(logger);
+//! # Ok(()) }
+//! ```
+//!
+//! ## Automatic usage with a Pipeline, reloading and command line options
+//!
+//! ```rust
+//! use log::info;
+//! use serde::Deserialize;
+//! use spirit::prelude::*;
+//! use spirit_log::{Cfg as LogCfg, CfgAndOpts as LogBoth, Opts as LogOpts};
+//! use structopt::StructOpt;
 //!
 //! #[derive(Clone, Debug, StructOpt)]
 //! struct Opts {
@@ -94,7 +124,12 @@
 //!
 //! fn main() {
 //!     Spirit::<Opts, Cfg>::new()
-//!         .config_helper(Cfg::log, Opts::log, "logging")
+//!         .with(
+//!             Pipeline::new("logging").extract(|opts: &Opts, cfg: &Cfg| LogBoth {
+//!                 cfg: cfg.log(),
+//!                 opts: opts.log(),
+//!             }),
+//!        )
 //!         .run(|_spirit| {
 //!             info!("Hello world");
 //!             Ok(())
@@ -112,35 +147,13 @@
 //! clock = "UTC"
 //! ```
 
-extern crate chrono;
-#[allow(unused_imports)]
-#[macro_use]
-extern crate failure;
-extern crate fern;
-extern crate itertools;
-#[macro_use]
-extern crate log;
-extern crate log_panics;
-extern crate log_reroute;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate serde_json;
-extern crate spirit;
-#[cfg(feature = "cfg-help")]
-#[macro_use]
-extern crate structdoc;
-#[allow(unused_imports)]
-#[macro_use]
-extern crate structopt;
-extern crate syslog;
-
 use std::collections::HashMap;
 use std::fmt::Arguments;
 use std::io::{self, Write};
 use std::iter;
 use std::net::TcpStream;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 use chrono::format::{DelayedFormat, StrftimeItems};
@@ -148,12 +161,15 @@ use chrono::{Local, Utc};
 use failure::{Error, Fail};
 use fern::Dispatch;
 use itertools::Itertools;
-use log::LevelFilter;
-use serde::de::{Deserialize, Deserializer, Error as DeError};
-use serde::ser::{Serialize, Serializer};
+use log::{debug, trace, LevelFilter};
+use serde::{Deserialize, Serialize};
+use serde::de::{Deserializer, Error as DeError};
+use serde::ser::{Serializer};
 use spirit::extension::{Extensible, Extension};
 use spirit::fragment::driver::Trivial as TrivialDriver;
 use spirit::fragment::{Fragment, Installer};
+#[cfg(feature = "cfg-help")]
+use structdoc::StructDoc;
 use structopt::StructOpt;
 
 /// A fragment for command line options.
@@ -161,6 +177,8 @@ use structopt::StructOpt;
 /// By flattening this into the top-level `StructOpt` structure, you get the `-l` and `-L` command
 /// line options. The `-l` (`--log`) sets the global logging level for `stderr`. The `-L` accepts
 /// pairs (eg. `-L spirit=TRACE`) specifying levels for specific logging targets.
+///
+/// If used, the logging will be sent to `stderr`.
 #[derive(Clone, Debug, StructOpt)]
 pub struct Opts {
     /// Log to stderr with this log level.
@@ -597,6 +615,8 @@ where
 /// configuring logging. It adds a new top-level array `logging`. Each item describes one logger,
 /// with separate log levels and destination.
 ///
+/// See the [crate examples](index.html#examples) for the use.
+///
 /// # Logger options
 ///
 /// These are valid for all loggers:
@@ -638,58 +658,6 @@ where
 ///   - `port`: The port to use.
 /// * `syslog`: Sends the logs to syslog. This ignores all the formatting and time options, as
 ///   syslog handles this itself.
-///
-/// # Configuration helpers
-///
-/// This structure works as a configuration helper in three different forms:
-///
-/// ## No command line options.
-///
-/// There's no interaction with the command line options. The second parameter of the
-/// `config_helper` is set to `()`.
-///
-/// ```rust
-/// #[macro_use]
-/// extern crate log;
-/// extern crate spirit;
-/// extern crate spirit_log;
-/// #[macro_use]
-/// extern crate serde_derive;
-///
-/// use spirit::{Empty, Spirit};
-/// use spirit_log::Cfg as LogCfg;
-///
-/// #[derive(Clone, Debug, Default, Deserialize)]
-/// struct Cfg {
-///     #[serde(flatten)]
-///     log: LogCfg,
-/// }
-///
-/// impl Cfg {
-///     fn log(&self) -> LogCfg {
-///         self.log.clone()
-///     }
-/// }
-///
-/// fn main() {
-///     Spirit::<Empty, Cfg>::new()
-///         .config_helper(Cfg::log, (), "logging")
-///         .run(|_spirit| {
-///             info!("Hello world");
-///             Ok(())
-///         });
-/// }
-/// ```
-///
-/// ## Basic integration of command line options.
-///
-/// The second parameter is a closure to extract the [`Opts`](struct.Opts.html) structure from the
-/// options (`Fn(&O) -> Opts + Send + Sync + 'static`).
-///
-/// ## Full customizations
-///
-/// The second parameter can be the [`Extras`](struct.Extras.html) structure, fully customizing the
-/// creation of loggers.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct Cfg {
@@ -700,6 +668,11 @@ pub struct Cfg {
 struct Configured;
 
 impl Cfg {
+    /// This provides an [`Extension`] to initialize logging.
+    ///
+    /// It calls [`init`] and sets up a basic logger (`WARN` and more serious going to `stderr`).
+    ///
+    /// This is seldom used directly (but can be), the [`LogInstaller`] makes sure it is called.
     pub fn init_extension<E: Extensible>() -> impl Extension<E> {
         |mut e: E| {
             if e.singleton::<Configured>() {
@@ -719,13 +692,35 @@ impl Cfg {
     }
 }
 
+static INIT_CALLED: AtomicBool = AtomicBool::new(false);
+
+/// Initialize the global state.
+///
+/// This installs a global logger that can be replaced at runtime and sets a panic hook to also log
+/// panics (see [`log_panics`]).
+///
+/// This allows calling [`install`] later on.
+///
+/// It is needed only if the crate is used in the manual way. This is taken care of if used through
+/// the [Pipeline][spirit::Pipeline].
 pub fn init() {
     log_panics::init();
     let _ = log_reroute::init();
+    INIT_CALLED.store(true, Ordering::Relaxed);
 }
 
-// TODO: Panic if init wasn't called yet
+/// Replace the current logger with the provided one.
+///
+/// This can be called multiple times (unlike [`Dispath::apply`]) and it always replaces the old
+/// logger with a new one.
+///
+/// The logger will be installed in a synchronous way ‒ a call to logging functions may block.
+///
+/// # Panics
+///
+/// If [`init`] haven't been called yet.
 pub fn install(logger: Dispatch) {
+    assert!(INIT_CALLED.load(Ordering::Relaxed), "spirit_log::init not called yet");
     debug!("Installing loggers");
     let (level, logger) = logger.into_log();
     log::set_max_level(level);
@@ -745,10 +740,19 @@ impl Fragment for Cfg {
     }
 }
 
+/// A combination of [`Cfg`] and [`Opts`].
+///
+/// This is a composed [`Fragment`] ‒ the purpose is the caller can combine configuration both from
+/// command line options and configuration inside the same [`Pipeline`][spirit::Pipeline] ‒ see the
+/// [crate examples](index.html#examples).
+///
+/// The [`Fragment`] will then combine the options to create the relevant loggers.
 // TODO: Non-owned version too?
 #[derive(Clone, Debug)]
 pub struct CfgAndOpts {
+    /// The configuration options.
     pub cfg: Cfg,
+    /// The command line options.
     pub opts: Opts,
 }
 
@@ -766,6 +770,12 @@ impl Fragment for CfgAndOpts {
     }
 }
 
+/// An [`Installer`] for the [`Dispatch`].
+///
+/// This is the installer used by default for installing loggers ‒ this is what you get if you use
+/// the [`Pipeline`][spirit::Pipeline] with [`Cfg`].
+///
+/// Loggers installed this way act in a synchronous way ‒ they block on IO.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct LogInstaller;
 

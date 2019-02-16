@@ -214,7 +214,6 @@
 //! use log::{debug, info};
 //! use serde::Deserialize;
 //! use spirit::prelude::*;
-//! use spirit::fragment::Fragment;
 //! use spirit::validation::Action;
 //! use spirit_log::{Cfg as LogCfg, CfgAndOpts as Logging, Opts as LogOpts};
 //! use structopt::StructOpt;
@@ -430,6 +429,7 @@ pub use crate::cfg_loader::ConfigBuilder;
 pub use crate::empty::Empty;
 pub use crate::extension::Extensible;
 pub use crate::spirit::{Builder, Spirit, SpiritBuilder};
+pub use crate::fragment::Fragment;
 pub use crate::fragment::pipeline::Pipeline;
 
 /// The prelude.
@@ -440,5 +440,5 @@ pub use crate::fragment::pipeline::Pipeline;
 ///
 /// This can be imported as `use spirit::prelude::*`.
 pub mod prelude {
-    pub use super::{ConfigBuilder, Empty, Extensible, Pipeline, Spirit, SpiritBuilder};
+    pub use super::{ConfigBuilder, Empty, Extensible, Fragment, Pipeline, Spirit, SpiritBuilder};
 }

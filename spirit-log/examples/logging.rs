@@ -1,17 +1,11 @@
-#[macro_use]
-extern crate log;
-extern crate spirit;
-extern crate spirit_log;
-#[macro_use]
-extern crate serde_derive;
-#[macro_use]
-extern crate structopt;
-
 use std::thread;
 use std::time::Duration;
 
+use log::info;
+use serde::Deserialize;
 use spirit::prelude::*;
 use spirit_log::{Cfg as LogCfg, CfgAndOpts as LogBoth, Opts as LogOpts};
+use structopt::StructOpt;
 
 #[derive(Clone, Debug, StructOpt)]
 struct Opts {
