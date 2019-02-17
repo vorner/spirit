@@ -293,8 +293,11 @@ pub trait Fragment: Sized {
     /// This method needs to be provided by the implementation, but it wouldn't usually be called
     /// directly by the user. It is used internally by [`Pipeline`][pipeline::Pipeline] and the
     /// [`create`][Fragment::create] method.
-    fn make_resource(&self, seed: &mut Self::Seed, name: &'static str)
-        -> Result<Self::Resource, Error>;
+    fn make_resource(
+        &self,
+        seed: &mut Self::Seed,
+        name: &'static str,
+    ) -> Result<Self::Resource, Error>;
 
     /// Runs both stages of creation at once.
     ///
@@ -339,9 +342,11 @@ where
     fn make_seed(&self, name: &'static str) -> Result<Self::Seed, Error> {
         F::make_seed(*self, name)
     }
-    fn make_resource(&self, seed: &mut Self::Seed, name: &'static str)
-        -> Result<Self::Resource, Error>
-    {
+    fn make_resource(
+        &self,
+        seed: &mut Self::Seed,
+        name: &'static str,
+    ) -> Result<Self::Resource, Error> {
         F::make_resource(*self, seed, name)
     }
     fn init<B: Extensible<Ok = B>>(builder: B, name: &'static str) -> Result<B, Error>
@@ -581,7 +586,8 @@ pub trait Transformation<InputResource, InputInstaller, SubFragment> {
     /// Note that some transformations are composed from multiple transformations and they are
     /// *not* mandated to call this method. Nevertheless, it is violation of contract to call this
     /// more than once.
-    fn installer(&mut self, installer: InputInstaller, name: &'static str) -> Self::OutputInstaller;
+    fn installer(&mut self, installer: InputInstaller, name: &'static str)
+        -> Self::OutputInstaller;
 
     /// Transforms one instance of the resource.
     ///

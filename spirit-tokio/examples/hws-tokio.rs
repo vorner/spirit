@@ -28,8 +28,8 @@ use std::sync::Arc;
 use failure::Error;
 use spirit::prelude::*;
 use spirit_tokio::net::limits::LimitedConn;
-use spirit_tokio::{HandleListener, TcpListenWithLimits};
 use spirit_tokio::runtime::Runtime;
+use spirit_tokio::{HandleListener, TcpListenWithLimits};
 use tokio::net::TcpStream;
 use tokio::prelude::*;
 
@@ -99,7 +99,11 @@ pub fn main() {
             let spirit_handler = Arc::clone(spirit);
             let handler =
                 HandleListener(move |conn, _: &_| handle_connection(&spirit_handler, conn));
-            spirit.with(Pipeline::new("listen").extract_cfg(Config::listen).transform(handler))?;
+            spirit.with(
+                Pipeline::new("listen")
+                    .extract_cfg(Config::listen)
+                    .transform(handler),
+            )?;
             Ok(())
         });
 }

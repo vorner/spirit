@@ -106,10 +106,10 @@ use hyper::server::{Builder, Server};
 use hyper::service::{MakeServiceRef, Service};
 use hyper::Body;
 use log::Level;
-use spirit::Empty;
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable, Transformation};
 use spirit::utils::{self, ErrorLogFormat};
+use spirit::Empty;
 use spirit_tokio::installer::FutureInstaller;
 use spirit_tokio::net::limits::WithLimits;
 use spirit_tokio::net::IntoIncoming;
@@ -207,7 +207,7 @@ impl<Transport: Default> Default for HyperServer<Transport> {
                 http1_keepalive: true,
                 http1_writev: true,
                 http_mode: HttpMode::default(),
-            }
+            },
         }
     }
 }
@@ -235,9 +235,11 @@ where
     fn make_seed(&self, name: &'static str) -> Result<Self::Seed, Error> {
         self.transport.make_seed(name)
     }
-    fn make_resource(&self, seed: &mut Self::Seed, name: &'static str)
-        -> Result<Self::Resource, Error>
-    {
+    fn make_resource(
+        &self,
+        seed: &mut Self::Seed,
+        name: &'static str,
+    ) -> Result<Self::Resource, Error> {
         debug!("Creating HTTP server {}", name);
         let (h1_only, h2_only) = match self.inner.http_mode {
             HttpMode::Both => (false, false),
@@ -254,10 +256,7 @@ where
     }
 }
 
-impl<Transport> Stackable for HyperServer<Transport>
-where
-    Transport: Stackable
-{}
+impl<Transport> Stackable for HyperServer<Transport> where Transport: Stackable {}
 
 /// A type alias for http (plain TCP) hyper server.
 pub type HttpServer<ExtraCfg = Empty> = HyperServer<WithLimits<TcpListen<ExtraCfg>>>;
@@ -333,7 +332,8 @@ where
 /// Note that a graceful shutdown of the [`Server`] is done as part of the automatic plumbing.
 pub struct BuildServer<BS>(pub BS);
 
-impl<Transport, Inst, BS, Incoming, S, B> Transformation<Builder<Incoming>, Inst, HyperServer<Transport>> for BuildServer<BS>
+impl<Transport, Inst, BS, Incoming, S, B>
+    Transformation<Builder<Incoming>, Inst, HyperServer<Transport>> for BuildServer<BS>
 where
     Transport: Fragment + 'static,
     Transport::Resource: IntoIncoming<Incoming = Incoming, Connection = Incoming::Item>,
@@ -348,14 +348,16 @@ where
     fn installer(&mut self, _ii: Inst, _name: &'static str) -> Self::OutputInstaller {
         FutureInstaller::default()
     }
-    fn transform(&mut self, builder: Builder<Incoming>, cfg: &HyperServer<Transport>, name: &'static str) -> Result<Self::OutputResource, Error> {
+    fn transform(
+        &mut self,
+        builder: Builder<Incoming>,
+        cfg: &HyperServer<Transport>,
+        name: &'static str,
+    ) -> Result<Self::OutputResource, Error> {
         let (sender, receiver) = oneshot::channel();
         let server = self.0(builder, cfg, name);
         Ok(Activate {
-            inner: Some(ActivateInner {
-                server,
-                receiver,
-            }),
+            inner: Some(ActivateInner { server, receiver }),
             sender: Some(sender),
             name,
         })

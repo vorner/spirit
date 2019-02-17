@@ -134,8 +134,7 @@ pub fn log_error(level: Level, target: &str, e: &Error, format: ErrorLogFormat) 
                 log!(target: target, level, "{}", cause);
             }
         }
-        ErrorLogFormat::SingleLine |
-        ErrorLogFormat::SingleLineWithoutBacktrace => {
+        ErrorLogFormat::SingleLine | ErrorLogFormat::SingleLineWithoutBacktrace => {
             log!(target: target, level, "{}", e.iter_chain().join("; "));
         }
         _ => unreachable!("Non-exhaustive sentinel should not be used"),

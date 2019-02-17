@@ -23,9 +23,9 @@ use std::time::Duration;
 use failure::Error;
 use futures::task::AtomicTask;
 use futures::{Async, Poll, Stream};
-use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use serde::ser::Serializer;
+use serde::{Deserialize, Serialize};
 use spirit::extension::Extensible;
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};
@@ -63,7 +63,9 @@ pub trait ListenLimits {
 /// socket changes, the old listening socket is destroyed but the old connections are kept around
 /// until they terminate. The new listening socket starts with fresh limits, not counting the old
 /// connections.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, StructDoc)]
+#[derive(
+    Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, StructDoc,
+)]
 pub struct WithListenLimits<Listener, Limits> {
     /// The inner listener socket.
     ///
@@ -78,10 +80,7 @@ pub struct WithListenLimits<Listener, Limits> {
 /// A convenience type alias for the default [`WithListenLimits`] case.
 pub type WithLimits<Listener> = WithListenLimits<Listener, Limits>;
 
-impl<Listener, Limits> Stackable for WithListenLimits<Listener, Limits>
-where
-    Listener: Stackable
-{}
+impl<Listener, Limits> Stackable for WithListenLimits<Listener, Limits> where Listener: Stackable {}
 
 impl<Listener, Limits> Comparable for WithListenLimits<Listener, Limits>
 where
@@ -111,9 +110,11 @@ where
     fn make_seed(&self, name: &'static str) -> Result<Self::Seed, Error> {
         self.listener.make_seed(name)
     }
-    fn make_resource(&self, seed: &mut Self::Seed, name: &'static str)
-        -> Result<Self::Resource, Error>
-    {
+    fn make_resource(
+        &self,
+        seed: &mut Self::Seed,
+        name: &'static str,
+    ) -> Result<Self::Resource, Error> {
         let inner = self.listener.make_resource(seed, name)?;
         Ok(LimitedListener {
             inner,
@@ -415,7 +416,7 @@ mod tests {
                     limits: Limits {
                         error_sleep: Duration::from_millis(100),
                         max_conn: Some(2),
-                    }
+                    },
                 };
                 let mut seed = incoming_cfg.make_seed("test_listener").unwrap();
                 let addr = seed.local_addr().unwrap();

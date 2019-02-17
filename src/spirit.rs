@@ -118,7 +118,7 @@ where
     #[allow(clippy::new_ret_no_self)]
     pub fn new() -> Builder<O, C>
     where
-        C: Default
+        C: Default,
     {
         Spirit::with_initial_config(C::default())
     }
@@ -217,7 +217,10 @@ where
         }
         let new = Arc::new(new);
         let old = self.config.load();
-        debug!("Running {} config validators", hooks.config_validators.len());
+        debug!(
+            "Running {} config validators",
+            hooks.config_validators.len()
+        );
         let mut errors = 0;
         let mut actions = Vec::with_capacity(hooks.config_validators.len());
         for v in hooks.config_validators.iter_mut() {
@@ -360,7 +363,7 @@ where
 
     fn before_config<F>(self, cback: F) -> Result<Self, Error>
     where
-        F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), Error> + Send + 'static
+        F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), Error> + Send + 'static,
     {
         trace!("Running just added before_config");
         cback(&self.config(), self.cmd_opts())?;
@@ -860,8 +863,6 @@ mod tests {
         let app = Spirit::<Empty, Empty>::new().build(false).unwrap();
         // We test the trait actually works even when we have owned value, not reference only.
         let spirit = Arc::clone(app.spirit());
-        spirit
-            .on_terminate(|| ())
-            .on_config(|_opts, _cfg| ());
+        spirit.on_terminate(|| ()).on_config(|_opts, _cfg| ());
     }
 }

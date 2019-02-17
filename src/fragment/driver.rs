@@ -107,7 +107,7 @@ pub enum Instruction<Resource> {
         id: CacheId,
 
         /// The resource to install.
-        resource: Resource
+        resource: Resource,
     },
 }
 
@@ -309,10 +309,7 @@ pub trait Comparable<RHS = Self> {
 enum Proposition<F: Fragment + ToOwned> {
     Nothing,
     ReplaceFragment(F::Owned),
-    ReplaceBoth {
-        fragment: F::Owned,
-        seed: F::Seed,
-    }
+    ReplaceBoth { fragment: F::Owned, seed: F::Seed },
 }
 
 impl<F: Fragment + ToOwned> Proposition<F> {
@@ -385,9 +382,14 @@ where
 
         match self.compare(fragment) {
             Comparison::Dissimilar => {
-                trace!("Completely new config {:?} for {}, recreating from scratch", fragment, name);
+                trace!(
+                    "Completely new config {:?} for {}, recreating from scratch",
+                    fragment,
+                    name
+                );
                 let mut new_seed = fragment.make_seed(name).map_err(|e| vec![e])?;
-                let resource = fragment.make_resource(&mut new_seed, name)
+                let resource = fragment
+                    .make_resource(&mut new_seed, name)
                     .and_then(|r| transform.transform(r, fragment, name))
                     .map_err(|e| vec![e])?;
                 self.proposition = Proposition::ReplaceBoth {
@@ -398,7 +400,11 @@ where
                 Ok(Instruction::replace(resource))
             }
             Comparison::Similar => {
-                trace!("A similar config {:?} for {}, recreating from previous seed", fragment, name);
+                trace!(
+                    "A similar config {:?} for {}, recreating from previous seed",
+                    fragment,
+                    name
+                );
                 let resource = fragment
                     .make_resource(self.seed.as_mut().expect("Missing previous seed"), name)
                     .and_then(|r| transform.transform(r, fragment, name))
@@ -408,7 +414,11 @@ where
                 Ok(Instruction::replace(resource))
             }
             Comparison::Same => {
-                trace!("The {} stays the same on {:?}, keeping previous resource", name, fragment);
+                trace!(
+                    "The {} stays the same on {:?}, keeping previous resource",
+                    name,
+                    fragment
+                );
                 Ok(Vec::new())
             }
         }
@@ -485,12 +495,7 @@ where
             self.proposition = Some(fragment.to_owned());
             // We just delegate to the trivial driver in such case
             // (we know it has no state at all, so we can simply create a new one).
-            <Trivial as Driver<F>>::instructions(
-                &mut Trivial,
-                fragment,
-                transform,
-                name,
-            )
+            <Trivial as Driver<F>>::instructions(&mut Trivial, fragment, transform, name)
         }
     }
     fn abort(&mut self, name: &'static str) {
@@ -662,7 +667,10 @@ where
                 trace!("Found existing version of instance in {}", name);
                 existing
             } else {
-                trace!("Previous version of instance in {} not found, creating a new one", name);
+                trace!(
+                    "Previous version of instance in {} not found, creating a new one",
+                    name
+                );
                 self.sub_drivers.push(ItemDriver::default());
                 let slot = self.sub_drivers.last_mut().unwrap();
                 slot.new = true;
@@ -847,4 +855,3 @@ impl<'a, F: Fragment, Inner: Driver<F>> Driver<&'a F> for RefDriver<Inner> {
         self.0.maybe_cached(*fragment, name)
     }
 }
-

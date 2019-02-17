@@ -5,10 +5,10 @@ use std::io::{BufRead, Error as IoError, Read, Seek, SeekFrom, Write};
 use failure::Error;
 use futures::future::Either as FutEither;
 use futures::{Async, Future, Poll, Sink, StartSend, Stream};
-use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use spirit::extension::Extensible;
-use spirit::fragment::driver::{Instruction, Comparable, Comparison, Driver};
+use spirit::fragment::driver::{Comparable, Comparison, Driver, Instruction};
 use spirit::fragment::{Fragment, Installer, Stackable, Transformation};
 #[cfg(feature = "cfg-help")]
 use structdoc::StructDoc;
@@ -342,7 +342,8 @@ impl<A, B> Stackable for Either<A, B>
 where
     A: Stackable,
     B: Stackable,
-{}
+{
+}
 
 impl<A, B, AR, BR> Comparable<Either<AR, BR>> for Either<A, B>
 where
@@ -375,7 +376,11 @@ where
             Either::B(b) => Ok(Either::B(b.make_seed(name)?)),
         }
     }
-    fn make_resource(&self, seed: &mut Self::Seed, name: &'static str) -> Result<Self::Resource, Error> {
+    fn make_resource(
+        &self,
+        seed: &mut Self::Seed,
+        name: &'static str,
+    ) -> Result<Self::Resource, Error> {
         match (self, seed) {
             (Either::A(a), Either::A(sa)) => Ok(Either::A(a.make_resource(sa, name)?)),
             (Either::B(b), Either::B(sb)) => Ok(Either::B(b.make_resource(sb, name)?)),
@@ -492,7 +497,7 @@ where
             Fi::Driver: Driver<Fi, SubFragment = Fi>,
             Fo: Fragment,
             W: Fn(Fi::Resource) -> Fo::Resource,
-            T: Transformation<Fo::Resource, I, Fo>
+            T: Transformation<Fo::Resource, I, Fo>,
         {
             type OutputResource = T::OutputResource;
             type OutputInstaller = T::OutputInstaller;

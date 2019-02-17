@@ -67,18 +67,20 @@ where
     E::Opts: Debug,
     E::Config: Debug,
 {
-    move |ext: E| ext.on_config(move |opts, cfg| {
-        if opts_too {
-            log!(
-                level,
-                "Using cmd-line options {:?} and configuration {:?}",
-                opts,
-                cfg
-            );
-        } else {
-            log!(level, "Using configuration {:?}", cfg);
-        }
-    })
+    move |ext: E| {
+        ext.on_config(move |opts, cfg| {
+            if opts_too {
+                log!(
+                    level,
+                    "Using cmd-line options {:?} and configuration {:?}",
+                    opts,
+                    cfg
+                );
+            } else {
+                log!(level, "Using configuration {:?}", cfg);
+            }
+        })
+    }
 }
 
 #[derive(Debug, Fail)]
@@ -410,8 +412,12 @@ mod cfg_help {
             let extract_help = Arc::clone(&extract_dump);
             |builder: Builder<O, C>| {
                 builder
-                    .with(CfgDump::extension(move |opts| &extract_dump(opts).config_dump))
-                    .with(CfgHelp::extension(move |opts| &extract_help(opts).config_help))
+                    .with(CfgDump::extension(move |opts| {
+                        &extract_dump(opts).config_dump
+                    }))
+                    .with(CfgHelp::extension(move |opts| {
+                        &extract_help(opts).config_help
+                    }))
             }
         }
     }

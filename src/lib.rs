@@ -428,9 +428,9 @@ pub use arc_swap::ArcSwap;
 pub use crate::cfg_loader::ConfigBuilder;
 pub use crate::empty::Empty;
 pub use crate::extension::Extensible;
-pub use crate::spirit::{Builder, Spirit, SpiritBuilder};
-pub use crate::fragment::Fragment;
 pub use crate::fragment::pipeline::Pipeline;
+pub use crate::fragment::Fragment;
+pub use crate::spirit::{Builder, Spirit, SpiritBuilder};
 
 /// The prelude.
 ///

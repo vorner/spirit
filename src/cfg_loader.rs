@@ -437,9 +437,13 @@ impl Loader {
         // unhelpful error messages, enums as keys can't be decoded, etc. So we turn it into
         // toml::Value (which should not fail) and then use that one to do the actual decoding. The
         // latter is much better quality, so we get better error messages.
-        let intermediate: Value = config.try_into().context("Failed to decode configuration")?;
+        let intermediate: Value = config
+            .try_into()
+            .context("Failed to decode configuration")?;
 
-        let result = intermediate.try_into().context("Failed to decode configuration")?;
+        let result = intermediate
+            .try_into()
+            .context("Failed to decode configuration")?;
 
         Ok(result)
     }

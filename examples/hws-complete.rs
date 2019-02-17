@@ -11,9 +11,9 @@
 
 use std::sync::Arc;
 
-use hyper::{Body, Request, Response};
 use hyper::server::Builder;
 use hyper::service::service_fn_ok;
+use hyper::{Body, Request, Response};
 use log::{debug, trace};
 use serde::{Deserialize, Serialize};
 use spirit::prelude::*;
@@ -25,7 +25,7 @@ use spirit_tokio::either::Either;
 use spirit_tokio::net::limits::WithLimits;
 #[cfg(unix)]
 use spirit_tokio::net::unix::UnixListen;
-use spirit_tokio::{TcpListen, Runtime};
+use spirit_tokio::{Runtime, TcpListen};
 use structdoc::StructDoc;
 use structopt::StructOpt;
 
@@ -216,11 +216,7 @@ msg = "Hello world"
 /// This thing handles one request. The plumbing behind the scenes give it access to the relevant
 /// parts of config.
 #[allow(clippy::needless_pass_by_value)] // The server_configured expects this signature
-fn hello(
-    spirit: &Arc<Spirit<Opts, Cfg>>,
-    cfg: &Arc<Server>,
-    req: Request<Body>,
-) -> Response<Body> {
+fn hello(spirit: &Arc<Spirit<Opts, Cfg>>, cfg: &Arc<Server>, req: Request<Body>) -> Response<Body> {
     trace!("Handling request {:?}", req);
     // Get some global configuration
     let mut msg = format!("{}\n", spirit.config().ui.msg);
@@ -249,7 +245,9 @@ fn main() {
         // Plug in the daemonization configuration and command line arguments. The library will
         // make it alive ‒ it'll do the actual daemonization based on the config, it only needs to
         // be told it should do so this way.
-        .with(Daemon::extension(|cfg: &Cfg, opts: &Opts| opts.daemon.transform(cfg.daemon.clone())))
+        .with(Daemon::extension(|cfg: &Cfg, opts: &Opts| {
+            opts.daemon.transform(cfg.daemon.clone())
+        }))
         // Similarly with logging.
         .with(
             Pipeline::new("logging").extract(|opts: &Opts, cfg: &Cfg| LogBoth {
@@ -284,8 +282,8 @@ fn main() {
             spirit.with(
                 Pipeline::new("listen")
                     .extract_cfg(Cfg::listen)
-                    .transform(BuildServer(build_server))
+                    .transform(BuildServer(build_server)),
             )?;
-             Ok(())
+            Ok(())
         });
 }

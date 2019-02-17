@@ -162,9 +162,9 @@ use failure::{Error, Fail};
 use fern::Dispatch;
 use itertools::Itertools;
 use log::{debug, trace, LevelFilter};
-use serde::{Deserialize, Serialize};
 use serde::de::{Deserializer, Error as DeError};
-use serde::ser::{Serializer};
+use serde::ser::Serializer;
+use serde::{Deserialize, Serialize};
 use spirit::extension::{Extensible, Extension};
 use spirit::fragment::driver::Trivial as TrivialDriver;
 use spirit::fragment::{Fragment, Installer};
@@ -720,7 +720,10 @@ pub fn init() {
 ///
 /// If [`init`] haven't been called yet.
 pub fn install(logger: Dispatch) {
-    assert!(INIT_CALLED.load(Ordering::Relaxed), "spirit_log::init not called yet");
+    assert!(
+        INIT_CALLED.load(Ordering::Relaxed),
+        "spirit_log::init not called yet"
+    );
     debug!("Installing loggers");
     let (level, logger) = logger.into_log();
     log::set_max_level(level);
@@ -766,7 +769,12 @@ impl Fragment for CfgAndOpts {
         Ok(())
     }
     fn make_resource(&self, _: &mut (), _name: &str) -> Result<Dispatch, Error> {
-        create(self.cfg.logging.iter().chain(self.opts.logger_cfg().as_ref()))
+        create(
+            self.cfg
+                .logging
+                .iter()
+                .chain(self.opts.logger_cfg().as_ref()),
+        )
     }
 }
 

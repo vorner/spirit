@@ -103,7 +103,8 @@ where
     Incoming: Stream<Error = IoError>,
     Handler: ConnectionHandler<Incoming::Item, Ctx>,
     Handler::Output: IntoFuture<Item = ()>,
-    <<Handler as ConnectionHandler<Incoming::Item, Ctx>>::Output as IntoFuture>::Future: Send + 'static,
+    <<Handler as ConnectionHandler<Incoming::Item, Ctx>>::Output as IntoFuture>::Future:
+        Send + 'static,
     <<Handler as ConnectionHandler<Incoming::Item, Ctx>>::Output as IntoFuture>::Error: Into<Error>,
 {
     type Item = ();
@@ -112,17 +113,14 @@ where
         loop {
             let incoming = self.incoming.poll().map_err(|e| {
                 let e = e.context("Listening socket terminated unexpectedly").into();
-                utils::log_error(
-                    Level::Error,
-                    module_path!(),
-                    &e,
-                    ErrorLogFormat::Multiline,
-                );
+                utils::log_error(Level::Error, module_path!(), &e, ErrorLogFormat::Multiline);
             });
             let connection = try_ready!(incoming);
             if let Some(conn) = connection {
                 let name = self.name;
-                let future = self.handler.execute(conn, &mut self.ctx)
+                let future = self
+                    .handler
+                    .execute(conn, &mut self.ctx)
                     .into_future()
                     .map_err(move |e| {
                         let e = e

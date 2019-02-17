@@ -148,7 +148,10 @@ where
             // std → tokio socket conversion
             .and_then(|listener| UnixListener::from_std(listener, &Handle::default()))
             .with_context(|_| {
-                format!("Failed to make unix streamsocket {}/{:?} asynchronous", name, self)
+                format!(
+                    "Failed to make unix streamsocket {}/{:?} asynchronous",
+                    name, self
+                )
             })
             .map_err(Error::from)
             .map(|listener| ConfiguredStreamListener::new(listener, config))
@@ -218,7 +221,10 @@ where
             // std → tokio socket conversion
             .and_then(|socket| UnixDatagram::from_std(socket, &Handle::default()))
             .with_context(|_| {
-                format!("Failed to make unix datagram socket {}/{:?} asynchronous", name, self)
+                format!(
+                    "Failed to make unix datagram socket {}/{:?} asynchronous",
+                    name, self
+                )
             })
             .map_err(Error::from)
     }

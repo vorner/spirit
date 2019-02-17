@@ -45,7 +45,9 @@ fn main() {
     Spirit::<Opts, Cfg>::new()
         .config_defaults(DEFAULT_CONFIG)
         .config_exts(&["toml", "ini", "json"])
-        .with(Daemon::extension(|cfg: &Cfg, opts: &Opts| opts.daemon.transform(cfg.daemon.clone())))
+        .with(Daemon::extension(|cfg: &Cfg, opts: &Opts| {
+            opts.daemon.transform(cfg.daemon.clone())
+        }))
         .run(|spirit| {
             while !spirit.is_terminated() {
                 let cfg = spirit.config();

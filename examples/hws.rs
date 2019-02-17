@@ -132,7 +132,10 @@ fn main() -> Result<(), Error> {
         // Therefore we simply warn about a change that doesn't take an effect.
         //
         // The hws example in spirit-tokio has a working update of listening ports.
-        .with(extension::immutable_cfg(|cfg: &Config| &cfg.listen, "listen ports"))
+        .with(extension::immutable_cfg(
+            |cfg: &Config| &cfg.listen,
+            "listen ports",
+        ))
         .on_terminate(move || {
             // This unfortunately cuts all the listening threads right away.
             term_send.send(()).unwrap();

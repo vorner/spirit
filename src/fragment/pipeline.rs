@@ -19,7 +19,7 @@ use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use structopt::StructOpt;
 
-use super::driver::{CacheId, Instruction, Driver};
+use super::driver::{CacheId, Driver, Instruction};
 use super::{Extractor, Fragment, Installer, Transformation};
 use crate::extension::{Extensible, Extension};
 use crate::validation::{Action, MultiError};
@@ -474,8 +474,7 @@ impl<O, C, T, I, D, E, R, H> CompiledPipeline<O, C, T, I, D, E, R, H> {
 /// is quite useless and is public only through the trait bounds.
 pub trait BoundedCompiledPipeline<'a, O, C> {
     /// Performs one iteration of the lifetime.
-    fn run(me: &Arc<Mutex<Self>>, opts: &'a O, config: &'a C)
-        -> Result<Action, Vec<Error>>;
+    fn run(me: &Arc<Mutex<Self>>, opts: &'a O, config: &'a C) -> Result<Action, Vec<Error>>;
 }
 
 impl<'a, O, C, T, I, D, E> BoundedCompiledPipeline<'a, O, C>
@@ -494,9 +493,7 @@ where
     T::OutputResource: 'static,
     I: Installer<T::OutputResource, O, C> + Send + 'static,
 {
-    fn run(me: &Arc<Mutex<Self>>, opts: &'a O, config: &'a C)
-        -> Result<Action, Vec<Error>>
-    {
+    fn run(me: &Arc<Mutex<Self>>, opts: &'a O, config: &'a C) -> Result<Action, Vec<Error>> {
         let mut me_lock = me.lock();
         let fragment = me_lock.extractor.extract(opts, config);
         let (name, transform, driver) = me_lock.explode();
@@ -576,8 +573,7 @@ where
             builder = builder.before_config(before_config)?;
         }
         let validator = move |_old: &_, cfg: &Arc<B::Config>, opts: &B::Opts| {
-            BoundedCompiledPipeline::run(&compiled, opts, cfg)
-                .map_err(MultiError::wrap)
+            BoundedCompiledPipeline::run(&compiled, opts, cfg).map_err(MultiError::wrap)
         };
         builder.config_validator(validator)
     }

@@ -105,7 +105,7 @@ use std::sync::Arc;
 use failure::{Error, ResultExt};
 use nix::sys::stat::{self, Mode};
 use nix::unistd::{self, ForkResult, Gid, Uid};
-use spirit::extension::{Extension, Extensible};
+use spirit::extension::{Extensible, Extension};
 use spirit::validation::Action;
 use structopt::StructOpt;
 
@@ -273,18 +273,19 @@ impl Daemon {
         F: Fn(&E::Config, &E::Opts) -> Self + Send + 'static,
     {
         let mut previous_daemon = None;
-        let validator_hook = move |_: &_, cfg: &Arc<E::Config>, opts: &_| -> Result<Action, Error> {
-            let daemon = extractor(cfg, opts);
-            if let Some(previous) = previous_daemon.as_ref() {
-                if previous != &daemon {
-                    warn!("Can't change daemon config at runtime");
+        let validator_hook =
+            move |_: &_, cfg: &Arc<E::Config>, opts: &_| -> Result<Action, Error> {
+                let daemon = extractor(cfg, opts);
+                if let Some(previous) = previous_daemon.as_ref() {
+                    if previous != &daemon {
+                        warn!("Can't change daemon config at runtime");
+                    }
+                    return Ok(Action::new());
                 }
-                return Ok(Action::new())
-            }
-            daemon.daemonize().context("Failed to daemonize")?;
-            previous_daemon = Some(daemon);
-            Ok(Action::new())
-        };
+                daemon.daemonize().context("Failed to daemonize")?;
+                previous_daemon = Some(daemon);
+                Ok(Action::new())
+            };
         move |e: E| e.config_validator(validator_hook)
     }
 }

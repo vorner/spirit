@@ -9,12 +9,12 @@ extern crate spirit_tokio;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use hyper::{Body, Request, Response};
 use hyper::server::Builder;
 use hyper::service::service_fn_ok;
+use hyper::{Body, Request, Response};
 use spirit::prelude::*;
-use spirit_tokio::Runtime;
 use spirit_hyper::{BuildServer, HttpServer};
+use spirit_tokio::Runtime;
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Hash)]
 struct Signature {
@@ -84,19 +84,20 @@ fn main() {
         .with_singleton(Runtime::default())
         .run(|spirit| {
             let spirit_srv = Arc::clone(spirit);
-            let build_server = move |builder: Builder<_>, cfg: &HttpServer<Signature>, _: &'static str| {
-                let spirit = Arc::clone(&spirit_srv);
-                let cfg = Arc::new(cfg.clone());
-                builder.serve(move || {
-                    let spirit = Arc::clone(&spirit);
-                    let cfg = Arc::clone(&cfg);
-                    service_fn_ok(move |req| hello(&spirit, &cfg, req))
-                })
-            };
+            let build_server =
+                move |builder: Builder<_>, cfg: &HttpServer<Signature>, _: &'static str| {
+                    let spirit = Arc::clone(&spirit_srv);
+                    let cfg = Arc::new(cfg.clone());
+                    builder.serve(move || {
+                        let spirit = Arc::clone(&spirit);
+                        let cfg = Arc::clone(&cfg);
+                        service_fn_ok(move |req| hello(&spirit, &cfg, req))
+                    })
+                };
             spirit.with(
                 Pipeline::new("listen")
                     .extract_cfg(Config::listen)
-                    .transform(BuildServer(build_server))
+                    .transform(BuildServer(build_server)),
             )?;
             Ok(())
         });
