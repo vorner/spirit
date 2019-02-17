@@ -214,7 +214,7 @@ impl Opts {
 
 // TODO: OptsExt & OptsVerbose and turn the other things into Into<Opts>
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(tag = "type", rename_all = "kebab-case")] // TODO: Make deny-unknown-fields work
 enum LogDestination {
@@ -597,6 +597,19 @@ impl Logger {
     }
 }
 
+impl Default for Logger {
+    fn default() -> Self {
+        Self {
+            destination: LogDestination::StdErr,
+            level: LevelFilterSerde(LevelFilter::Warn),
+            per_module: HashMap::new(),
+            clock: Clock::Local,
+            time_format: cmdline_time_format(),
+            format: Format::Short,
+        }
+    }
+}
+
 fn create<'a, I>(logging: I) -> Result<Dispatch, Error>
 where
     I: IntoIterator<Item = &'a Logger>,
@@ -769,11 +782,15 @@ impl Fragment for CfgAndOpts {
         Ok(())
     }
     fn make_resource(&self, _: &mut (), _name: &str) -> Result<Dispatch, Error> {
+        let has_cmdline = self.opts.logger_cfg().is_some();
         create(
             self.cfg
                 .logging
                 .iter()
-                .chain(self.opts.logger_cfg().as_ref()),
+                // A command line overrides any logger to stderr in configuration. But only if it
+                // is set at all.
+                .filter(|l| l.destination != LogDestination::StdErr || !has_cmdline)
+                .chain(iter::once(&self.opts.logger_cfg().unwrap_or_default())),
         )
     }
 }
