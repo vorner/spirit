@@ -12,3 +12,4 @@
 * Reintroduce scaling
 * Guard keeper and waiting for the background thread to terminate
   - For stuff like async logging
+* Parts of the core spirit can be split off and useful separately ‒ base traits, config loading. Then, if the user doesn't want the background thread and stuff, it can be used manually.
