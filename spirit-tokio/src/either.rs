@@ -17,7 +17,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::net::IntoIncoming;
 
-/// The [`Either`] type allows to wrap two similar [`ResourceConfig`]s and let the user choose
+/// The [`Either`] type allows to wrap two similar [`Fragment`]s and let the user choose
 /// which one will be used.
 ///
 /// For example, if your server could run both on common TCP and unix domain stream sockets, you
@@ -27,8 +27,7 @@ use crate::net::IntoIncoming;
 /// Many traits are delegated through to one or the other instance inside (in case both implement
 /// it). So, the above resource will implement the [`IntoIncoming`] trait that will accept
 /// instances of `Either<TcpStream, UnixStream>`. These'll in turn implement [`AsyncRead`] and
-/// [`AsyncWrite`], therefore can be handled uniformly just as connections. Similarly, the original
-/// resource will implement [`ExtraCfgCarrier`].
+/// [`AsyncWrite`], therefore can be handled uniformly just as connections.
 ///
 /// # Deserialization
 ///
@@ -49,8 +48,7 @@ use crate::net::IntoIncoming;
 /// path = "/tmp/socket"
 /// ```
 ///
-/// If you need different parsing, you can use either a newtype (and delegate relevant traits into
-/// it with the [`macros`]) or [remote derive].
+/// If you need different parsing, you can use either a newtype or [remote derive].
 ///
 /// # Other similar types
 ///
@@ -67,6 +65,15 @@ use crate::net::IntoIncoming;
 /// This allows only two variants. However, if you need more, it is possible to nest them and form
 /// a tree.
 ///
+/// # Drawbacks
+///
+/// Due to the complexity of implementation, the [`Fragment`] is implemented for either only if
+/// both variants are [`Fragment`]s with simple enough [`Driver`]s (drivers that don't sub-divide
+/// their [`Fragment`]s). Therefore, `Vec<Either<TcpListen, UnixListen>>` will work, but
+/// `Either<Vec<TcpListen>, Vec<UnixListen>>` will not.
+///
+/// This is an implementation limitation and may be lifted in the future (PRs are welcome).
+///
 /// # Examples
 ///
 /// ```rust
@@ -81,25 +88,21 @@ use crate::net::IntoIncoming;
 /// use std::sync::Arc;
 ///
 /// use failure::Error;
-/// use spirit::{Empty, Spirit};
+/// use spirit::prelude::*;
 /// #[cfg(unix)]
 /// use spirit_tokio::either::Either;
-/// use spirit_tokio::net::{TcpListen, IntoIncoming};
-/// use spirit_tokio::net::limits::WithListenLimits;
+/// use spirit_tokio::handlers::HandleListener;
+/// use spirit_tokio::net::TcpListen;
 /// #[cfg(unix)]
 /// use spirit_tokio::net::unix::UnixListen;
-/// use spirit_tokio::ResourceConfig;
 /// use tokio::prelude::*;
 ///
 /// // If we want to work on systems that don't have unix domain sockets...
 ///
 /// #[cfg(unix)]
-/// type Listener = WithListenLimits<Either<TcpListen, UnixListen>>;
+/// type Listener = Either<TcpListen, UnixListen>;
 /// #[cfg(not(unix))]
-/// type Listener = WithListenLimits<TcpListen>;
-///
-/// type Connection =
-///     <<Listener as ResourceConfig<Empty, Config>>::Resource as IntoIncoming>::Connection;
+/// type Listener = TcpListen;
 ///
 /// const DEFAULT_CONFIG: &str = r#"
 /// [[listening_socket]]
@@ -113,30 +116,22 @@ use crate::net::IntoIncoming;
 /// }
 ///
 /// impl Config {
-///     fn listening_socket(&self) -> Vec<Listener> {
+///     fn listen(&self) -> Vec<Listener> {
 ///         self.listening_socket.clone()
 ///     }
 /// }
 ///
-/// fn connection(
-///     _: &Arc<Spirit<Empty, Config>>,
-///     _: &Arc<Listener>,
-///     conn: Connection,
-///     _: &str
-/// ) -> impl Future<Item = (), Error = Error> {
+/// fn connection<C: AsyncRead + AsyncWrite>(conn: C) -> impl Future<Item = (), Error = Error> {
 ///     tokio::io::write_all(conn, "Hello\n")
 ///         .map(|_| ())
 ///         .map_err(Error::from)
 /// }
 ///
 /// fn main() {
+///     let handler = HandleListener(|conn, _cfg: &_| connection(conn));
 ///     Spirit::<Empty, Config>::new()
 ///         .config_defaults(DEFAULT_CONFIG)
-///         .config_helper(
-///             Config::listening_socket,
-///             spirit_tokio::per_connection(connection),
-///             "Listener",
-///         )
+///         .with(Pipeline::new("listen").extract_cfg(Config::listen).transform(handler))
 ///         .run(|spirit| {
 /// #           let spirit = Arc::clone(spirit);
 /// #           std::thread::spawn(move || spirit.terminate());
@@ -147,9 +142,8 @@ use crate::net::IntoIncoming;
 ///
 /// [untagged]: https://serde.rs/container-attrs.html#untagged
 /// [remote derive]: https://serde.rs/remote-derive.html
-/// [`TcpListen`]: ::TcpListen
-/// [`UnixListen`]: ::net::unix::UnixListen
-/// [`macros`]: ::macros
+/// [`TcpListen`]: crate::TcpListen
+/// [`UnixListen`]: crate::net::unix::UnixListen
 #[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(untagged)]
@@ -390,6 +384,15 @@ where
     }
 }
 
+/// An [`Installer`] for [`Either`] [`Resource`]s.
+///
+/// This wraps two distinct installers so it can install resources that are installable by one or
+/// the other.
+///
+/// Note that this to work, *both* installers need to exist at the same time (as opposed to the
+/// resource where one or the other is in existence).
+///
+/// [`Resource`]: Fragment::Resource
 #[derive(Debug, Default)]
 pub struct EitherInstaller<A, B>(A, B);
 
@@ -420,6 +423,14 @@ where
     }
 }
 
+/// A [`Driver`] used for [`Either`] [`Fragment`]s.
+///
+/// This switches between driving the variants ‒ if the fragment changes from one variant to
+/// another, the old driver is dropped and new one created for the other one. If the variant stays
+/// the same, driving is delegated to the existing driver.
+///
+/// Note that there are limitations to what this driver implementation ‒ see the
+/// [`Either` drawbacks](struct.Either.html#drawbacks).
 #[derive(Debug)]
 pub struct EitherDriver<A, B>
 where

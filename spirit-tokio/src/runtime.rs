@@ -1,4 +1,4 @@
-//! A helper to start the tokio runtime at the appropriate time.
+//! An extension to start the tokio runtime at the appropriate time.
 
 use std::sync::Arc;
 
@@ -12,19 +12,23 @@ use tokio::runtime;
 
 /// A body run on tokio runtime.
 ///
-/// When specifying custom tokio runtime through the [`Runtime`](enum.Runtime.html) helper, this is
-/// the future to be run inside the runtime.
+/// When specifying custom tokio runtime through the [`Runtime`](enum.Runtime.html) extension, this
+/// is the future to be run inside the runtime.
 pub type TokioBody = Box<Future<Item = (), Error = Error> + Send>;
 
-/// A helper to initialize a tokio runtime as part of spirit.
+/// An extension to initialize a tokio runtime as part of spirit.
 ///
-/// The helpers in this crate ([`TcpListen`], [`UdpListen`]) use this to make sure they have a
-/// runtime to handle the sockets on.
+/// The [`FutureInstaller`] in this crate (and as a result pipelines with [`Fragment`]s like
+/// [`TcpListen`], [`UdpListen`]) use this to make sure they have a runtime to handle the sockets
+/// on.
 ///
 /// If you prefer to specify configuration of the runtime to use, instead of the default one, you
-/// can create an instance of this helper yourself and register it *before registering any socket
-/// helpers*, which will take precedence and the sockets will use the one provided by you. You must
-/// register it using the [`with_singleton`] method.
+/// can create an instance of this extension yourself and register it *before registering any socket
+/// pipelines*, which will take precedence and the sockets will use the one provided by you. You
+/// must register it using the [`with_singleton`] method.
+///
+/// Similarly, if all the pipelines are registered within the [`run`] method (or generally, after
+/// building is done).
 ///
 /// Note that the provided closures are `FnMut` mostly because `Box<FnOnce>` doesn't work. They
 /// will be called just once, so you can use `Option<T>` inside and consume the value by
@@ -32,7 +36,7 @@ pub type TokioBody = Box<Future<Item = (), Error = Error> + Send>;
 ///
 /// # Future compatibility
 ///
-/// More options may be added into the enum at any time. Such change will not be considered a
+/// More variants may be added into the enum at any time. Such change will not be considered a
 /// breaking change.
 ///
 /// # Examples
@@ -49,11 +53,9 @@ pub type TokioBody = Box<Future<Item = (), Error = Error> + Send>;
 /// use std::sync::Arc;
 ///
 /// use failure::Error;
-/// use spirit::{Empty, Spirit};
-/// use spirit_tokio::TcpListen;
-/// use spirit_tokio::net::IntoIncoming;
+/// use spirit::prelude::*;
+/// use spirit_tokio::{HandleListener, TcpListen};
 /// use spirit_tokio::runtime::Runtime;
-/// use tokio::net::TcpStream;
 /// use tokio::prelude::*;
 ///
 /// #[derive(Default, Deserialize)]
@@ -63,17 +65,12 @@ pub type TokioBody = Box<Future<Item = (), Error = Error> + Send>;
 /// }
 ///
 /// impl Config {
-///     fn listening_socket(&self) -> Vec<TcpListen> {
+///     fn listener(&self) -> Vec<TcpListen> {
 ///         self.listening_socket.clone()
 ///     }
 /// }
 ///
-/// fn connection<L: IntoIncoming<Connection = TcpStream>>(
-///     _spirit: &Arc<Spirit<Empty, Config>>,
-///     _resource_config: &Arc<TcpListen>,
-///     _listener: L,
-///     _name: &str
-/// ) -> impl Future<Item = (), Error = Error> {
+/// fn connection() -> impl Future<Item = (), Error = Error> {
 ///     future::ok(()) // Just a dummy implementation
 /// }
 ///
@@ -82,7 +79,11 @@ pub type TokioBody = Box<Future<Item = (), Error = Error> + Send>;
 ///         // Uses the current thread runtime instead of the default threadpool. This'll create
 ///         // smaller number of threads.
 ///         .with_singleton(Runtime::CurrentThread(Box::new(|_| ())))
-///         .config_helper(Config::listening_socket, connection, "Listener")
+///         .with(
+///             Pipeline::new("listener")
+///                 .extract_cfg(Config::listener)
+///                 .transform(HandleListener(|_conn, _cfg: &_| connection()))
+///         )
 ///         .run(|spirit| {
 /// #           let spirit = Arc::clone(spirit);
 /// #           std::thread::spawn(move || spirit.terminate());
@@ -91,15 +92,19 @@ pub type TokioBody = Box<Future<Item = (), Error = Error> + Send>;
 /// }
 /// ```
 ///
-/// [`TcpListen`]: ::TcpListen
-/// [`UdpListen`]: ::UdpListen
-/// [`with_singleton`]: ::spirit::Builder::with_singleton
+/// [`TcpListen`]: crate::TcpListen
+/// [`UdpListen`]: crate::UdpListen
+/// [`FutureInstaller`]: crate::installer::FutureInstaller
+/// [`Fragment`]: spirit::Fragment
+/// [`run`]: spirit::SpiritBuilder::run
+/// [`with_singleton`]: spirit::extension::Extension::with_singleton
 pub enum Runtime {
     /// Use the threadpool runtime.
     ///
     /// The threadpool runtime is the default (both in tokio and spirit).
     ///
-    /// This allows you to modify the builder prior to starting it, specifying custom options.
+    /// This allows you to modify the builder prior to starting it, specifying custom options like
+    /// number of threads.
     ThreadPool(Box<FnMut(&mut runtime::Builder) + Send>),
 
     /// Use the current thread runtime.

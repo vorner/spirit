@@ -1,11 +1,13 @@
 //! Autoconfiguration of network primitives of [tokio]
 //!
-//! This is where the „meat“ of this crate lives. It contains various configuration fragments and
-//! utilities to manage network primitives. However, currently only listening (bound) sockets.
-//! Keeping a set of connecting socket (eg. a connection pool or something like that) is vaguely
-//! planned, though it is not clear how it'll look exactly. Input is welcome.
+//! This is where the „meat“ of this crate lives. It contains various configuration [`Fragment`]s
+//! and utilities to manage network primitives. However, currently only listening (bound) sockets
+//! are present. Keeping a set of connecting socket (eg. a connection pool or something like that)
+//! is vaguely planned, though it is not clear how it'll look exactly. Input is welcome.
 //!
 //! Note that many common types are reexported to the root of the crate.
+//!
+//! [`Fragment`]: spirit::Fragment
 
 use std::cmp;
 use std::fmt::Debug;
@@ -32,8 +34,6 @@ use tokio::net::tcp::Incoming;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::reactor::Handle;
 
-// use scaled::{Scale, Scaled};
-
 pub mod limits;
 #[cfg(unix)]
 pub mod unix;
@@ -44,9 +44,9 @@ pub mod unix;
 /// connections. This abstracts over types with similar functionality ‒ either wrapped
 /// [`TcpListener`], [`UnixListener`] on unix, types that provide encryption on top of these, etc.
 ///
-/// [`TcpListener`]: ::tokio::net::TcpListener
-/// [`incoming`]: ::tokio::net::TcpListener::incoming
-/// [`UnixListener`]: ::tokio::net::unix::UnixListener
+/// [`TcpListener`]: tokio::net::TcpListener
+/// [`incoming`]: tokio::net::TcpListener::incoming
+/// [`UnixListener`]: tokio::net::unix::UnixListener
 pub trait IntoIncoming: Send + Sync + 'static {
     /// The type of one accepted connection.
     type Connection: Send + Sync + 'static;
@@ -79,7 +79,7 @@ fn default_backlog() -> u32 {
 /// This can be used as part of configuration to describe a socket.
 ///
 /// Note that the `Default` implementation is there to provide something on creation of `Spirit`,
-/// but isn't very useful.
+/// but isn't very useful. It'll listen on a OS-assigned port on all the interfaces.
 ///
 /// This is used as the base of the [`TcpListen`] and [`UdpListen`] configuration fragments.
 ///
@@ -114,7 +114,7 @@ pub struct Listen {
     /// leftovers of old connections don't confuse the new application. The SO_REUSEADDR option
     /// asks the OS not to do this reservation.
     ///
-    /// If not set, it is left on the OS default (which is likely off).
+    /// If not set, it is left on the OS default (which is likely off = doing the reservation).
     #[serde(skip_serializing_if = "Option::is_none")]
     reuse_addr: Option<bool>,
 
@@ -178,6 +178,8 @@ impl Default for Listen {
 
 impl Listen {
     /// Creates a TCP socket described by the loaded configuration.
+    ///
+    /// This is the synchronous socket from standard library. See [`TcpListener::from_std`].
     pub fn create_tcp(&self) -> Result<StdTcpListener, Error> {
         let builder = match self.host {
             IpAddr::V4(_) => TcpBuilder::new_v4(),
@@ -204,6 +206,8 @@ impl Listen {
     }
 
     /// Creates a UDP socket described by the loaded configuration.
+    ///
+    /// This is the synchronous socket from standard library. See [`UdpSocket::from_std`].
     pub fn create_udp(&self) -> Result<StdUdpSocket, Error> {
         let builder = match self.host {
             IpAddr::V4(_) => UdpBuilder::new_v4(),
@@ -414,7 +418,7 @@ impl StreamConfig<TcpStream> for TcpConfig {
 
 /// A wrapper around an [`IntoIncoming`] that applies configuration.
 ///
-/// This is produced by [`ResourceConfig`]s that produce listeners which configure the accepted
+/// This is produced by [`Fragment`]s that produce listeners which configure the accepted
 /// connections. Usually doesn't need to be used directly (this is more of a plumbing type).
 #[derive(Debug)]
 pub struct ConfiguredStreamListener<Listener, Config> {
@@ -427,6 +431,7 @@ impl<Listener, Config> ConfiguredStreamListener<Listener, Config> {
     pub fn new(listener: Listener, config: Config) -> Self {
         Self { listener, config }
     }
+
     /// Disassembles it into the components.
     pub fn into_parts(self) -> (Listener, Config) {
         (self.listener, self.config)
@@ -481,23 +486,18 @@ where
 
 /// A configuration fragment of a TCP listening socket.
 ///
-/// The [`ResourceConfig`] creates a [`TcpListener`] (wrapped in [`ConfiguredIncoming`]). It can be
-/// handled directly, or through [`per_connection`].
+/// The [`Fragment`] creates a [`TcpListener`] (wrapped in [`ConfiguredIncoming`]). It can be
+/// handled directly, or through [`Pipeline`]s and [`handlers`].
 ///
-/// Note that this stream sometimes returns errors „in the middle“, but [`per_connection`] (and
-/// some consumers) terminate on the first error. You might be interested in the
-/// [`WithListenLimits`] wrapper to handle that automatically (or, see the [`TcpListenWithLimits`]
+/// Note that this stream sometimes returns errors „in the middle“, but most stream consumers
+/// terminate on the first error. You might be interested in the [`WithListenLimits`] wrapper to
+/// handle that automatically (or, see the [`TcpListenWithLimits`]
 /// for a convenient type alias).
-///
-/// It can be used directly through the [`resource`] or [`resources`] functions, or through the
-/// [`CfgHelper`] and [`IteratedCfgHelper`] traits.
 ///
 /// # Type parametes
 ///
-/// * `ExtraCfg`: Additional application specific configuration that can be extracted through the
-///   [`ExtraCfgCarrier`] trait. Defaults to an empty configuration.
-/// * `ScaleMode`: The [`Scaled`] instance to specify number of instances to spawn. Defaults to
-///   [`Scale`], which lets the user configure.
+/// * `ExtraCfg`: Additional application specific configuration that can be extracted and used by
+///   the application code. This doesn't influence the socket created in any way.
 /// * `TcpStreamConfigure`: Further configuration for the accepted TCP streams in the form of
 ///   [`StreamConfig`]
 ///
@@ -506,14 +506,9 @@ where
 /// The configuration fields are pooled from all three type parameters above and from the
 /// [`Listen`] configuration fragment.
 ///
-/// [`per_connection`]: ::per_connection
-/// [`resource`]: ::resource
-/// [`resources`]: ::resources
-/// [`ResourceConsumer`]: ::ResourceConsumer
-/// [`CfgHelper`]: ::spirit::helpers::CfgHelper
-/// [`IteratedCfgHelper`]: ::spirit::helpers::IteratedCfgHelper
-/// [`ExtraCfgCarrier`]: ::base_traits::ExtraCfgCarrier
-/// [`WithListenLimits`]: limits::WithListenLimits
+/// [`Pipeline`]: spirit::fragment::Pipeline.
+/// [`handlers`]: crate::handlers
+/// [`WithListenLimits`]: crate::net::limits::WithListenLimits
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct TcpListen<ExtraCfg = Empty, TcpStreamConfigure = TcpConfig> {
@@ -521,6 +516,8 @@ pub struct TcpListen<ExtraCfg = Empty, TcpStreamConfigure = TcpConfig> {
     listen: Listen,
     #[serde(flatten)]
     tcp_config: TcpStreamConfigure,
+
+    /// Arbitrary application specific configuration that doesn't influence the sockets created.
     #[serde(flatten)]
     pub extra_cfg: ExtraCfg,
 }
@@ -551,7 +548,7 @@ where
     fn make_seed(&self, name: &str) -> Result<StdTcpListener, Error> {
         self.listen
             .create_tcp()
-            .with_context(|_| format!("Failed to create socket {}/{:?}", name, self))
+            .with_context(|_| format!("Failed to create STD socket {}/{:?}", name, self))
             .map_err(Error::from)
     }
     fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<Self::Resource, Error> {
@@ -559,7 +556,7 @@ where
         seed.try_clone() // Another copy of the listener
             // std → tokio socket conversion
             .and_then(|listener| TcpListener::from_std(listener, &Handle::default()))
-            .with_context(|_| format!("Failed to fork socket {}/{:?}", name, self))
+            .with_context(|_| format!("Failed to make socket {}/{:?} asynchronous", name, self))
             .map_err(Error::from)
             .map(|listener| ConfiguredStreamListener::new(listener, config))
     }
@@ -572,6 +569,8 @@ pub type MinimalTcpListen<ExtraCfg = Empty> = TcpListen<ExtraCfg, Empty>;
 
 /// Convenience type alias for configuration fragment for TCP listening socket with handling of
 /// accept errors and limiting number of current connections.
+///
+/// You might prefer this one over plain [`TcpListen`].
 pub type TcpListenWithLimits<ExtraCfg = Empty, TcpStreamConfigure = TcpConfig> =
     limits::WithLimits<TcpListen<ExtraCfg, TcpStreamConfigure>>;
 
@@ -582,21 +581,22 @@ pub type TcpListenWithLimits<ExtraCfg = Empty, TcpStreamConfigure = TcpConfig> =
 /// # Type parameters
 ///
 /// * `ExtraCfg`: Extra options folded into this configuration, for application specific options.
-///   They can be extracted using the [`ExtraCfgCarrier`] trait.
-/// * `ScaleMode`: An implementation of the [`Scaled`] trait, describing into how many instances
-///   the socket should be scaled.
+///   They don't influence the socket in any way.
 ///
 /// # Configuration options
 ///
 /// In addition to options provided by the above type parameters, the options from [`Listen`] are
 /// prestent.
-///
-/// [`ExtraCfgCarrier`]: ::base_traits::ExtraCfgCarrier
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct UdpListen<ExtraCfg = Empty> {
     #[serde(flatten)]
     listen: Listen,
+
+    /// Arbitrary application specific configuration that doesn't influence the created socket, but
+    /// can be examined in the [`handlers`].
+    ///
+    /// [`handlers`]: crate::handlers
     #[serde(flatten)]
     pub extra_cfg: ExtraCfg,
 }
@@ -626,68 +626,17 @@ where
     fn make_seed(&self, name: &str) -> Result<Self::Seed, Error> {
         self.listen
             .create_udp()
-            .with_context(|_| format!("Failed to create socket {}/{:?}", name, self))
+            .with_context(|_| format!("Failed to create STD socket {}/{:?}", name, self))
             .map_err(Error::from)
     }
     fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<UdpSocket, Error> {
         seed.try_clone() // Another copy of the socket
             // std → tokio socket conversion
             .and_then(|socket| UdpSocket::from_std(socket, &Handle::default()))
-            .with_context(|_| format!("Failed to fork socket {}/{:?}", name, self))
+            .with_context(|_| format!("Failed to make socket {}/{:?} async", name, self))
             .map_err(Error::from)
     }
 }
-
-/*
-impl<ExtraCfg, ScaleMode, O, C> ResourceConfig<O, C> for UdpListen<ExtraCfg, ScaleMode>
-where
-    ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
-    ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static,
-{
-    type Seed = StdUdpSocket;
-    type Resource = UdpSocket;
-    fn create(&self, name: &str) -> Result<StdUdpSocket, Error> {
-        self.listen
-            .create_udp()
-            .with_context(|_| format!("Failed to create socket {}/{:?}", name, self))
-            .map_err(Error::from)
-    }
-    fn fork(&self, seed: &StdUdpSocket, name: &str) -> Result<UdpSocket, Error> {
-        seed.try_clone() // Another copy of the socket
-            // std → tokio socket conversion
-            .and_then(|socket| UdpSocket::from_std(socket, &Handle::default()))
-            .with_context(|_| format!("Failed to fork socket {}/{:?}", name, self))
-            .map_err(Error::from)
-    }
-    fn scaled(&self, name: &str) -> (usize, ValidationResults) {
-        self.scale.scaled(name)
-    }
-    fn is_similar(&self, other: &Self, _: &str) -> bool {
-        self.listen == other.listen
-    }
-}
-*/
-
-/*
- * FIXME: Something with this?
-extra_cfg_impl! {
-    TcpListen<ExtraCfg, ScaleMode, TcpConfig>::extra_cfg: ExtraCfg;
-    UdpListen<ExtraCfg, ScaleMode>::extra_cfg: ExtraCfg;
-}
-
-cfg_helpers! {
-    impl helpers for TcpListen <ExtraCfg, ScaleMode, TcpStreamConfigure>
-    where
-        ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
-        ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static,
-        TcpConfig: Debug + PartialEq + Send + Sync + 'static;
-
-    impl helpers for UdpListen <ExtraCfg, ScaleMode>
-    where
-        ExtraCfg: Debug + PartialEq + Send + Sync + 'static,
-        ScaleMode: Debug + PartialEq + Scaled + Send + Sync + 'static;
-}
-*/
 
 #[cfg(test)]
 mod tests {

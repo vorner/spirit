@@ -6,8 +6,8 @@
 //! If you want to accept both normal (IP) sockets and unix domain sockets as part of the
 //! configuration, you can use the [`Either`] enum.
 //!
-//! [`net`]: ::net
-//! [`Either`]: ::either::Either
+//! [`net`]: crate::net
+//! [`Either`]: crate::either::Either
 
 use std::fmt::Debug;
 use std::os::unix::net::{UnixDatagram as StdUnixDatagram, UnixListener as StdUnixListener};
@@ -31,7 +31,7 @@ use crate::net::{ConfiguredStreamListener, IntoIncoming};
 ///
 /// Note that this does provide the [`Default`] trait, but the default value is mostly useless.
 ///
-/// # Fragmets
+/// # Configuration options
 ///
 /// * `path`: The filesystem path to bind the socket to.
 ///
@@ -68,7 +68,7 @@ impl Listen {
     }
 }
 
-/// Additional config for unix domain stream sockets.
+/// Additional configuration for unix domain stream sockets.
 ///
 /// *Currently* this is an alias to `Empty`, because there haven't been yet any idea what further
 /// to configure on them. However, this can turn into its own type in some future time and it won't
@@ -91,9 +91,9 @@ impl IntoIncoming for UnixListener {
 /// sole difference that the fields added by it are from [`unix::Listen`] instead of
 /// [`net::Listen`].
 ///
-/// [`TcpListen`]: ::net::TcpListen
+/// [`TcpListen`]: crate::net::TcpListen
 /// [`unix::Listen`]: Listen
-/// [`net::Listen`]: ::net::Listen
+/// [`net::Listen`]: crate::net::Listen
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 pub struct UnixListen<ExtraCfg = Empty, UnixStreamConfig = UnixConfig> {
@@ -101,6 +101,10 @@ pub struct UnixListen<ExtraCfg = Empty, UnixStreamConfig = UnixConfig> {
     listen: Listen,
     #[serde(flatten)]
     unix_config: UnixStreamConfig,
+
+    /// Arbitrary additional application-specific configuration that doesn't influence the socket.
+    ///
+    /// But it can be looked into by the [`handlers`][crate::handlers].
     #[serde(flatten)]
     pub extra_cfg: ExtraCfg,
 }
@@ -135,7 +139,7 @@ where
     fn make_seed(&self, name: &str) -> Result<StdUnixListener, Error> {
         self.listen
             .create_listener()
-            .with_context(|_| format!("Failed to create unix stream socket {}/{:?}", name, self))
+            .with_context(|_| format!("Failed to create a unix stream socket {}/{:?}", name, self))
             .map_err(Error::from)
     }
     fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<Self::Resource, Error> {
@@ -143,7 +147,9 @@ where
         seed.try_clone() // Another copy of the listener
             // std → tokio socket conversion
             .and_then(|listener| UnixListener::from_std(listener, &Handle::default()))
-            .with_context(|_| format!("Failed to fork unix streamsocket {}/{:?}", name, self))
+            .with_context(|_| {
+                format!("Failed to make unix streamsocket {}/{:?} asynchronous", name, self)
+            })
             .map_err(Error::from)
             .map(|listener| ConfiguredStreamListener::new(listener, config))
     }
@@ -152,28 +158,31 @@ where
 /// Type alias for [`UnixListen`] without any unnecessary configuration options.
 pub type MinimalUnixListen<ExtraCfg = Empty> = UnixListen<ExtraCfg, Empty>;
 
-/// Wrapped [`UnixListen`] for use with the [`per_connection`] [`ResourceConsumer`]
-///
-/// [`ResourceConsumer`]: ::ResourceConsumer
+/// Wrapped [`UnixListen`] that limits the number of concurrent connections and handles some
+/// recoverable errors.
 pub type UnixListenWithLimits<ExtraCfg = Empty, UnixStreamConfig = UnixConfig> =
     WithLimits<UnixListen<ExtraCfg, UnixStreamConfig>>;
 
-/// A [`ResourceConfig`] for unix datagram sockets
+/// A [`Fragment`] for unix datagram sockets
 ///
 /// This is an unix domain equivalent to the [`UdpListen`] configuration fragment. All its notes
 /// apply here except that the base configuration fields are taken from [`unix::Listen`] instead of
 /// [`net::Listen`].
 ///
-/// [`UdpListen`]: ::UdpListen
+/// [`UdpListen`]: crate::UdpListen
 /// [`unix::Listen`]: Listen
-/// [`net::Listen`]: ::net::Listen
+/// [`net::Listen`]: crate::net::Listen
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 pub struct DatagramListen<ExtraCfg = Empty> {
     #[serde(flatten)]
     listen: Listen,
+
+    /// Arbitrary application-specific configuration that doesn't influence the socket itself.
+    ///
+    /// But it can be examined from within the [`handlers`][crate::handlers].
     #[serde(flatten)]
-    extra_cfg: ExtraCfg,
+    pub extra_cfg: ExtraCfg,
 }
 
 impl<ExtraCfg> Stackable for DatagramListen<ExtraCfg> {}
@@ -208,7 +217,9 @@ where
         seed.try_clone() // Another copy of the socket
             // std → tokio socket conversion
             .and_then(|socket| UnixDatagram::from_std(socket, &Handle::default()))
-            .with_context(|_| format!("Failed to fork unix datagram socket {}/{:?}", name, self))
+            .with_context(|_| {
+                format!("Failed to make unix datagram socket {}/{:?} asynchronous", name, self)
+            })
             .map_err(Error::from)
     }
 }

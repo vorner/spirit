@@ -10,6 +10,11 @@
 //! This allows having Hyper servers auto-spawned from configuration. It is possible to put them on
 //! top of arbitrary stream-style IO objects (TcpStream, UdsStream, these wrapped in SSL...).
 //!
+//! # Tokio runtime
+//!
+//! This uses the [`spirit-tokio`] crate under the hood. Similar drawback with initializing a
+//! runtime applies here too (see the [`spirit-tokio`] docs for details).
+//!
 //! # Examples
 //!
 //! ```rust
@@ -72,6 +77,7 @@
 //! [git repository](https://github.com/vorner/spirit/tree/master/spirit-hyper/examples).
 //!
 //! [Spirit]: https://crates.io/crates/spirit.
+//! [`spirit-tokio`]: spirit_tokio
 
 extern crate failure;
 extern crate futures;

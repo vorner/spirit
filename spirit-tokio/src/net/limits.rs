@@ -2,10 +2,16 @@
 //!
 //! „Naked“ listening sockets have two important problems:
 //!
-//! * They sometimes return errors when accepting, which often terminates the stream.
-//! * They have no limit on how many active connections they have spawned.
+//! * They sometimes return errors when accepting, which often terminates the stream. Most of these
+//!   are actually recoverable error in practice, so the termination seldom makes sense.
+//! * They have no limit on how many active connections they have spawned, allowing the application
+//!   to grow without limits and eat all OS resources.
 //!
-//! This module provides tools to address these problems.
+//! This module provides tools to address these problems in the form of [`WithListenLimits`]
+//! wrapper. There are also type aliases for already wrapped sockets, like [`TcpListenWithLimits`]
+//!
+//! [`WithListenLimits`]: crate::net::limits::WithListenLimits
+//! [`TcpListenWithLimits`]: crate::net::TcpListenWithLimits
 
 use std::fmt::Debug;
 use std::io::{Error as IoError, Read, Write};
@@ -33,10 +39,10 @@ use super::IntoIncoming;
 
 /// Additional configuration for limiting of connections & error handling when accepting.
 ///
-/// The canonical implementation is the [`WithListenLimits`] ‒ have a look at that.
+/// The canonical implementation is the [`Limits`] ‒ have a look at that.
 ///
 /// If you don't like how/where it gets the configuration, you can provide your own implementation
-/// of this trait. It'll implement the [`ResourceConfig`].
+/// of this trait.
 pub trait ListenLimits {
     /// How long to sleep when error happens.
     fn error_sleep(&self) -> Duration;
@@ -48,8 +54,20 @@ pub trait ListenLimits {
     fn max_conn(&self) -> usize;
 }
 
+/// A wrapper around a listening socket [`Fragment`] that adds limits and error handling to it.
+///
+/// There's also the convenience type alias [`WithLimits`].
+///
+/// Note that the applied limits are per-instance. If there are two sockets in eg
+/// `Vec<TcpListenWithLimits>`, their limits are independent. In addition, if a configuration of a
+/// socket changes, the old listening socket is destroyed but the old connections are kept around
+/// until they terminate. The new listening socket starts with fresh limits, not counting the old
+/// connections.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, StructDoc)]
 pub struct WithListenLimits<Listener, Limits> {
+    /// The inner listener socket.
+    ///
+    /// This is available publicly to allow reading the extra configuration out of it.
     #[serde(flatten)]
     pub listener: Listener,
 
@@ -57,6 +75,7 @@ pub struct WithListenLimits<Listener, Limits> {
     limits: Limits,
 }
 
+/// A convenience type alias for the default [`WithListenLimits`] case.
 pub type WithLimits<Listener> = WithListenLimits<Listener, Limits>;
 
 impl<Listener, Limits> Stackable for WithListenLimits<Listener, Limits>
@@ -119,18 +138,7 @@ fn serialize_duration<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Err
     s.serialize_str(&::humantime::format_duration(*d).to_string())
 }
 
-/// Wrapper to enrich inner configuration fragment with handling of listen limits.
-///
-/// When a resource config for a listening socket is wrapped in this, the returned resource will
-/// handle errors internally (some of them will be simply ignored ‒ like if the socket was closed
-/// before we even accepted it, some will lead to waiting a short time ‒ like „Too many open
-/// files“). It'll also put a limit to number of active accepted connections ‒ if the limit is
-/// reached, no more connections are accepted until some are closed.
-///
-/// You probably want to wrap most of the listening sockets in this.
-///
-/// If you want non-default loading of configuration, but still want the functionality, look at the
-/// [`ListenLimits`] trait.
+/// An implementation of [`ListenLimits`] that reads the limits from configuration.
 ///
 /// # Fields
 ///
@@ -142,17 +150,6 @@ fn serialize_duration<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Err
 /// * `max-conn`: Maximum number of parallel connections on this listener. Defaults to no limit
 ///   (well, to `usize::max_value() / 2 - 1`, actually, for technical reasons, but that should be
 ///   effectively no limit).
-///
-/// # Notes
-///
-/// This is per one instance. In case it scales to multiple instances, each one has a separate
-/// connection limit. See [`Scaled`].
-///
-/// Also, when the resource is reinitialized (for example when the configuration changes), the new
-/// instance gets a fresh limit.
-///
-/// [`per_connection`]: ::per_connection
-/// [`Scaled`]: ::scaled::Scaled
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct Limits {
@@ -160,7 +157,7 @@ pub struct Limits {
     ///
     /// Some errors when accepting are simply ignored (eg. the connection was closed by the other
     /// side before we had time to accept it). Some others (eg. too many open files) put the
-    /// acceptor into a sleep before it tries again, in the hope the situation will improve until
+    /// acceptor into a sleep before it tries again, in the hope the situation will have improved by
     /// then.
     ///
     /// Defaults to `100ms` if not set.
@@ -178,7 +175,8 @@ pub struct Limits {
     /// terminated.
     ///
     /// Default to implementation limits if not set (2^31 - 1 on 32bit systems, 2^63 - 1 on 64bit
-    /// systems), which is likely higher than what the OS can effectively handle.
+    /// systems), which is likely higher than what the OS can effectively handle ‒ so you can
+    /// assume that if not set, there's no limit.
     #[serde(skip_serializing_if = "Option::is_none")]
     max_conn: Option<usize>,
 }
@@ -206,7 +204,7 @@ impl ListenLimits for Limits {
 /// This is a plumbing type the user shouldn't need to come into contact with. It implements the
 /// [`IntoIncoming`] trait, which is the interesting property.
 ///
-/// This is created by the [`ResourceConfig`] trait of [`ListenLimits`].
+/// This is created by the [`Fragment`] trait of [`WithListenLimits`].
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct LimitedListener<Inner> {
     inner: Inner,
@@ -297,7 +295,7 @@ impl ConnLimit {
 
 /// A wrapper around the incoming stream of connections, providing error handling and limits.
 ///
-/// This is what will come of the [`ResourceConfig`] from [`ListenLimits`]. It is a stream of
+/// This is what will come of the [`Fragment`] from [`WithListenLimits`]. It is a stream of
 /// accepted connections, but without the errors and slowing down when a limit is reached.
 pub struct LimitedIncoming<Inner> {
     inner: SleepOnError<Inner>,
@@ -331,10 +329,10 @@ where
     }
 }
 
-/// One connection accepted through something configured with [`ListenLimits`].
+/// One connection accepted through something configured with [`WithListenLimits`].
 ///
 /// It is just a thin wrapper around the real connection, allowing to track how many of them there
-/// are.
+/// are. You can mostly use it as the connection itself.
 pub struct LimitedConn<Inner> {
     inner: Inner,
     limit: Arc<ConnLimit>,

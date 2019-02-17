@@ -1,3 +1,17 @@
+//! Handlers of connections and sockets.
+//!
+//! The [`Fragment`]s provided by this crate are not directly useful on their own. Unlike for
+//! example logging, a listening TCP socket doesn't *do* anything on its own.
+//!
+//! This module provides [`Transformation`]s that bind the sockets with some useful action
+//! (different handlers represent different abstractions from the actions). In general, these
+//! actions should return a [`Future`] and that one can in turn be installed.
+//!
+//! See the [crate example](../index.html#examples) for the usage.
+//!
+//! [`Fragment`]: spirit::Fragment
+//! [`Transformation`]: spirit::fragment::Transformation
+//! [`Future`]: futures::Future
 use std::fmt::Debug;
 use std::io::Error as IoError;
 
@@ -10,6 +24,19 @@ use spirit::utils::{self, ErrorLogFormat};
 use crate::installer::FutureInstaller;
 use crate::net::IntoIncoming;
 
+/// A [`Transformation`] to handle the whole socket.
+///
+/// This is a newtype that turns a closure taking a socket and the [`Fragment`] describing it and
+/// returns a future of something that can be done with it.
+///
+/// This is appropriate for UDP-like sockets and if you want to accept the connections on a
+/// TCP-like socket manually.
+///
+/// If you want to handle separate connections from a TCP listening socket but don't want to care
+/// about accepting them (and want to leave some other bookkeeping, like the limits of connections,
+/// to this crate), then you want the [`HandleListener`] instead.
+///
+/// [`Fragment`]: spirit::Fragment
 #[derive(Clone, Debug)]
 pub struct HandleSocket<F>(pub F);
 
@@ -33,6 +60,7 @@ where
     }
 }
 
+#[doc(hidden)]
 pub trait ConnectionHandler<Conn, Ctx> {
     type Output;
     fn execute(&self, conn: Conn, ctx: &mut Ctx) -> Self::Output;
@@ -48,6 +76,7 @@ where
     }
 }
 
+#[doc(hidden)]
 #[derive(Debug, Clone)]
 pub struct ConfigAdaptor<F>(F);
 
@@ -61,6 +90,7 @@ where
     }
 }
 
+#[doc(hidden)]
 pub struct Acceptor<Incoming, Ctx, Handler> {
     name: &'static str,
     incoming: Incoming,
@@ -114,6 +144,14 @@ where
     }
 }
 
+/// A handler of incoming connections with per-listener initialization.
+///
+/// This is a more complex version of the [`HandleListener`]. This one contains two closures. The
+/// first one (`I`) is called for each *listening* socket and produces an arbitrary context. The
+/// second one (`F`) is called for each connection accepted on that listening socket. The context
+/// is provided to the closure.
+///
+/// This approach allows certain initialization to happen for each separate listening socket.
 #[derive(Clone, Debug)]
 pub struct HandleListenerInit<I, F>(pub I, pub F);
 
@@ -152,6 +190,20 @@ where
     }
 }
 
+/// A handler newtype to handle each separate connection.
+///
+/// If this handler is used (wrapping a closure taking the connection and the [`Fragment`] that
+/// created the relevant listening socket it comes from), the closure is called for already
+/// accepted connection. It shall produce a future and that future is spawned onto a runtime.
+///
+/// Most of the time this is what you want if you just want to serve some requests over TCP or
+/// something similar that has accepting semantics (one socket that listens and produces more
+/// sockets).
+///
+/// For slightly more complex situation, you might want to also consider the
+/// [`HandleListenerInit`].
+///
+/// [`Fragment`]: spirit::Fragment
 #[derive(Clone, Debug)]
 pub struct HandleListener<F>(pub F);
 

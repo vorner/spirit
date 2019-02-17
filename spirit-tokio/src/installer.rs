@@ -1,3 +1,11 @@
+//! Installer of futures.
+//!
+//! The [`FutureInstaller`] is an [`Installer`] that allows installing (spawning) futures, but also
+//! canceling them when they are no longer required by the configuration.
+//!
+//! [`FutureInstaller`]: crate::installer::FutureInstaller
+//! [`Installer`]: spirit::fragment::Installer
+
 use failure::Error;
 use futures::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use futures::sync::oneshot::{self, Receiver, Sender};
@@ -11,6 +19,12 @@ use structopt::StructOpt;
 use crate::runtime::Runtime;
 
 // TODO: Make this publicly creatable
+/// An [`UninstallHandle`] for the [`FutureInstaller`].
+///
+/// This allows to cancel a future when this handle is dropped and wait for it to happen. It is not
+/// publicly creatable.
+///
+/// [`UninstallHandle`]: Installer::UninstallHandle
 pub struct RemoteDrop {
     name: &'static str,
     request_drop: Option<Sender<()>>,
@@ -60,6 +74,17 @@ where
     }
 }
 
+/// An [`Installer`] of [`Future`]s.
+///
+/// The future is spawned onto a default runtime. An installer that'd install into specific runtime
+/// is possible, but hasn't been written yet.
+///
+/// End-user applications seldom need to interact with this type directly, since it is set up by
+/// all the [`handlers`][crate::handlers]. However, if you're writing a new [`Fragment`] or new
+/// [`Transformation`], you might want to reuse it.
+///
+/// [`Fragment`]: spirit::fragment::Fragment
+/// [`Transformation`]: spirit::fragment::Transformation
 pub struct FutureInstaller<R> {
     receiver: Option<UnboundedReceiver<Install<R>>>,
     sender: UnboundedSender<Install<R>>,
