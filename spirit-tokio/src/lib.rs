@@ -119,6 +119,6 @@ pub mod net;
 pub mod runtime;
 // pub mod scaled; XXX
 
-pub use handlers::{HandleListener, HandleListenerInit, HandleSocket};
-pub use net::{TcpListen, TcpListenWithLimits, UdpListen};
-pub use runtime::Runtime;
+pub use crate::handlers::{HandleListener, HandleListenerInit, HandleSocket};
+pub use crate::net::{TcpListen, TcpListenWithLimits, UdpListen};
+pub use crate::runtime::Runtime;
