@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-hyper/0.4.1/spirit_hyper/",
+    html_root_url = "https://docs.rs/spirit-hyper/0.5.0/spirit_hyper/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]

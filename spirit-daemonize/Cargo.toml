@@ -1,11 +1,12 @@
 [package]
 name = "spirit-daemonize"
-version = "0.1.3"
+version = "0.2.0"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Spirit helpers and config fragments to daemonize"
 documentation = "https://docs.rs/spirit-daemonize"
 repository = "https://github.com/vorner/spirit"
 readme = "README.md"
+categories = ["config", "os::unix-apis"]
 keywords = ["unix", "daemon", "service", "spirit"]
 license = "Apache-2.0/MIT"
 
@@ -20,14 +21,14 @@ cfg-help = ["spirit/cfg-help", "structdoc"]
 [dependencies]
 failure = "~0.1"
 log = "~0.4"
-nix = "~0.11"
+nix = "~0.13"
 privdrop = "~0.2"
 serde = "~1"
 serde_derive = "~1"
-spirit = { version = "~0.2", path = "..", default-features = false }
+spirit = { version = "~0.3", path = "..", default-features = false }
 # TODO: Proper versions, feature flag
 structdoc = { version = "~0.1", optional = true }
 structopt = "~0.2"
 
 [dev-dependencies]
-version-sync = "~0.6"
+version-sync = "~0.7"

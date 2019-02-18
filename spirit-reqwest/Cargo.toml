@@ -1,12 +1,13 @@
 [package]
 name = "spirit-reqwest"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 edition = "2018"
 description = "Reqwest helpers for Spirit"
 documentation = "https://docs.rs/spirit-reqwest"
 repository = "https://github.com/vorner/spirit"
 license = "Apache-2.0/MIT"
+categories = ["config", "web-programming"]
 keywords = ["http", "reqwest", "service", "configuration", "spirit"]
 readme = "README.md"
 
@@ -28,12 +29,12 @@ reqwest = "~0.9.5"
 serde = "~1"
 serde_derive = "~1"
 serde-humantime = "~0.1"
-spirit = { version = "~0.2.10", path = "..", default-features = false }
+spirit = { version = "~0.3", path = "..", default-features = false }
 structdoc = { version = "~0.1", optional = true }
 structopt = "~0.2"
 url = "~1.7"
 url_serde = "~0.2"
 
 [dev-dependencies]
-version-sync = "~0.6"
+version-sync = "~0.7"
 env_logger = "~0.5"

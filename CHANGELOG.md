@@ -1,3 +1,25 @@
+# 0.3.0
+# spirit-cfg-helpers-0.2.0
+# spirit-daemonize-0.2.0
+# spirit-hyper-0.5.0
+# spirit-log-0.2
+# spirit-reqwest-0.2.0
+# spirit-tokio-0.5.0
+
+* Configuration can be loaded without the full machinery of full Spirit object.
+* Helpers got renamed to Extension.
+* Extension, callbacks and other similar things can now be added to already
+  built Spirit as well as Builder.
+* A lot of methods moved onto traits to support the above. To import all of
+  them, `use spirit::prelude::*` is recommended.
+* Pieces of configuration are now described in generic way with the `Fragment`
+  trait. This allows to manually create the resource the configuration
+  describes.
+* `CfgHelper` and `IteratedCfgHelper` are gone. They are replaced with the
+  `Pipeline` machinery that takes a `Fragment` on one end, creates the resource,
+  does something with it and then installs it fully automatically. This is,
+  however, more flexible and looks more magical when being read.
+
 # spirit-cfg-helpers-0.1.1
 
 * Fix panic when the config can't be serialized to toml due to order of values.

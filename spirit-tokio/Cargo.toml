@@ -1,12 +1,13 @@
 [package]
 name = "spirit-tokio"
-version = "0.4.2"
+version = "0.5.0"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Tokio helpers for Spirit"
 documentation = "https://docs.rs/spirit-tokio"
 repository = "https://github.com/vorner/spirit"
 license = "Apache-2.0/MIT"
 readme = "README.md"
+categories = ["config", "network-programming"]
 keywords = ["async", "tokio", "service", "configuration", "spirit"]
 edition = "2018"
 
@@ -29,7 +30,7 @@ parking_lot = "~0.7"
 serde = "~1"
 serde_derive = "~1"
 serde-humantime = "~0.1"
-spirit = { version = "~0.2", path = "..", default-features = false }
+spirit = { version = "~0.3", path = "..", default-features = false }
 structdoc = { version = "~0.1", optional = true }
 structopt = "~0.2"
 tk-listen = "~0.2"
@@ -39,4 +40,4 @@ tokio = "~0.1.8"
 corona = "~0.4.1"
 env_logger = "~0.6"
 serde_json = "~1"
-version-sync = "~0.6"
+version-sync = "~0.7"
