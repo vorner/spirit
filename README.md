@@ -2,9 +2,9 @@
 
 [![Travis Build Status](https://api.travis-ci.org/vorner/spirit.png?branch=master)](https://travis-ci.org/vorner/spirit)
 
-A helper to make creating unix daemons easier.
+A helper to make creating and configuring unix daemons easier.
 
-See the [docs](https://docs.rs/spirit), the [examples](https://github.com/vorner/spirit/tree/master/examples) and a [tutorial](https://vorner.github.io/2018/12/09/Spirit-Tutorial.html).
+See the [docs](https://docs.rs/spirit), the [examples](https://github.com/vorner/spirit/tree/master/examples) and a [tutorial](https://vorner.github.io/2018/12/09/Spirit-Tutorial.html) (outdated, but there'll be a new one soon).
 
 ## License
 
