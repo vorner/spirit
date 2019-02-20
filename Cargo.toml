@@ -53,10 +53,10 @@ toml = "~0.4"
 [dev-dependencies]
 lazy_static = "~1"
 hyper = "~0.12"
-spirit-cfg-helpers = { path = "spirit-cfg-helpers" }
-spirit-daemonize = { path = "spirit-daemonize" }
-spirit-hyper = { path = "spirit-hyper" }
-spirit-log = { path = "spirit-log" }
-spirit-tokio = { path = "spirit-tokio" }
+spirit-cfg-helpers = { version = "~0.2", path = "spirit-cfg-helpers" }
+spirit-daemonize = { version = "~0.2", path = "spirit-daemonize" }
+spirit-hyper = { version = "~0.5", path = "spirit-hyper" }
+spirit-log = { version = "~0.2", path = "spirit-log" }
+spirit-tokio = { version = "~0.5", path = "spirit-tokio" }
 structdoc = "~0.1"
 version-sync = "~0.7"
