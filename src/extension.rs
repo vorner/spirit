@@ -383,7 +383,8 @@ pub trait Extensible: Sized {
     /// By passing the ownership to [`Spirit`], the guard is destroyed together with the [`Spirit`]
     /// itself.
     ///
-    /// Note that you may need to [wait for the background thread], though [`run`] does that
+    /// Note that you may need to [wait for the background thread] or [autojoin
+    /// it][Extensible::autojoin_bg_thread].
     /// implicitly.
     ///
     /// The guards are add only (there's no way to remove or overwrite them later on).
@@ -392,6 +393,12 @@ pub trait Extensible: Sized {
     /// [`Spirit`]: crate::Spirit
     /// [wait for the background thread]: crate::Spirit::join_bg_thread
     fn keep_guard<G: Any + Send>(self, guard: G) -> Self;
+
+    /// Specifies that the background thread should be joined automatically, as part of the [`run`]
+    /// method.
+    ///
+    /// [`run`]: spirit::SpiritBuilder::run
+    fn autojoin_bg_thread(self) -> Self;
 }
 
 impl<C> Extensible for Result<C, Error>
@@ -486,6 +493,10 @@ where
 
     fn keep_guard<G: Any + Send>(self, guard: G) -> Self {
         self.map(|s| s.keep_guard(guard))
+    }
+
+    fn autojoin_bg_thread(self) -> Self {
+        self.map(|s| s.autojoin_bg_thread())
     }
 }
 

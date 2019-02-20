@@ -10,6 +10,8 @@ use std::sync::Arc;
 
 use failure::Error;
 use log::debug;
+use serde::de::DeserializeOwned;
+use structopt::StructOpt;
 
 use crate::bodies::{InnerBody, WrapBody};
 use crate::spirit::Spirit;
@@ -52,8 +54,8 @@ pub struct App<O, C> {
 
 impl<O, C> App<O, C>
 where
-    O: Send + Sync + 'static,
-    C: Send + Sync + 'static,
+    O: StructOpt + Send + Sync + 'static,
+    C: DeserializeOwned + Send + Sync + 'static,
 {
     pub(crate) fn new(spirit: Arc<Spirit<O, C>>, inner: InnerBody, wrapper: WrapBody) -> Self {
         Self {
@@ -89,7 +91,14 @@ where
         debug!("Running bodies");
         let inner = self.inner;
         let inner = move || inner.run().and_then(|()| body());
-        self.wrapper.run(InnerBody(Box::new(Some(|()| inner()))))
+        let result = self.wrapper.run(InnerBody(Box::new(Some(|()| inner()))));
+        if result.is_err() {
+            self.spirit.terminate();
+        }
+        if self.spirit.should_autojoin() {
+            self.spirit.join_bg_thread();
+        }
+        result
     }
 
     /// Similar to [`run`][App::run], but with error handling.

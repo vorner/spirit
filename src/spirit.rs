@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread;
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use arc_swap::{ArcSwap, Lease};
@@ -104,7 +104,9 @@ pub struct Spirit<O = Empty, C = Empty> {
     // TODO: Mode selection for directories
     opts: O,
     terminate: AtomicBool,
+    autojoin_bg_thread: AtomicBool,
     signals: Signals,
+    bg_thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl<O, C> Spirit<O, C>
@@ -128,6 +130,7 @@ where
     /// Similar to [`new`][Spirit::new], but with specific initial config value
     pub fn with_initial_config(config: C) -> Builder<O, C> {
         Builder {
+            autojoin_bg_thread: false,
             before_bodies: Vec::new(),
             before_config: Vec::new(),
             body_wrappers: Vec::new(),
@@ -352,6 +355,30 @@ where
     fn load_config(&self) -> Result<C, Error> {
         self.hooks.lock().config_loader.load()
     }
+
+    /// Waits for the background thread to terminate.
+    ///
+    /// The background thread terminates after a call to [`terminate`] or after a termination
+    /// signal has been received.
+    ///
+    /// If the thread hasn't started or joined already, this returns right away.
+    ///
+    /// # Panics
+    ///
+    /// If the thread was never started or was already joined previously.
+    ///
+    /// [`terminate`]: Spirit::terminate
+    pub fn join_bg_thread(&self) {
+        if let Some(handle) = self.bg_thread.lock().take() {
+            handle
+                .join()
+                .expect("Spirit BG thread handles panics, shouldn't panic itself");
+        }
+    }
+
+    pub(crate) fn should_autojoin(&self) -> bool {
+        self.autojoin_bg_thread.load(Ordering::Relaxed)
+    }
 }
 
 impl<O, C> Extensible for &Arc<Spirit<O, C>>
@@ -473,6 +500,11 @@ where
         self.hooks.lock().guards.push(Box::new(guard));
         self
     }
+
+    fn autojoin_bg_thread(self) -> Self {
+        self.autojoin_bg_thread.store(true, Ordering::Relaxed);
+        self
+    }
 }
 
 /// The builder of [`Spirit`].
@@ -489,6 +521,7 @@ where
 /// * [`SpiritBuilder`] to turn the builder into [`Spirit`].
 #[must_use = "The builder is inactive without calling `run` or `build`"]
 pub struct Builder<O = Empty, C = Empty> {
+    autojoin_bg_thread: bool,
     before_bodies: Vec<SpiritBody<O, C>>,
     before_config: Vec<Box<FnMut(&C, &O) -> Result<(), Error> + Send>>,
     body_wrappers: Vec<Wrapper<O, C>>,
@@ -671,6 +704,13 @@ impl<O, C> Extensible for Builder<O, C> {
         self.guards.push(Box::new(guard));
         self
     }
+
+    fn autojoin_bg_thread(self) -> Self {
+        Self {
+            autojoin_bg_thread: true,
+            ..self
+        }
+    }
 }
 
 /// An interface to turn the spirit [`Builder`] into a [`Spirit`] and possibly run it.
@@ -776,6 +816,7 @@ where
         let signals = Signals::new(interesting_signals)?;
         let signals_spirit = signals.clone();
         let spirit = Spirit {
+            autojoin_bg_thread: AtomicBool::new(self.autojoin_bg_thread),
             config,
             hooks: Mutex::new(Hooks {
                 config: self.config_hooks,
@@ -790,6 +831,7 @@ where
             opts,
             terminate: AtomicBool::new(false),
             signals: signals_spirit,
+            bg_thread: Mutex::new(None),
         };
         spirit
             .config_reload()
@@ -797,7 +839,7 @@ where
         let spirit = Arc::new(spirit);
         if background_thread {
             let spirit_bg = Arc::clone(&spirit);
-            thread::Builder::new()
+            let handle = thread::Builder::new()
                 .name("spirit".to_owned())
                 .spawn(move || {
                     loop {
@@ -815,6 +857,7 @@ where
                     }
                 })
                 .unwrap(); // Could fail only if the name contained \0
+            *spirit.bg_thread.lock() = Some(handle);
         }
         debug!(
             "Building bodies from {} before-bodies and {} wrappers",
