@@ -1,4 +1,4 @@
-use std::any::TypeId;
+use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::panic::{self, AssertUnwindSafe};
@@ -37,6 +37,7 @@ struct Hooks<O, C> {
     sigs: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
     singletons: HashSet<TypeId>,
     terminate: Vec<Box<FnMut() + Send>>,
+    guards: Vec<Box<Any + Send>>,
 }
 
 impl<O, C> Default for Hooks<O, C> {
@@ -49,6 +50,7 @@ impl<O, C> Default for Hooks<O, C> {
             sigs: HashMap::new(),
             singletons: HashSet::new(),
             terminate: Vec::new(),
+            guards: Vec::new(),
         }
     }
 }
@@ -138,6 +140,7 @@ where
             sig_hooks: HashMap::new(),
             singletons: HashSet::new(),
             terminate_hooks: Vec::new(),
+            guards: Vec::new(),
         }
     }
 
@@ -465,6 +468,11 @@ where
             Ok(self)
         }
     }
+
+    fn keep_guard<G: Any + Send>(self, guard: G) -> Self {
+        self.hooks.lock().guards.push(Box::new(guard));
+        self
+    }
 }
 
 /// The builder of [`Spirit`].
@@ -493,6 +501,7 @@ pub struct Builder<O = Empty, C = Empty> {
     sig_hooks: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
     singletons: HashSet<TypeId>,
     terminate_hooks: Vec<Box<FnMut() + Send>>,
+    guards: Vec<Box<Any + Send>>,
 }
 
 impl<O, C> Builder<O, C>
@@ -657,6 +666,11 @@ impl<O, C> Extensible for Builder<O, C> {
             Ok(self)
         }
     }
+
+    fn keep_guard<G: Any + Send>(mut self, guard: G) -> Self {
+        self.guards.push(Box::new(guard));
+        self
+    }
 }
 
 /// An interface to turn the spirit [`Builder`] into a [`Spirit`] and possibly run it.
@@ -771,6 +785,7 @@ where
                 sigs: self.sig_hooks,
                 singletons: self.singletons,
                 terminate: self.terminate_hooks,
+                guards: self.guards,
             }),
             opts,
             terminate: AtomicBool::new(false),

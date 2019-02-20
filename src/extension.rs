@@ -17,6 +17,7 @@
 //! [`Builder`]: crate::Builder
 //! [`Extension`]: crate::extension::Extension
 
+use std::any::Any;
 use std::borrow::Borrow;
 use std::fmt::Display;
 use std::sync::Arc;
@@ -372,6 +373,25 @@ pub trait Extensible: Sized {
     fn with_singleton<T>(self, singleton: T) -> Result<Self::Ok, Error>
     where
         T: Extension<Self::Ok> + 'static;
+
+    /// Keeps a guard object until destruction.
+    ///
+    /// Sometimes, some things (like, a logger that needs flushing, metrics collector handle) need
+    /// a guard that is destroyed at the end of application lifetime.  However, the [`run`] body
+    /// may terminate sooner than the application, therefore destroying the guards too soon.
+    ///
+    /// By passing the ownership to [`Spirit`], the guard is destroyed together with the [`Spirit`]
+    /// itself.
+    ///
+    /// Note that you may need to [wait for the background thread], though [`run`] does that
+    /// implicitly.
+    ///
+    /// The guards are add only (there's no way to remove or overwrite them later on).
+    ///
+    /// [`run`]: crate::SpiritBuilder::run
+    /// [`Spirit`]: crate::Spirit
+    /// [wait for the background thread]: crate::Spirit::join_bg_thread
+    fn keep_guard<G: Any + Send>(self, guard: G) -> Self;
 }
 
 impl<C> Extensible for Result<C, Error>
@@ -462,6 +482,10 @@ where
         T: Extension<<Self as Extensible>::Ok> + 'static,
     {
         self.and_then(|c| c.with_singleton(singleton))
+    }
+
+    fn keep_guard<G: Any + Send>(self, guard: G) -> Self {
+        self.map(|s| s.keep_guard(guard))
     }
 }
 
