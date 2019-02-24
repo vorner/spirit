@@ -400,8 +400,9 @@ thread_local! {
 }
 
 fn get_thread_name(thread: &Thread) -> Cow<str> {
-    LOG_THREAD_NAME.with(|n| n.replace(None).map(Cow::Owned))
-        .or(thread.name().map(Cow::Borrowed))
+    LOG_THREAD_NAME
+        .with(|n| n.replace(None).map(Cow::Owned))
+        .or_else(|| thread.name().map(Cow::Borrowed))
         .unwrap_or(Cow::Borrowed("<unknown>"))
 }
 

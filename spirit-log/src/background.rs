@@ -183,22 +183,20 @@ impl Log for AsyncLogger {
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
             let i = Instruction::Msg {
-                file: record.file().map(|f| f.to_owned()),
+                file: record.file().map(ToOwned::to_owned),
                 level: record.level(),
                 line: record.line(),
-                module_path: record.module_path().map(|m| m.to_owned()),
+                module_path: record.module_path().map(ToOwned::to_owned),
                 msg: format!("{}", record.args()),
                 target: record.target().to_owned(),
-                thread: thread::current().name().map(|n| n.to_owned()),
+                thread: thread::current().name().map(ToOwned::to_owned),
             };
             if self.mode == AsyncMode::Block {
                 self.ch.send(i).expect("Logging thread disappeared");
-            } else {
-                if let Err(e) = self.ch.try_send(i) {
-                    assert!(e.is_full(), "Logging thread disappeared");
-                    if self.mode == AsyncMode::DropMsg {
-                        self.shared.lost_msgs.fetch_add(1, Ordering::Relaxed);
-                    }
+            } else if let Err(e) = self.ch.try_send(i) {
+                assert!(e.is_full(), "Logging thread disappeared");
+                if self.mode == AsyncMode::DropMsg {
+                    self.shared.lost_msgs.fetch_add(1, Ordering::Relaxed);
                 }
             }
         }

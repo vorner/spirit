@@ -875,7 +875,7 @@ where
         let body_wrappers = self.body_wrappers;
         let inner = InnerBody(Box::new(Some(inner)));
         let spirit_body = Arc::clone(&spirit);
-        let mut wrapped = WrapBody(Box::new(Some(|inner: InnerBody| inner.run())));
+        let mut wrapped = WrapBody(Box::new(Some(InnerBody::run)));
         for mut wrapper in body_wrappers.into_iter().rev() {
             // TODO: Can we get rid of this clone?
             let spirit = Arc::clone(&spirit_body);

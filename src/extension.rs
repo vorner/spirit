@@ -480,7 +480,7 @@ where
         // If we are errored out, this doesn't really matter, but usually false means less work to
         // do.
         self.as_mut()
-            .map(|c| c.singleton::<T>())
+            .map(Extensible::singleton::<T>)
             .unwrap_or_default()
     }
 
@@ -496,7 +496,7 @@ where
     }
 
     fn autojoin_bg_thread(self) -> Self {
-        self.map(|s| s.autojoin_bg_thread())
+        self.map(Extensible::autojoin_bg_thread)
     }
 }
 
