@@ -147,6 +147,8 @@
 //! clock = "UTC"
 //! ```
 
+use std::borrow::Cow;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::fmt::Arguments;
 use std::io::{self, Write};
@@ -154,7 +156,7 @@ use std::iter;
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
+use std::thread::{self, Thread};
 
 use chrono::format::{DelayedFormat, StrftimeItems};
 use chrono::{Local, Utc};
@@ -171,6 +173,9 @@ use spirit::fragment::{Fragment, Installer};
 #[cfg(feature = "cfg-help")]
 use structdoc::StructDoc;
 use structopt::StructOpt;
+
+#[cfg(feature = "background")]
+mod background;
 
 /// A fragment for command line options.
 ///
@@ -387,6 +392,16 @@ impl Default for Format {
     }
 }
 
+thread_local! {
+    static LOG_THREAD_NAME: Cell<Option<String>> = Cell::new(None);
+}
+
+fn get_thread_name(thread: &Thread) -> Cow<str> {
+    LOG_THREAD_NAME.with(|n| n.replace(None).map(Cow::Owned))
+        .or(thread.name().map(Cow::Borrowed))
+        .unwrap_or(Cow::Borrowed("<unknown>"))
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")] // TODO: Make deny-unknown-fields work
@@ -459,7 +474,7 @@ impl Logger {
                                 "{} {:5} {:30} {:30} {}",
                                 clock.now(&time_format),
                                 record.level(),
-                                thread.name().unwrap_or("<unknown>"),
+                                get_thread_name(&thread),
                                 record.target(),
                                 message,
                             ));
@@ -470,7 +485,7 @@ impl Logger {
                                 "{} {:5} {:10} {:>25}:{:<5} {:30} {}",
                                 clock.now(&time_format),
                                 record.level(),
-                                thread.name().unwrap_or("<unknown>"),
+                                get_thread_name(&thread),
                                 record.file().unwrap_or("<unknown>"),
                                 record.line().unwrap_or(0),
                                 record.target(),
@@ -483,7 +498,7 @@ impl Logger {
                                 "{}\t{}\t{}\t{}\t{}\t{}\t{}",
                                 clock.now(&time_format),
                                 record.level(),
-                                thread.name().unwrap_or("<unknown>"),
+                                get_thread_name(&thread),
                                 record.file().unwrap_or("<unknown>"),
                                 record.line().unwrap_or(0),
                                 record.target(),
@@ -499,7 +514,7 @@ impl Logger {
                             struct Msg<'a> {
                                 timestamp: Arguments<'a>,
                                 level: Arguments<'a>,
-                                thread_name: Option<&'a str>,
+                                thread_name: Cow<'a, str>,
                                 file: Option<&'a str>,
                                 line: Option<u32>,
                                 target: &'a str,
@@ -522,7 +537,7 @@ impl Logger {
                             log(&Msg {
                                 timestamp: format_args!("{}", clock.now(&time_format)),
                                 level: format_args!("{}", record.level()),
-                                thread_name: thread.name(),
+                                thread_name: get_thread_name(&thread),
                                 file: record.file(),
                                 line: record.line(),
                                 target: record.target(),
@@ -541,7 +556,7 @@ impl Logger {
                                 #[serde(rename = "@version")]
                                 version: u8,
                                 level: Arguments<'a>,
-                                thread_name: Option<&'a str>,
+                                thread_name: Cow<'a, str>,
                                 logger_name: &'a str,
                                 message: &'a Arguments<'a>,
                             }
@@ -563,7 +578,7 @@ impl Logger {
                                 timestamp: format_args!("{}", clock.now(&time_format)),
                                 version: 1,
                                 level: format_args!("{}", record.level()),
-                                thread_name: thread.name(),
+                                thread_name: get_thread_name(&thread),
                                 logger_name: record.target(),
                                 message,
                             });
