@@ -163,7 +163,7 @@ use chrono::{Local, Utc};
 use failure::{Error, Fail};
 use fern::Dispatch;
 use itertools::Itertools;
-use log::{debug, trace, LevelFilter};
+use log::{debug, trace, LevelFilter, Log};
 use serde::de::{Deserializer, Error as DeError};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
@@ -176,6 +176,9 @@ use structopt::StructOpt;
 
 #[cfg(feature = "background")]
 mod background;
+
+#[cfg(feature = "background")]
+pub use background::{AsyncMode, Background, FlushGuard};
 
 /// A fragment for command line options.
 ///
@@ -737,6 +740,16 @@ pub fn init() {
     INIT_CALLED.store(true, Ordering::Relaxed);
 }
 
+pub fn install_parts(level: LevelFilter, logger: Box<dyn Log>) {
+    assert!(
+        INIT_CALLED.load(Ordering::Relaxed),
+        "spirit_log::init not called yet"
+    );
+    debug!("Installing loggers");
+    log::set_max_level(level);
+    log_reroute::reroute_boxed(logger);
+}
+
 /// Replace the current logger with the provided one.
 ///
 /// This can be called multiple times (unlike [`Dispath::apply`]) and it always replaces the old
@@ -748,14 +761,8 @@ pub fn init() {
 ///
 /// If [`init`] haven't been called yet.
 pub fn install(logger: Dispatch) {
-    assert!(
-        INIT_CALLED.load(Ordering::Relaxed),
-        "spirit_log::init not called yet"
-    );
-    debug!("Installing loggers");
     let (level, logger) = logger.into_log();
-    log::set_max_level(level);
-    log_reroute::reroute_boxed(logger);
+    install_parts(level, logger);
 }
 
 impl Fragment for Cfg {
@@ -823,6 +830,16 @@ impl<O, C> Installer<Dispatch, O, C> for LogInstaller {
     type UninstallHandle = ();
     fn install(&mut self, logger: Dispatch, _: &str) {
         install(logger);
+    }
+    fn init<B: Extensible<Ok = B>>(&mut self, builder: B, _name: &str) -> Result<B, Error> {
+        builder.with(Cfg::init_extension())
+    }
+}
+
+impl<O, C> Installer<(LevelFilter, Box<dyn Log>), O, C> for LogInstaller {
+    type UninstallHandle = ();
+    fn install(&mut self, (level, logger): (LevelFilter, Box<dyn Log>), _: &str) {
+        install_parts(level, logger);
     }
     fn init<B: Extensible<Ok = B>>(&mut self, builder: B, _name: &str) -> Result<B, Error> {
         builder.with(Cfg::init_extension())
