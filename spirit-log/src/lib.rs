@@ -30,13 +30,25 @@
 //!
 //! If you need something specific (for example [`sentry`](https://crates.io/crates/sentry)), you
 //! can plug in additional loggers through the pipeline ‒ the [`Dispatch`] allows adding arbitrary
-//! loggers.
+//! loggers. The [`Pipeline::map`][spirit::fragment::pipeline::Pipeline::map] is a good place to do
+//! it.
 //!
 //! # Performance warning
 //!
 //! This allows the user to create arbitrary number of loggers. Furthermore, the logging is
 //! synchronous  by default and not buffered. When writing a lot of logs or sending them over the
 //! network, this could become a bottleneck.
+//!
+//! # Background logging
+//!
+//! The `background` feature flag adds the ability to do the actual logging in a background thread.
+//! This allows not blocking the actual application by IO or other expensive operations.
+//!
+//! On the other hand, if the application crashes, some logs may be lost (or, depending on setup,
+//! when the logging thread doesn't keep up). Also, you need to flush the logger on shutdown, by
+//! using the [`FlushGuard`].
+//!
+//! It is done through the [`Background`] transformation.
 //!
 //! # Planned features
 //!
@@ -45,7 +57,6 @@
 //! * Reconnecting to the remote server if a TCP connection is lost.
 //! * Log file rotation.
 //! * Colors on `stdout`/`stderr`.
-//! * Async and buffered logging and ability to drop log messages when logging doesn't keep up.
 //!
 //! # Usage without Pipelines
 //!
@@ -175,10 +186,10 @@ use structdoc::StructDoc;
 use structopt::StructOpt;
 
 #[cfg(feature = "background")]
-mod background;
+pub mod background;
 
 #[cfg(feature = "background")]
-pub use background::{AsyncMode, Background, FlushGuard};
+pub use background::{Background, FlushGuard, OverflowMode};
 
 /// A fragment for command line options.
 ///
@@ -741,6 +752,10 @@ pub fn init() {
     INIT_CALLED.store(true, Ordering::Relaxed);
 }
 
+/// Replace the current logger with the provided one.
+///
+/// This is a lower-level alternative to [`install`]. This allows putting an arbitrary logger in
+/// (with the corresponding log level at which it makes sense to try log the messages).
 pub fn install_parts(level: LevelFilter, logger: Box<dyn Log>) {
     assert!(
         INIT_CALLED.load(Ordering::Relaxed),
@@ -753,7 +768,7 @@ pub fn install_parts(level: LevelFilter, logger: Box<dyn Log>) {
 
 /// Replace the current logger with the provided one.
 ///
-/// This can be called multiple times (unlike [`Dispath::apply`]) and it always replaces the old
+/// This can be called multiple times (unlike [`Dispatch::apply`]) and it always replaces the old
 /// logger with a new one.
 ///
 /// The logger will be installed in a synchronous way ‒ a call to logging functions may block.
@@ -824,6 +839,9 @@ impl Fragment for CfgAndOpts {
 /// the [`Pipeline`][spirit::Pipeline] with [`Cfg`].
 ///
 /// Loggers installed this way act in a synchronous way ‒ they block on IO.
+///
+/// Note that it is possible to install other loggers through this too ‒ even the async ones from
+/// [`Background`] transformation.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct LogInstaller;
 

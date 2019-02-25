@@ -314,6 +314,7 @@ where
     /// within a callback (it would lead to deadlock).
     pub fn terminate(&self) {
         debug!("Running termination hooks");
+        self.signals.close();
         for hook in &mut self.hooks.lock().terminate {
             hook();
         }
@@ -345,11 +346,10 @@ where
             }
 
             if term {
-                debug!("Terminating the background thread");
-                return;
+                break;
             }
         }
-        unreachable!("Signals run forever");
+        debug!("Terminating the background thread");
     }
 
     fn load_config(&self) -> Result<C, Error> {

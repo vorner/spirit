@@ -17,7 +17,7 @@ maintenance = { status = "actively-developed" }
 
 [features]
 background = ["crossbeam-channel", "parking_lot"]
-default = ["with-backtrace", "cfg-help", "background"] # XXX Remove background
+default = ["with-backtrace", "cfg-help"]
 with-backtrace = ["log-panics/with-backtrace"]
 cfg-help = ["spirit/cfg-help", "structdoc"]
 

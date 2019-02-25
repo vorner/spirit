@@ -1,3 +1,18 @@
+//! Support for logging in the background.
+//!
+//! The [`AsyncLogger`] can wrap a logger and do the logging in a separate thread. Note that to not
+//! lose logs on shutdown, the logger needs to be flushed, either manually or using the
+//! [`FlushGuard`].
+//!
+//! To integrate with the [`Pipeline`], the [`Background`] can be used as a [`Transformation`] of
+//! loggers.
+//!
+//! [`AsyncLogger`]: crate::background::AsyncLogger
+//! [`Background`]: crate::background::Background
+//! [`FlushGuard`]: crate::background::FlushGuard
+//! [`Pipeline`]: spirit::fragment::pipeline::Pipeline
+//! [`Transformation`]: spirit::fragment::Transformation
+
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -10,6 +25,7 @@ use failure::Error;
 use fern::Dispatch;
 use log::{Level, LevelFilter, Log, Metadata, Record};
 use parking_lot::{Condvar, Mutex};
+use spirit::extension::{Extensible, Extension};
 use spirit::fragment::Transformation;
 
 struct FlushDone {
@@ -138,21 +154,63 @@ impl Recv {
     }
 }
 
+/// Selection of how to act if the channel to the logger thread is full.
+///
+/// Adding more variants won't be considered a breaking change.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Hash)]
-pub enum AsyncMode {
+pub enum OverflowMode {
+    /// Blocks until there's enough space to push the message.
     Block,
+
+    /// If there's not enough space in the channel, the message is dropped and counted.
+    ///
+    /// Subsequently, the thread will log how many messages were lost.
     DropMsg,
+
+    /// Drop the messages that don't without any indication it happened.
     DropMsgSilent,
+    #[doc(hidden)]
+    #[allow(non_camel_case_types)]
+    __NON_EXHAUSTIVE__,
 }
 
-struct AsyncLogger {
-    mode: AsyncMode,
+/// A logger that postpones the logging into a background thread.
+///
+/// Note that to not lose messages, the logger need to be flushed.
+///
+/// Either manually:
+///
+/// ```rust
+/// log::logger().flush();
+/// ```
+///
+/// Or by dropping the [`FlushGuard`] (this is useful to flush even in non-success cases or as
+/// integrations with other utilities).
+///
+/// ```rust
+/// # use spirit_log::background::FlushGuard;
+/// fn main() {
+///     let _guard = FlushGuard;
+///     // The rest of the application code.
+/// }
+/// ```
+///
+/// Note that even with this, things like [`std::process::exit`] will allow messages to be lost.
+pub struct AsyncLogger {
+    mode: OverflowMode,
     ch: Sender<Instruction>,
     shared: Arc<SyncLogger>,
 }
 
 impl AsyncLogger {
-    fn new(logger: Box<dyn Log>, buffer: usize, mode: AsyncMode) -> Self {
+    /// Sends the given logger to a background thread.
+    ///
+    /// # Params
+    ///
+    /// * `logger`: The logger to use in the background thread.
+    /// * `buffer`: How many messages there can be waiting in the channel to the background thread.
+    /// * `mode`: What to do if a message doesn't fit into the channel.
+    pub fn new(logger: Box<dyn Log>, buffer: usize, mode: OverflowMode) -> Self {
         let shared = Arc::new(SyncLogger {
             logger,
             lost_msgs: AtomicUsize::new(0),
@@ -181,7 +239,10 @@ impl Log for AsyncLogger {
         self.shared.logger.enabled(metadata)
     }
     fn log(&self, record: &Record) {
-        if self.enabled(record.metadata()) {
+        // Don't allocate bunch of strings if the log message would get thrown away anyway.
+        // Do the cheap check first to avoid calling through the virtual table & doing arbitrary
+        // stuff of the logger.
+        if record.level() <= log::max_level() && self.enabled(record.metadata()) {
             let i = Instruction::Msg {
                 file: record.file().map(ToOwned::to_owned),
                 level: record.level(),
@@ -191,11 +252,11 @@ impl Log for AsyncLogger {
                 target: record.target().to_owned(),
                 thread: thread::current().name().map(ToOwned::to_owned),
             };
-            if self.mode == AsyncMode::Block {
+            if self.mode == OverflowMode::Block {
                 self.ch.send(i).expect("Logging thread disappeared");
             } else if let Err(e) = self.ch.try_send(i) {
                 assert!(e.is_full(), "Logging thread disappeared");
-                if self.mode == AsyncMode::DropMsg {
+                if self.mode == OverflowMode::DropMsg {
                     self.shared.lost_msgs.fetch_add(1, Ordering::Relaxed);
                 }
             }
@@ -210,10 +271,90 @@ impl Log for AsyncLogger {
     }
 }
 
+/// A [`Transformation`] to move loggers into background threads.
+///
+/// By default, loggers created by the [`Pipeline`] are synchronous ‒ they block to do their IO.
+/// This puts the IO into a separate thread, with a buffer in between, allowing the rest of the
+/// application not to block.
+///
+/// The same warnings about lost messages and flushing as in the [`AsyncLogger`] case apply here.
+/// However, the [`Extensible::keep_guard`] and [`spirit::Extensible::autojoin_bg_thread`] can be
+/// used with the [`FlushGuard`] to ensure this happens automatically.
+///
+/// # Examples
+///
+/// ```rust
+/// use log::info;
+/// use serde::Deserialize;
+/// use spirit::prelude::*;
+/// use spirit_log::{
+///     Background, Cfg as LogCfg, CfgAndOpts as LogBoth, FlushGuard, Opts as LogOpts, OverflowMode,
+/// };
+/// use structopt::StructOpt;
+///
+/// #[derive(Clone, Debug, StructOpt)]
+/// struct Opts {
+///     #[structopt(flatten)]
+///     log: LogOpts,
+/// }
+///
+/// impl Opts {
+///     fn log(&self) -> LogOpts {
+///         self.log.clone()
+///     }
+/// }
+///
+/// #[derive(Clone, Debug, Default, Deserialize)]
+/// struct Cfg {
+///     #[serde(flatten)]
+///     log: LogCfg,
+/// }
+///
+/// impl Cfg {
+///     fn log(&self) -> LogCfg {
+///         self.log.clone()
+///     }
+/// }
+///
+/// fn main() {
+///     Spirit::<Opts, Cfg>::new()
+///         .with(
+///             Pipeline::new("logging")
+///                 .extract(|opts: &Opts, cfg: &Cfg| LogBoth {
+///                     cfg: cfg.log(),
+///                     opts: opts.log(),
+///                 })
+///                 .transform(Background::new(100, OverflowMode::Block)),
+///         )
+///         .with_singleton(FlushGuard)
+///         .run(|_spirit| {
+/// #           let spirit = std::sync::Arc::clone(_spirit);
+/// #           std::thread::spawn(move || spirit.terminate());
+///             info!("Hello world");
+///             Ok(())
+///         });
+/// }
+/// ```
+///
+/// [`Pipeline`]: spirit::fragment::pipeline::Pipeline
+/// [`Extensible::keep_guard`]: spirit::Extensible::keep_guard
+/// [`Extensible::autojoin_bg_thread`]: spirit::Extensible::autojoin_bg_thread
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Background {
-    pub mode: AsyncMode,
-    pub buffer: usize,
+    mode: OverflowMode,
+    buffer: usize,
+}
+
+impl Background {
+    /// Creates a new [`Background`] object.
+    ///
+    /// # Params
+    ///
+    /// * `buffer`: How many messages fit into the channel to the background thread.
+    /// * `mode`: What to do if the current message does not fit.
+    pub fn new(buffer: usize, mode: OverflowMode) -> Self {
+        Background { mode, buffer }
+    }
 }
 
 impl<I, F> Transformation<Dispatch, I, F> for Background {
@@ -234,10 +375,49 @@ impl<I, F> Transformation<Dispatch, I, F> for Background {
     }
 }
 
+/// This, when dropped, flushes the logger.
+///
+/// Unless the logger is flushed, there's a risk of losing messages on application termination.
+///
+/// It can be used either separately or plugged into the spirit [`Builder`]. In that case, it also
+/// turns on the [`autojoin_bg_thread`] option, so the application actually waits for the spirit
+/// thread to terminate and drops the guard.
+///
+/// Note that it's fine to flush the logs multiple times (it only costs some performance, because
+/// the flush needs to wait for all the queued messages to be written).
+///
+/// # Examples
+///
+/// ```rust
+/// # use log::info;
+/// # use spirit::prelude::*;
+/// # use spirit_log::FlushGuard;
+/// Spirit::<Empty, Empty>::new()
+///     .with_singleton(FlushGuard)
+///     .run(|_spirit| {
+/// #       let spirit = std::sync::Arc::clone(_spirit);
+/// #       std::thread::spawn(move || spirit.terminate());
+///         info!("Hello world");
+///         Ok(())
+///     });
+/// ```
+///
+/// [`Builder`]: spirit::Builder
+/// [`autojoin_bg_thread`]: spirit::Extensible::autojoin_bg_thread
 pub struct FlushGuard;
 
 impl Drop for FlushGuard {
     fn drop(&mut self) {
         log::logger().flush();
+    }
+}
+
+impl<E> Extension<E> for FlushGuard
+where
+    E: Extensible<Ok = E>,
+{
+    fn apply(self, builder: E) -> Result<E, Error> {
+        let builder = builder.autojoin_bg_thread().keep_guard(self);
+        Ok(builder)
     }
 }
