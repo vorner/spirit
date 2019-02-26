@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-log/0.2.0/spirit_log/",
+    html_root_url = "https://docs.rs/spirit-log/0.2.1/spirit_log/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -30,13 +30,25 @@
 //!
 //! If you need something specific (for example [`sentry`](https://crates.io/crates/sentry)), you
 //! can plug in additional loggers through the pipeline ‒ the [`Dispatch`] allows adding arbitrary
-//! loggers.
+//! loggers. The [`Pipeline::map`][spirit::fragment::pipeline::Pipeline::map] is a good place to do
+//! it.
 //!
 //! # Performance warning
 //!
 //! This allows the user to create arbitrary number of loggers. Furthermore, the logging is
 //! synchronous  by default and not buffered. When writing a lot of logs or sending them over the
 //! network, this could become a bottleneck.
+//!
+//! # Background logging
+//!
+//! The `background` feature flag adds the ability to do the actual logging in a background thread.
+//! This allows not blocking the actual application by IO or other expensive operations.
+//!
+//! On the other hand, if the application crashes, some logs may be lost (or, depending on setup,
+//! when the logging thread doesn't keep up). Also, you need to flush the logger on shutdown, by
+//! using the [`FlushGuard`].
+//!
+//! It is done through the [`Background`] transformation.
 //!
 //! # Planned features
 //!
@@ -45,7 +57,6 @@
 //! * Reconnecting to the remote server if a TCP connection is lost.
 //! * Log file rotation.
 //! * Colors on `stdout`/`stderr`.
-//! * Async and buffered logging and ability to drop log messages when logging doesn't keep up.
 //!
 //! # Usage without Pipelines
 //!
@@ -147,6 +158,8 @@
 //! clock = "UTC"
 //! ```
 
+use std::borrow::Cow;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::fmt::Arguments;
 use std::io::{self, Write};
@@ -154,14 +167,14 @@ use std::iter;
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
+use std::thread::{self, Thread};
 
 use chrono::format::{DelayedFormat, StrftimeItems};
 use chrono::{Local, Utc};
 use failure::{Error, Fail};
 use fern::Dispatch;
 use itertools::Itertools;
-use log::{debug, trace, LevelFilter};
+use log::{debug, trace, LevelFilter, Log};
 use serde::de::{Deserializer, Error as DeError};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
@@ -171,6 +184,12 @@ use spirit::fragment::{Fragment, Installer};
 #[cfg(feature = "cfg-help")]
 use structdoc::StructDoc;
 use structopt::StructOpt;
+
+#[cfg(feature = "background")]
+pub mod background;
+
+#[cfg(feature = "background")]
+pub use background::{Background, FlushGuard, OverflowMode};
 
 /// A fragment for command line options.
 ///
@@ -387,6 +406,17 @@ impl Default for Format {
     }
 }
 
+thread_local! {
+    static LOG_THREAD_NAME: Cell<Option<String>> = Cell::new(None);
+}
+
+fn get_thread_name(thread: &Thread) -> Cow<str> {
+    LOG_THREAD_NAME
+        .with(|n| n.replace(None).map(Cow::Owned))
+        .or_else(|| thread.name().map(Cow::Borrowed))
+        .unwrap_or(Cow::Borrowed("<unknown>"))
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")] // TODO: Make deny-unknown-fields work
@@ -459,7 +489,7 @@ impl Logger {
                                 "{} {:5} {:30} {:30} {}",
                                 clock.now(&time_format),
                                 record.level(),
-                                thread.name().unwrap_or("<unknown>"),
+                                get_thread_name(&thread),
                                 record.target(),
                                 message,
                             ));
@@ -470,7 +500,7 @@ impl Logger {
                                 "{} {:5} {:10} {:>25}:{:<5} {:30} {}",
                                 clock.now(&time_format),
                                 record.level(),
-                                thread.name().unwrap_or("<unknown>"),
+                                get_thread_name(&thread),
                                 record.file().unwrap_or("<unknown>"),
                                 record.line().unwrap_or(0),
                                 record.target(),
@@ -483,7 +513,7 @@ impl Logger {
                                 "{}\t{}\t{}\t{}\t{}\t{}\t{}",
                                 clock.now(&time_format),
                                 record.level(),
-                                thread.name().unwrap_or("<unknown>"),
+                                get_thread_name(&thread),
                                 record.file().unwrap_or("<unknown>"),
                                 record.line().unwrap_or(0),
                                 record.target(),
@@ -499,7 +529,7 @@ impl Logger {
                             struct Msg<'a> {
                                 timestamp: Arguments<'a>,
                                 level: Arguments<'a>,
-                                thread_name: Option<&'a str>,
+                                thread_name: Cow<'a, str>,
                                 file: Option<&'a str>,
                                 line: Option<u32>,
                                 target: &'a str,
@@ -522,7 +552,7 @@ impl Logger {
                             log(&Msg {
                                 timestamp: format_args!("{}", clock.now(&time_format)),
                                 level: format_args!("{}", record.level()),
-                                thread_name: thread.name(),
+                                thread_name: get_thread_name(&thread),
                                 file: record.file(),
                                 line: record.line(),
                                 target: record.target(),
@@ -541,7 +571,7 @@ impl Logger {
                                 #[serde(rename = "@version")]
                                 version: u8,
                                 level: Arguments<'a>,
-                                thread_name: Option<&'a str>,
+                                thread_name: Cow<'a, str>,
                                 logger_name: &'a str,
                                 message: &'a Arguments<'a>,
                             }
@@ -563,7 +593,7 @@ impl Logger {
                                 timestamp: format_args!("{}", clock.now(&time_format)),
                                 version: 1,
                                 level: format_args!("{}", record.level()),
-                                thread_name: thread.name(),
+                                thread_name: get_thread_name(&thread),
                                 logger_name: record.target(),
                                 message,
                             });
@@ -724,7 +754,21 @@ pub fn init() {
 
 /// Replace the current logger with the provided one.
 ///
-/// This can be called multiple times (unlike [`Dispath::apply`]) and it always replaces the old
+/// This is a lower-level alternative to [`install`]. This allows putting an arbitrary logger in
+/// (with the corresponding log level at which it makes sense to try log the messages).
+pub fn install_parts(level: LevelFilter, logger: Box<dyn Log>) {
+    assert!(
+        INIT_CALLED.load(Ordering::Relaxed),
+        "spirit_log::init not called yet"
+    );
+    debug!("Installing loggers");
+    log::set_max_level(level);
+    log_reroute::reroute_boxed(logger);
+}
+
+/// Replace the current logger with the provided one.
+///
+/// This can be called multiple times (unlike [`Dispatch::apply`]) and it always replaces the old
 /// logger with a new one.
 ///
 /// The logger will be installed in a synchronous way ‒ a call to logging functions may block.
@@ -733,14 +777,8 @@ pub fn init() {
 ///
 /// If [`init`] haven't been called yet.
 pub fn install(logger: Dispatch) {
-    assert!(
-        INIT_CALLED.load(Ordering::Relaxed),
-        "spirit_log::init not called yet"
-    );
-    debug!("Installing loggers");
     let (level, logger) = logger.into_log();
-    log::set_max_level(level);
-    log_reroute::reroute_boxed(logger);
+    install_parts(level, logger);
 }
 
 impl Fragment for Cfg {
@@ -801,6 +839,9 @@ impl Fragment for CfgAndOpts {
 /// the [`Pipeline`][spirit::Pipeline] with [`Cfg`].
 ///
 /// Loggers installed this way act in a synchronous way ‒ they block on IO.
+///
+/// Note that it is possible to install other loggers through this too ‒ even the async ones from
+/// [`Background`] transformation.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct LogInstaller;
 
@@ -808,6 +849,16 @@ impl<O, C> Installer<Dispatch, O, C> for LogInstaller {
     type UninstallHandle = ();
     fn install(&mut self, logger: Dispatch, _: &str) {
         install(logger);
+    }
+    fn init<B: Extensible<Ok = B>>(&mut self, builder: B, _name: &str) -> Result<B, Error> {
+        builder.with(Cfg::init_extension())
+    }
+}
+
+impl<O, C> Installer<(LevelFilter, Box<dyn Log>), O, C> for LogInstaller {
+    type UninstallHandle = ();
+    fn install(&mut self, (level, logger): (LevelFilter, Box<dyn Log>), _: &str) {
+        install_parts(level, logger);
     }
     fn init<B: Extensible<Ok = B>>(&mut self, builder: B, _name: &str) -> Result<B, Error> {
         builder.with(Cfg::init_extension())

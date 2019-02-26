@@ -1,3 +1,14 @@
+# spirit-log-0.2.1
+
+* Asynchronous/background logging support.
+
+# 0.3.1
+
+* Ability to hold guards (things keeping something alive) until the end of the
+  lifetime of Spirit (and therefore application, in most cases).
+* Ability to join the background thread (either manually or requesting
+  autojoin).
+
 # 0.3.0
 # spirit-cfg-helpers-0.2.0
 # spirit-daemonize-0.2.0

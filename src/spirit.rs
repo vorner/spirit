@@ -1,4 +1,4 @@
-use std::any::TypeId;
+use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::panic::{self, AssertUnwindSafe};
@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread;
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use arc_swap::{ArcSwap, Lease};
@@ -37,6 +37,7 @@ struct Hooks<O, C> {
     sigs: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
     singletons: HashSet<TypeId>,
     terminate: Vec<Box<FnMut() + Send>>,
+    guards: Vec<Box<Any + Send>>,
 }
 
 impl<O, C> Default for Hooks<O, C> {
@@ -49,6 +50,7 @@ impl<O, C> Default for Hooks<O, C> {
             sigs: HashMap::new(),
             singletons: HashSet::new(),
             terminate: Vec::new(),
+            guards: Vec::new(),
         }
     }
 }
@@ -102,7 +104,9 @@ pub struct Spirit<O = Empty, C = Empty> {
     // TODO: Mode selection for directories
     opts: O,
     terminate: AtomicBool,
+    autojoin_bg_thread: AtomicBool,
     signals: Signals,
+    bg_thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl<O, C> Spirit<O, C>
@@ -126,6 +130,7 @@ where
     /// Similar to [`new`][Spirit::new], but with specific initial config value
     pub fn with_initial_config(config: C) -> Builder<O, C> {
         Builder {
+            autojoin_bg_thread: false,
             before_bodies: Vec::new(),
             before_config: Vec::new(),
             body_wrappers: Vec::new(),
@@ -138,6 +143,7 @@ where
             sig_hooks: HashMap::new(),
             singletons: HashSet::new(),
             terminate_hooks: Vec::new(),
+            guards: Vec::new(),
         }
     }
 
@@ -308,6 +314,7 @@ where
     /// within a callback (it would lead to deadlock).
     pub fn terminate(&self) {
         debug!("Running termination hooks");
+        self.signals.close();
         for hook in &mut self.hooks.lock().terminate {
             hook();
         }
@@ -339,15 +346,32 @@ where
             }
 
             if term {
-                debug!("Terminating the background thread");
-                return;
+                break;
             }
         }
-        unreachable!("Signals run forever");
+        debug!("Terminating the background thread");
     }
 
     fn load_config(&self) -> Result<C, Error> {
         self.hooks.lock().config_loader.load()
+    }
+
+    /// Waits for the background thread to terminate.
+    ///
+    /// The background thread terminates after a call to [`terminate`] or after a termination
+    /// signal has been received.
+    ///
+    /// If the thread hasn't started or joined already, this returns right away.
+    pub fn join_bg_thread(&self) {
+        if let Some(handle) = self.bg_thread.lock().take() {
+            handle
+                .join()
+                .expect("Spirit BG thread handles panics, shouldn't panic itself");
+        }
+    }
+
+    pub(crate) fn should_autojoin(&self) -> bool {
+        self.autojoin_bg_thread.load(Ordering::Relaxed)
     }
 }
 
@@ -465,6 +489,16 @@ where
             Ok(self)
         }
     }
+
+    fn keep_guard<G: Any + Send>(self, guard: G) -> Self {
+        self.hooks.lock().guards.push(Box::new(guard));
+        self
+    }
+
+    fn autojoin_bg_thread(self) -> Self {
+        self.autojoin_bg_thread.store(true, Ordering::Relaxed);
+        self
+    }
 }
 
 /// The builder of [`Spirit`].
@@ -481,6 +515,7 @@ where
 /// * [`SpiritBuilder`] to turn the builder into [`Spirit`].
 #[must_use = "The builder is inactive without calling `run` or `build`"]
 pub struct Builder<O = Empty, C = Empty> {
+    autojoin_bg_thread: bool,
     before_bodies: Vec<SpiritBody<O, C>>,
     before_config: Vec<Box<FnMut(&C, &O) -> Result<(), Error> + Send>>,
     body_wrappers: Vec<Wrapper<O, C>>,
@@ -493,6 +528,7 @@ pub struct Builder<O = Empty, C = Empty> {
     sig_hooks: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
     singletons: HashSet<TypeId>,
     terminate_hooks: Vec<Box<FnMut() + Send>>,
+    guards: Vec<Box<Any + Send>>,
 }
 
 impl<O, C> Builder<O, C>
@@ -657,6 +693,18 @@ impl<O, C> Extensible for Builder<O, C> {
             Ok(self)
         }
     }
+
+    fn keep_guard<G: Any + Send>(mut self, guard: G) -> Self {
+        self.guards.push(Box::new(guard));
+        self
+    }
+
+    fn autojoin_bg_thread(self) -> Self {
+        Self {
+            autojoin_bg_thread: true,
+            ..self
+        }
+    }
 }
 
 /// An interface to turn the spirit [`Builder`] into a [`Spirit`] and possibly run it.
@@ -762,6 +810,7 @@ where
         let signals = Signals::new(interesting_signals)?;
         let signals_spirit = signals.clone();
         let spirit = Spirit {
+            autojoin_bg_thread: AtomicBool::new(self.autojoin_bg_thread),
             config,
             hooks: Mutex::new(Hooks {
                 config: self.config_hooks,
@@ -771,10 +820,12 @@ where
                 sigs: self.sig_hooks,
                 singletons: self.singletons,
                 terminate: self.terminate_hooks,
+                guards: self.guards,
             }),
             opts,
             terminate: AtomicBool::new(false),
             signals: signals_spirit,
+            bg_thread: Mutex::new(None),
         };
         spirit
             .config_reload()
@@ -782,7 +833,7 @@ where
         let spirit = Arc::new(spirit);
         if background_thread {
             let spirit_bg = Arc::clone(&spirit);
-            thread::Builder::new()
+            let handle = thread::Builder::new()
                 .name("spirit".to_owned())
                 .spawn(move || {
                     loop {
@@ -800,6 +851,7 @@ where
                     }
                 })
                 .unwrap(); // Could fail only if the name contained \0
+            *spirit.bg_thread.lock() = Some(handle);
         }
         debug!(
             "Building bodies from {} before-bodies and {} wrappers",
@@ -817,7 +869,7 @@ where
         let body_wrappers = self.body_wrappers;
         let inner = InnerBody(Box::new(Some(inner)));
         let spirit_body = Arc::clone(&spirit);
-        let mut wrapped = WrapBody(Box::new(Some(|inner: InnerBody| inner.run())));
+        let mut wrapped = WrapBody(Box::new(Some(InnerBody::run)));
         for mut wrapper in body_wrappers.into_iter().rev() {
             // TODO: Can we get rid of this clone?
             let spirit = Arc::clone(&spirit_body);

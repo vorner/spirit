@@ -17,6 +17,7 @@
 //! [`Builder`]: crate::Builder
 //! [`Extension`]: crate::extension::Extension
 
+use std::any::Any;
 use std::borrow::Borrow;
 use std::fmt::Display;
 use std::sync::Arc;
@@ -372,6 +373,31 @@ pub trait Extensible: Sized {
     fn with_singleton<T>(self, singleton: T) -> Result<Self::Ok, Error>
     where
         T: Extension<Self::Ok> + 'static;
+
+    /// Keeps a guard object until destruction.
+    ///
+    /// Sometimes, some things (like, a logger that needs flushing, metrics collector handle) need
+    /// a guard that is destroyed at the end of application lifetime.  However, the [`run`] body
+    /// may terminate sooner than the application, therefore destroying the guards too soon.
+    ///
+    /// By passing the ownership to [`Spirit`], the guard is destroyed together with the [`Spirit`]
+    /// itself.
+    ///
+    /// Note that you may need to [wait for the background thread] or [autojoin
+    /// it][Extensible::autojoin_bg_thread].
+    ///
+    /// The guards can be only added (there's no way to remove or overwrite them later on).
+    ///
+    /// [`run`]: crate::SpiritBuilder::run
+    /// [`Spirit`]: crate::Spirit
+    /// [wait for the background thread]: crate::Spirit::join_bg_thread
+    fn keep_guard<G: Any + Send>(self, guard: G) -> Self;
+
+    /// Specifies that the background thread should be joined automatically, as part of the [`run`]
+    /// method.
+    ///
+    /// [`run`]: spirit::SpiritBuilder::run
+    fn autojoin_bg_thread(self) -> Self;
 }
 
 impl<C> Extensible for Result<C, Error>
@@ -453,7 +479,7 @@ where
         // If we are errored out, this doesn't really matter, but usually false means less work to
         // do.
         self.as_mut()
-            .map(|c| c.singleton::<T>())
+            .map(Extensible::singleton::<T>)
             .unwrap_or_default()
     }
 
@@ -462,6 +488,14 @@ where
         T: Extension<<Self as Extensible>::Ok> + 'static,
     {
         self.and_then(|c| c.with_singleton(singleton))
+    }
+
+    fn keep_guard<G: Any + Send>(self, guard: G) -> Self {
+        self.map(|s| s.keep_guard(guard))
+    }
+
+    fn autojoin_bg_thread(self) -> Self {
+        self.map(Extensible::autojoin_bg_thread)
     }
 }
 
