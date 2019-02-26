@@ -385,9 +385,8 @@ pub trait Extensible: Sized {
     ///
     /// Note that you may need to [wait for the background thread] or [autojoin
     /// it][Extensible::autojoin_bg_thread].
-    /// implicitly.
     ///
-    /// The guards are add only (there's no way to remove or overwrite them later on).
+    /// The guards can be only added (there's no way to remove or overwrite them later on).
     ///
     /// [`run`]: crate::SpiritBuilder::run
     /// [`Spirit`]: crate::Spirit

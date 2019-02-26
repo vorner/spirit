@@ -156,7 +156,8 @@ impl Recv {
 
 /// Selection of how to act if the channel to the logger thread is full.
 ///
-/// Adding more variants won't be considered a breaking change.
+/// This enum is non-exhaustive. Adding more variants in the future will not be considered a
+/// breaking change.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub enum OverflowMode {
     /// Blocks until there's enough space to push the message.
@@ -168,7 +169,7 @@ pub enum OverflowMode {
     DropMsg,
 
     /// Drop the messages that don't without any indication it happened.
-    DropMsgSilent,
+    DropMsgSilently,
     #[doc(hidden)]
     #[allow(non_camel_case_types)]
     __NON_EXHAUSTIVE__,
@@ -279,7 +280,8 @@ impl Log for AsyncLogger {
 ///
 /// The same warnings about lost messages and flushing as in the [`AsyncLogger`] case apply here.
 /// However, the [`Extensible::keep_guard`] and [`spirit::Extensible::autojoin_bg_thread`] can be
-/// used with the [`FlushGuard`] to ensure this happens automatically.
+/// used with the [`FlushGuard`] to ensure this happens automatically (the [`FlushGuard`] also
+/// implements [`Extension`], which takes care of the setup).
 ///
 /// # Examples
 ///
@@ -287,22 +289,7 @@ impl Log for AsyncLogger {
 /// use log::info;
 /// use serde::Deserialize;
 /// use spirit::prelude::*;
-/// use spirit_log::{
-///     Background, Cfg as LogCfg, CfgAndOpts as LogBoth, FlushGuard, Opts as LogOpts, OverflowMode,
-/// };
-/// use structopt::StructOpt;
-///
-/// #[derive(Clone, Debug, StructOpt)]
-/// struct Opts {
-///     #[structopt(flatten)]
-///     log: LogOpts,
-/// }
-///
-/// impl Opts {
-///     fn log(&self) -> LogOpts {
-///         self.log.clone()
-///     }
-/// }
+/// use spirit_log::{Background, Cfg as LogCfg, FlushGuard, OverflowMode};
 ///
 /// #[derive(Clone, Debug, Default, Deserialize)]
 /// struct Cfg {
@@ -317,13 +304,10 @@ impl Log for AsyncLogger {
 /// }
 ///
 /// fn main() {
-///     Spirit::<Opts, Cfg>::new()
+///     Spirit::<Empty, Cfg>::new()
 ///         .with(
 ///             Pipeline::new("logging")
-///                 .extract(|opts: &Opts, cfg: &Cfg| LogBoth {
-///                     cfg: cfg.log(),
-///                     opts: opts.log(),
-///                 })
+///                 .extract_cfg(Cfg::log)
 ///                 .transform(Background::new(100, OverflowMode::Block)),
 ///         )
 ///         .with_singleton(FlushGuard)
@@ -339,6 +323,7 @@ impl Log for AsyncLogger {
 /// [`Pipeline`]: spirit::fragment::pipeline::Pipeline
 /// [`Extensible::keep_guard`]: spirit::Extensible::keep_guard
 /// [`Extensible::autojoin_bg_thread`]: spirit::Extensible::autojoin_bg_thread
+/// [`Extension`]: spirit::extension::Extension
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Background {
     mode: OverflowMode,
@@ -379,9 +364,9 @@ impl<I, F> Transformation<Dispatch, I, F> for Background {
 ///
 /// Unless the logger is flushed, there's a risk of losing messages on application termination.
 ///
-/// It can be used either separately or plugged into the spirit [`Builder`]. In that case, it also
-/// turns on the [`autojoin_bg_thread`] option, so the application actually waits for the spirit
-/// thread to terminate and drops the guard.
+/// It can be used either separately or plugged into the spirit [`Builder`] (through the
+/// [`Extension`] trait). In that case, it also turns on the [`autojoin_bg_thread`] option, so the
+/// application actually waits for the spirit thread to terminate and drops the guard.
 ///
 /// Note that it's fine to flush the logs multiple times (it only costs some performance, because
 /// the flush needs to wait for all the queued messages to be written).
@@ -406,9 +391,19 @@ impl<I, F> Transformation<Dispatch, I, F> for Background {
 /// [`autojoin_bg_thread`]: spirit::Extensible::autojoin_bg_thread
 pub struct FlushGuard;
 
+impl FlushGuard {
+    /// Performs the flush of the global logger.
+    ///
+    /// This can be used directly, instead of getting an instance of the [`FlushGuard`] and
+    /// dropping it. But both ways have the same effect.
+    pub fn flush() {
+        log::logger().flush();
+    }
+}
+
 impl Drop for FlushGuard {
     fn drop(&mut self) {
-        log::logger().flush();
+        Self::flush();
     }
 }
 
