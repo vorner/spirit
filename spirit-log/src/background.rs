@@ -272,6 +272,15 @@ impl Log for AsyncLogger {
     }
 }
 
+impl Drop for AsyncLogger {
+    /// Flushes the logger before going away, to make sure log messages are not lost.
+    ///
+    /// As much as it's possible to ensure.
+    fn drop(&mut self) {
+        self.flush();
+    }
+}
+
 /// A [`Transformation`] to move loggers into background threads.
 ///
 /// By default, loggers created by the [`Pipeline`] are synchronous ‒ they block to do their IO.
