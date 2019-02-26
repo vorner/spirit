@@ -1,6 +1,8 @@
 # spirit-log-0.2.1
 
 * Asynchronous/background logging support.
+* Fix of collision on stderr (errors were logged twice if configuration had a
+  stderr log).
 
 # 0.3.1
 

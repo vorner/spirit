@@ -801,6 +801,18 @@ impl Fragment for Cfg {
 /// [crate examples](index.html#examples).
 ///
 /// The [`Fragment`] will then combine the options to create the relevant loggers.
+///
+/// # Interaction on stderr
+///
+/// There's a little twist around stderr and the interaction between the `-L` option and loggers
+/// set up in configuration. This is to act in a way that makes some sense ‒ in particular, we
+/// don't want to log to stderr twice. Therefore:
+///
+/// * If the user specifies `-l` (or `-L`) on the command line, any stderr logger from
+///   configuration is skipped (the `-l` takes precedence).
+/// * If there are no loggers in configuration but there's no `-l`, errors are logged to stderr.
+///   This is the case before configuration is loaded or if it contains no loggers. We want to
+///   report errors *somewhere*.
 // TODO: Non-owned version too?
 #[derive(Clone, Debug)]
 pub struct CfgAndOpts {
@@ -820,15 +832,19 @@ impl Fragment for CfgAndOpts {
         Ok(())
     }
     fn make_resource(&self, _: &mut (), _name: &str) -> Result<Dispatch, Error> {
-        let has_cmdline = self.opts.logger_cfg().is_some();
+        let mut cmd = self.opts.logger_cfg();
+        // No logging at all ‒ log errors to stderr
+        if self.cfg.logging.is_empty() && cmd.is_none() {
+            cmd = Some(Logger::default());
+        }
         create(
             self.cfg
                 .logging
                 .iter()
                 // A command line overrides any logger to stderr in configuration. But only if it
                 // is set at all.
-                .filter(|l| l.destination != LogDestination::StdErr || !has_cmdline)
-                .chain(iter::once(&self.opts.logger_cfg().unwrap_or_default())),
+                .filter(|l| l.destination != LogDestination::StdErr || cmd.is_none())
+                .chain(cmd.as_ref()),
         )
     }
 }
