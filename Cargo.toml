@@ -46,7 +46,7 @@ log = "~0.4"
 parking_lot = "~0.7"
 serde = { version = "~1", features = ["derive"] }
 signal-hook = "~0.1.7"
-structdoc = { version = "~0.1", optional = true }
+structdoc = { version = "~0.1.3", optional = true }
 structopt = "~0.2"
 toml = "~0.4"
 
@@ -58,5 +58,5 @@ spirit-daemonize = { version = "~0.2", path = "spirit-daemonize" }
 spirit-hyper = { version = "~0.5", path = "spirit-hyper" }
 spirit-log = { version = "~0.2", path = "spirit-log" }
 spirit-tokio = { version = "~0.5", path = "spirit-tokio" }
-structdoc = "~0.1"
+structdoc = "~0.1.3"
 version-sync = "~0.7"
