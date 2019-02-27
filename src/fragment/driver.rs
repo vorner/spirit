@@ -713,6 +713,7 @@ where
                 sub.id_mapping = mapping;
             }
             sub.new = false;
+            sub.used = false;
         }
     }
     fn abort(&mut self, name: &'static str) {

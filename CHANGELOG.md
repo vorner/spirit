@@ -11,6 +11,8 @@
 * Ability to join the background thread (either manually or requesting
   autojoin).
 * Fixes around logging of validation errors.
+* Fixes around updating sequences in pipelines (only the first update
+  succeeded).
 
 # 0.3.0
 # spirit-cfg-helpers-0.2.0

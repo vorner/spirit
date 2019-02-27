@@ -761,9 +761,9 @@ pub fn install_parts(level: LevelFilter, logger: Box<dyn Log>) {
         INIT_CALLED.load(Ordering::Relaxed),
         "spirit_log::init not called yet"
     );
-    debug!("Installing loggers with global level filter {:?}", level);
     log::set_max_level(level);
     log_reroute::reroute_boxed(logger);
+    debug!("Installed loggers with global level filter {:?}", level);
 }
 
 /// Replace the current logger with the provided one.
