@@ -10,6 +10,7 @@
   lifetime of Spirit (and therefore application, in most cases).
 * Ability to join the background thread (either manually or requesting
   autojoin).
+* Fixes around logging of validation errors.
 
 # 0.3.0
 # spirit-cfg-helpers-0.2.0

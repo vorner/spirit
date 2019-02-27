@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use arc_swap::{ArcSwap, Lease};
 use failure::{Error, Fail, ResultExt};
-use log::{debug, info, trace, Level};
+use log::{debug, error, info, trace, Level};
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use signal_hook::iterator::Signals;
@@ -22,12 +22,16 @@ use crate::bodies::{InnerBody, SpiritBody, WrapBody, Wrapper};
 use crate::cfg_loader::{Builder as CfgBuilder, ConfigBuilder, Loader as CfgLoader};
 use crate::empty::Empty;
 use crate::extension::{Extensible, Extension};
+use crate::fragment::pipeline::MultiError;
 use crate::utils::{self, ErrorLogFormat};
 use crate::validation::Action;
 
 #[derive(Debug, Fail)]
-#[fail(display = "Config validation failed with {} errors", _0)]
-pub struct ValidationError(usize);
+#[fail(
+    display = "Config validation failed with {} errors from {} validators",
+    _0, _1
+)]
+pub struct ValidationError(usize, usize);
 
 struct Hooks<O, C> {
     config: Vec<Box<FnMut(&O, &Arc<C>) + Send>>,
@@ -228,13 +232,36 @@ where
             hooks.config_validators.len()
         );
         let mut errors = 0;
+        let mut failed_validators = 0;
         let mut actions = Vec::with_capacity(hooks.config_validators.len());
         for v in hooks.config_validators.iter_mut() {
             match v(&old, &new, &self.opts) {
                 Ok(ac) => actions.push(ac),
                 Err(e) => {
-                    errors += 1;
-                    utils::log_error(Level::Error, module_path!(), &e, ErrorLogFormat::Multiline);
+                    failed_validators += 1;
+                    match e.downcast::<MultiError>() {
+                        Ok(e) => {
+                            error!("{}", e);
+                            errors += e.errors.len();
+                            for e in e.errors {
+                                utils::log_error(
+                                    Level::Error,
+                                    module_path!(),
+                                    &e,
+                                    ErrorLogFormat::Multiline,
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            errors += 1;
+                            utils::log_error(
+                                Level::Error,
+                                module_path!(),
+                                &e,
+                                ErrorLogFormat::Multiline,
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -249,7 +276,7 @@ where
             for a in actions {
                 a.run(false);
             }
-            return Err(ValidationError(errors).into());
+            return Err(ValidationError(errors, failed_validators).into());
         }
 
         // Once everything is validated, switch to the new config

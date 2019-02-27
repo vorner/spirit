@@ -10,10 +10,11 @@
 //!
 //! [`Pipeline`]: crate::fragment::pipeline::Pipeline
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use failure::Error;
+use failure::{Backtrace, Error, Fail};
 use log::{debug, trace};
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
@@ -22,7 +23,68 @@ use structopt::StructOpt;
 use super::driver::{CacheId, Driver, Instruction};
 use super::{Extractor, Fragment, Installer, Transformation};
 use crate::extension::{Extensible, Extension};
-use crate::validation::{Action, MultiError};
+use crate::validation::Action;
+
+/// An error caused by multiple other errors.
+///
+/// Carries all the errors that caused it to fail (publicly accessible). Multiple are possible.
+///
+/// The `cause` is delegated to the first error, if any is present.
+#[derive(Debug)]
+pub struct MultiError {
+    /// All the errors that happened.
+    pub errors: Vec<Error>,
+
+    /// The pipeline this error comes from.
+    pub pipeline: &'static str,
+}
+
+impl MultiError {
+    /// Creates a multi-error.
+    ///
+    /// Depending on if one error is passed or multiple, the error is either propagated through
+    /// (without introducing another layer of indirection) or all the errors are wrapped into a
+    /// `MultiError`.
+    ///
+    /// # Panics
+    ///
+    /// If the `errs` passed is empty (eg. then there are no errors, so it logically makes no sense
+    /// to call it an error).
+    pub fn wrap(mut errs: Vec<Error>, pipeline: &'static str) -> Error {
+        match errs.len() {
+            0 => panic!("No errors in multi-error"),
+            1 => errs.pop().unwrap(),
+            _ => MultiError {
+                errors: errs,
+                pipeline,
+            }
+            .into(),
+        }
+    }
+}
+
+impl Display for MultiError {
+    fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
+        write!(
+            formatter,
+            "Pipeline {} failed with {} errors",
+            self.pipeline,
+            self.errors.len()
+        )
+    }
+}
+
+impl Fail for MultiError {
+    // There may actually be multiple causes. But we just stick with the first one for lack of
+    // better way to pick.
+    fn cause(&self) -> Option<&dyn Fail> {
+        self.errors.get(0).map(Error::as_fail)
+    }
+
+    fn backtrace(&self) -> Option<&Backtrace> {
+        self.errors.get(0).map(Error::backtrace)
+    }
+}
 
 struct InstallCache<I, O, C, R, H> {
     installer: I,
@@ -563,17 +625,19 @@ where
             transformation,
         };
         let compiled = Arc::new(Mutex::new(compiled));
+        let name = self.name;
         if F::RUN_BEFORE_CONFIG && !B::STARTED {
             let compiled = Arc::clone(&compiled);
             let before_config = move |cfg: &B::Config, opts: &B::Opts| {
                 BoundedCompiledPipeline::run(&compiled, opts, cfg)
                     .map(|action| action.run(true))
-                    .map_err(MultiError::wrap)
+                    .map_err(|errs| MultiError::wrap(errs, name))
             };
             builder = builder.before_config(before_config)?;
         }
         let validator = move |_old: &_, cfg: &Arc<B::Config>, opts: &B::Opts| {
-            BoundedCompiledPipeline::run(&compiled, opts, cfg).map_err(MultiError::wrap)
+            BoundedCompiledPipeline::run(&compiled, opts, cfg)
+                .map_err(|errs| MultiError::wrap(errs, name))
         };
         builder.config_validator(validator)
     }
