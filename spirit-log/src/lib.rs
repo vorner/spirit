@@ -767,9 +767,7 @@ pub fn install_parts(level: LevelFilter, logger: Box<dyn Log>) {
     log_reroute::reroute_boxed(logger);
     debug!(
         "Installed loggers with global level filter {:?} (compiled with {:?}, runtime config {:?})",
-        actual_level,
-        STATIC_MAX_LEVEL,
-        level,
+        actual_level, STATIC_MAX_LEVEL, level,
     );
 }
 
