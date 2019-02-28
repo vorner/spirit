@@ -163,6 +163,12 @@ struct HyperCfg {
     #[serde(default = "default_on")]
     http1_writev: bool,
 
+    /// When a http1 client closes its write end, keep the connection open until the reply is sent.
+    ///
+    /// If set to false, if the client closes its connection, server does too.
+    #[serde(default = "default_on")]
+    http1_half_close: bool,
+
     #[serde(default)]
     http_mode: HttpMode,
 }
@@ -206,6 +212,7 @@ impl<Transport: Default> Default for HyperServer<Transport> {
             inner: HyperCfg {
                 http1_keepalive: true,
                 http1_writev: true,
+                http1_half_close: true,
                 http_mode: HttpMode::default(),
             },
         }
@@ -250,6 +257,7 @@ where
         let builder = Server::builder(transport.into_incoming())
             .http1_keepalive(self.inner.http1_keepalive)
             .http1_writev(self.inner.http1_writev)
+            .http1_half_close(self.inner.http1_half_close)
             .http1_only(h1_only)
             .http2_only(h2_only);
         Ok(builder)
