@@ -8,7 +8,7 @@ repository = "https://github.com/vorner/spirit"
 readme = "README.md"
 categories = ["config", "os::unix-apis"]
 keywords = ["unix", "daemon", "service", "spirit"]
-license = "Apache-2.0/MIT"
+license = "Apache-2.0 OR MIT"
 include = [
     "Cargo.toml",
     "README.md",

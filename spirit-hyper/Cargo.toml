@@ -7,7 +7,7 @@ documentation = "https://docs.rs/spirit-hyper"
 repository = "https://github.com/vorner/spirit"
 categories = ["config", "web-programming"]
 keywords = ["http", "hyper", "service", "configuration", "spirit"]
-license = "Apache-2.0/MIT"
+license = "Apache-2.0 OR MIT"
 readme = "README.md"
 include = [
     "Cargo.toml",
