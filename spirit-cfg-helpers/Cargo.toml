@@ -10,6 +10,10 @@ license = "Apache-2.0/MIT"
 categories = ["command-line-interface", "config"]
 keywords = ["configuration", "spirit", "ux"]
 readme = "README.md"
+include = [
+    "Cargo.toml",
+    "src/**",
+]
 
 [features]
 default = ["cfg-help", "json", "yaml"]

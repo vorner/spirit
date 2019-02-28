@@ -10,6 +10,10 @@ categories = ["command-line-interface", "config"]
 keywords = ["unix", "daemon", "service", "configuration", "spirit"]
 license = "Apache-2.0/MIT"
 edition = "2018"
+include = [
+    "Cargo.toml",
+    "src/**",
+]
 
 [workspace]
 members = [

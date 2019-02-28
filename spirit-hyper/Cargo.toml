@@ -9,6 +9,10 @@ categories = ["config", "web-programming"]
 keywords = ["http", "hyper", "service", "configuration", "spirit"]
 license = "Apache-2.0/MIT"
 readme = "README.md"
+include = [
+    "Cargo.toml",
+    "src/**",
+]
 
 [badges]
 travis-ci = { repository = "vorner/spirit" }

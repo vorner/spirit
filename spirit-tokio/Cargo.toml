@@ -10,6 +10,10 @@ readme = "README.md"
 categories = ["config", "network-programming"]
 keywords = ["async", "tokio", "service", "configuration", "spirit"]
 edition = "2018"
+include = [
+    "Cargo.toml",
+    "src/**",
+]
 
 [features]
 default = ["cfg-help"]

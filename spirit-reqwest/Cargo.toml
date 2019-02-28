@@ -10,6 +10,10 @@ license = "Apache-2.0/MIT"
 categories = ["config", "web-programming"]
 keywords = ["http", "reqwest", "service", "configuration", "spirit"]
 readme = "README.md"
+include = [
+    "Cargo.toml",
+    "src/**",
+]
 
 [badges]
 travis-ci = { repository = "vorner/spirit" }

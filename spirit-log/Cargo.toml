@@ -10,6 +10,10 @@ categories = ["config", "development-tools::debugging"]
 keywords = ["log", "spirit", "service", "configuration"]
 license = "Apache-2.0/MIT"
 edition = "2018"
+include = [
+    "Cargo.toml",
+    "src/**",
+]
 
 [badges]
 travis-ci = { repository = "vorner/spirit" }
