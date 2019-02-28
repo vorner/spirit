@@ -12,6 +12,7 @@ keywords = ["configuration", "spirit", "ux"]
 readme = "README.md"
 include = [
     "Cargo.toml",
+    "README.md",
     "src/**",
 ]
 

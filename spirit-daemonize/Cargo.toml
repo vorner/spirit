@@ -11,6 +11,7 @@ keywords = ["unix", "daemon", "service", "spirit"]
 license = "Apache-2.0/MIT"
 include = [
     "Cargo.toml",
+    "README.md",
     "src/**",
 ]
 

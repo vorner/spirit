@@ -12,6 +12,7 @@ keywords = ["http", "reqwest", "service", "configuration", "spirit"]
 readme = "README.md"
 include = [
     "Cargo.toml",
+    "README.md",
     "src/**",
 ]
 

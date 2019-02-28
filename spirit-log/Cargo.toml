@@ -12,6 +12,7 @@ license = "Apache-2.0/MIT"
 edition = "2018"
 include = [
     "Cargo.toml",
+    "README.md",
     "src/**",
 ]
 

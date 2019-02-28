@@ -12,6 +12,7 @@ keywords = ["async", "tokio", "service", "configuration", "spirit"]
 edition = "2018"
 include = [
     "Cargo.toml",
+    "README.md",
     "src/**",
 ]
 
