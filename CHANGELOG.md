@@ -1,3 +1,11 @@
+# spirit-log-0.2.2
+
+* Cap configured level by `log::STATIC_MAX_LEVEL` too.
+
+# spirit-0.3.2
+
+* bugfix: SeqDriver removes unused resources.
+
 # spirit-log-0.2.1
 
 * Asynchronous/background logging support.

@@ -597,6 +597,14 @@ impl IdMapping {
                 }
             })
     }
+
+    /// Lists the IDs that are active in the target (translated).
+    ///
+    /// This can be used to, for example, generate instructions to completely „wipe“ the
+    /// corresponding driver.
+    pub fn active_target_ids(&self) -> impl Iterator<Item = &CacheId> {
+        self.mapping.values()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -689,6 +697,17 @@ where
                     instructions.extend(mapping.translate(&mut self.id_gen, new_instructions));
                 }
                 Err(errs) => errors.extend(errs),
+            }
+        }
+
+        for slot in &self.sub_drivers {
+            if !slot.used {
+                instructions.extend(
+                    slot.id_mapping
+                        .active_target_ids()
+                        .cloned()
+                        .map(Instruction::DropSpecific),
+                );
             }
         }
 
