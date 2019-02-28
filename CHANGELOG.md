@@ -1,3 +1,7 @@
+# spirit-hyper-0.5.1
+
+* Support the http1-half-close option.
+
 # spirit-log-0.2.2
 
 * Cap configured level by `log::STATIC_MAX_LEVEL` too.
