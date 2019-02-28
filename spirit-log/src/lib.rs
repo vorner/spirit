@@ -160,6 +160,7 @@
 
 use std::borrow::Cow;
 use std::cell::Cell;
+use std::cmp;
 use std::collections::HashMap;
 use std::fmt::Arguments;
 use std::io::{self, Write};
@@ -174,7 +175,7 @@ use chrono::{Local, Utc};
 use failure::{Error, Fail};
 use fern::Dispatch;
 use itertools::Itertools;
-use log::{debug, trace, LevelFilter, Log};
+use log::{debug, trace, LevelFilter, Log, STATIC_MAX_LEVEL};
 use serde::de::{Deserializer, Error as DeError};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
@@ -761,9 +762,15 @@ pub fn install_parts(level: LevelFilter, logger: Box<dyn Log>) {
         INIT_CALLED.load(Ordering::Relaxed),
         "spirit_log::init not called yet"
     );
-    log::set_max_level(level);
+    let actual_level = cmp::min(level, STATIC_MAX_LEVEL);
+    log::set_max_level(actual_level);
     log_reroute::reroute_boxed(logger);
-    debug!("Installed loggers with global level filter {:?}", level);
+    debug!(
+        "Installed loggers with global level filter {:?} (compiled with {:?}, runtime config {:?})",
+        actual_level,
+        STATIC_MAX_LEVEL,
+        level,
+    );
 }
 
 /// Replace the current logger with the provided one.
