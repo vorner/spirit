@@ -79,21 +79,6 @@
 //! [Spirit]: https://crates.io/crates/spirit.
 //! [`spirit-tokio`]: spirit_tokio
 
-extern crate failure;
-extern crate futures;
-extern crate hyper;
-#[macro_use]
-extern crate log;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate spirit;
-extern crate spirit_tokio;
-#[cfg(feature = "cfg-help")]
-#[macro_use]
-extern crate structdoc;
-extern crate tokio;
-
 use std::error::Error as EError;
 use std::fmt::Debug;
 use std::io::Error as IoError;
@@ -105,7 +90,8 @@ use hyper::body::Payload;
 use hyper::server::{Builder, Server};
 use hyper::service::{MakeServiceRef, Service};
 use hyper::Body;
-use log::Level;
+use log::{debug, Level};
+use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable, Transformation};
 use spirit::utils::{self, ErrorLogFormat};
@@ -114,6 +100,8 @@ use spirit_tokio::installer::FutureInstaller;
 use spirit_tokio::net::limits::WithLimits;
 use spirit_tokio::net::IntoIncoming;
 use spirit_tokio::TcpListen;
+#[cfg(feature = "cfg-help")]
+use structdoc::StructDoc;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 fn default_on() -> bool {
