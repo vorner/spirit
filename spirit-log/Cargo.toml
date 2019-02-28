@@ -1,6 +1,6 @@
 [package]
 name = "spirit-log"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Spirit helpers and config fragments for logging"
 documentation = "https://docs.rs/spirit-log"
