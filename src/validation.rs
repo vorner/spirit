@@ -63,7 +63,7 @@ mod multi_error {
     }
 }
 
-pub use multi_error::*;
+pub use self::multi_error::*;
 
 /// A validation action.
 ///
