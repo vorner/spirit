@@ -1,6 +1,7 @@
 use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
+use std::mem;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process;
@@ -342,11 +343,18 @@ where
     pub fn terminate(&self) {
         debug!("Running termination hooks");
         self.signals.close();
-        for hook in &mut self.hooks.lock().terminate {
+        let mut hooks = self.hooks.lock();
+        // Take out the terminate hooks out first, so they are not called multiple times even in
+        // case of panic.
+        let mut term_hooks = Vec::new();
+        mem::swap(&mut term_hooks, &mut hooks.terminate);
+        for hook in &mut hooks.terminate {
             hook();
         }
         self.terminate.store(true, Ordering::Relaxed);
-        *self.hooks.lock() = Hooks::default();
+        // Get rid of all other hooks too. This drops any variables held by the closures,
+        // potentially shutting down things than need to be shut down.
+        *hooks = Hooks::default();
     }
 
     fn background(&self, signals: &Signals) {
@@ -466,10 +474,13 @@ where
         Ok(self)
     }
 
-    fn on_terminate<F: FnMut() + Send + 'static>(self, hook: F) -> Self {
+    fn on_terminate<F: FnOnce() + Send + 'static>(self, hook: F) -> Self {
         trace!("Running termination hook at runtime");
+        let mut hook = Some(hook);
         let mut hooks = self.hooks.lock();
-        hooks.terminate.push(Box::new(hook));
+        hooks.terminate.push(Box::new(move || {
+            (hook.take().expect("Termination hook called multiple times"))()
+        }));
         // FIXME: Is there possibly a race condition because the lock and the is_terminated are
         // unsychronized/not SeqCst?
         if self.is_terminated() {
@@ -673,9 +684,12 @@ impl<O, C> Extensible for Builder<O, C> {
         })
     }
 
-    fn on_terminate<F: FnMut() + Send + 'static>(self, hook: F) -> Self {
+    fn on_terminate<F: FnOnce() + Send + 'static>(self, hook: F) -> Self {
+        let mut hook = Some(hook);
         let mut hooks = self.terminate_hooks;
-        hooks.push(Box::new(hook));
+        hooks.push(Box::new(move || {
+            (hook.take().expect("Termination hook called more than once"))();
+        }));
         Self {
             terminate_hooks: hooks,
             ..self

@@ -1,3 +1,7 @@
+# spirit-unreleased
+
+* `on_terminate` takes `FnOnce` instead of `FnMut`.
+
 # spirit-hyper-0.5.1
 
 * Support the http1-half-close option.

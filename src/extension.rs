@@ -245,7 +245,7 @@ pub trait Extensible: Sized {
     /// [`Spirit`]: crate::Spirit.
     fn on_terminate<F>(self, hook: F) -> Self
     where
-        F: FnMut() + Send + 'static;
+        F: FnOnce() + Send + 'static;
 
     /// Add a closure run before the main body.
     ///
@@ -447,7 +447,7 @@ where
 
     fn on_terminate<F>(self, hook: F) -> Self
     where
-        F: FnMut() + Send + 'static,
+        F: FnOnce() + Send + 'static,
     {
         self.map(|c| c.on_terminate(hook))
     }
