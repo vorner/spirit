@@ -3,14 +3,8 @@
 * Why C needs to be Debug?
 * config_exts_all?
 
-* Where are all the errors if validation of config fails? One of them seems to
-  be missing somewhere (or maybe all and that's only what gets printed in case
-  it bubbles one level up).
-
 * unify Order of Opts/Config
 
 * Reintroduce scaling
-* Guard keeper and waiting for the background thread to terminate
-  - For stuff like async logging
 * Parts of the core spirit can be split off and useful separately ‒ base traits, config loading. Then, if the user doesn't want the background thread and stuff, it can be used manually.
 * When rust-1.33 is out go back to using references inside extractors in the examples.
