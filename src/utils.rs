@@ -99,9 +99,14 @@ where
 }
 
 /// How to format errors in logs.
+///
+/// The enum is non-exhaustive ‒ more variants may be added in the future and it won't be
+/// considered an API breaking change.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum ErrorLogFormat {
     /// Multi-cause error will span multiple log messages.
+    ///
+    /// If present, trace is printed on debug level.
     Multiline,
 
     /// The error is formatted on a single line.
@@ -114,6 +119,7 @@ pub enum ErrorLogFormat {
     /// Like [SingleLine][ErrorLogFormat::SingleLine], but without the backtrace.
     SingleLineWithoutBacktrace,
 
+    // Prevent users from accidentally matching against this enum without a catch-all branch.
     #[doc(hidden)]
     #[allow(non_camel_case_types)]
     _NON_EXHAUSTIVE,
