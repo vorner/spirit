@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use arc_swap::{ArcSwap, Lease};
 use failure::{Error, Fail, ResultExt};
-use log::{debug, error, info, trace, Level};
+use log::{debug, error, info, trace};
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use signal_hook::iterator::Signals;
@@ -24,7 +24,7 @@ use crate::cfg_loader::{Builder as CfgBuilder, ConfigBuilder, Loader as CfgLoade
 use crate::empty::Empty;
 use crate::extension::{Extensible, Extension};
 use crate::fragment::pipeline::MultiError;
-use crate::utils::{self, ErrorLogFormat};
+use crate::utils;
 use crate::validation::Action;
 
 #[derive(Debug, Fail)]
@@ -245,22 +245,12 @@ where
                             error!("{}", e);
                             errors += e.errors.len();
                             for e in e.errors {
-                                utils::log_error(
-                                    Level::Error,
-                                    module_path!(),
-                                    &e,
-                                    ErrorLogFormat::Multiline,
-                                );
+                                crate::log_error!(multi Error, e);
                             }
                         }
                         Err(e) => {
                             errors += 1;
-                            utils::log_error(
-                                Level::Error,
-                                module_path!(),
-                                &e,
-                                ErrorLogFormat::Multiline,
-                            );
+                            crate::log_error!(multi Error, e);
                         }
                     }
                 }

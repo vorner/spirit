@@ -17,9 +17,8 @@ use std::io::Error as IoError;
 
 use failure::{Error, Fail};
 use futures::{try_ready, Async, Future, IntoFuture, Poll, Stream};
-use log::{trace, warn, Level};
+use log::{trace, warn};
 use spirit::fragment::Transformation;
-use spirit::utils::{self, ErrorLogFormat};
 
 use crate::installer::FutureInstaller;
 use crate::net::IntoIncoming;
@@ -113,7 +112,7 @@ where
         loop {
             let incoming = self.incoming.poll().map_err(|e| {
                 let e = e.context("Listening socket terminated unexpectedly").into();
-                utils::log_error(Level::Error, module_path!(), &e, ErrorLogFormat::Multiline);
+                spirit::log_error!(multi Error, e);
             });
             let connection = try_ready!(incoming);
             if let Some(conn) = connection {
@@ -126,12 +125,7 @@ where
                         let e = e
                             .into()
                             .context(format!("Failed to handle connection on {}", name));
-                        utils::log_error(
-                            Level::Error,
-                            module_path!(),
-                            &e.into(),
-                            ErrorLogFormat::Multiline,
-                        );
+                        spirit::log_error!(multi Error, e.into());
                     });
                 tokio::spawn(future);
             } else {

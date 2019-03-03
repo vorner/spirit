@@ -419,6 +419,8 @@ pub mod cfg_loader;
 mod empty;
 pub mod extension;
 pub mod fragment;
+#[doc(hidden)]
+pub mod macro_support;
 mod spirit;
 pub mod utils;
 pub mod validation;

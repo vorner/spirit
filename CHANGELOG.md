@@ -1,6 +1,11 @@
 # spirit-unreleased
 
 * `on_terminate` takes `FnOnce` instead of `FnMut`.
+* `log_error!` macro, to cut down on boilerplate of the same-named function.
+* `ErrorLogFormat::Multiline` replaced by `MultiLine` (inconsistency, the old
+  one still stays as a deprecated alias).
+
+TODO: Release -tokio and -hyper too, switch to the not deprecated variant.
 
 # spirit-hyper-0.5.1
 

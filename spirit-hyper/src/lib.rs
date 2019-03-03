@@ -90,11 +90,10 @@ use hyper::body::Payload;
 use hyper::server::{Builder, Server};
 use hyper::service::{MakeServiceRef, Service};
 use hyper::Body;
-use log::{debug, Level};
+use log::debug;
 use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable, Transformation};
-use spirit::utils::{self, ErrorLogFormat};
 use spirit::Empty;
 use spirit_tokio::installer::FutureInstaller;
 use spirit_tokio::net::limits::WithLimits;
@@ -302,12 +301,8 @@ where
                 .server
                 .with_graceful_shutdown(inner.receiver)
                 .map_err(move |e| {
-                    utils::log_error(
-                        Level::Error,
-                        module_path!(),
-                        &e.context(format!("HTTP server {} failed", name)).into(),
-                        ErrorLogFormat::Multiline,
-                    );
+                    let e = e.context(format!("HTTP server {} failed", name));
+                    spirit::log_error!(multi Error, e.into());
                 });
             tokio::spawn(server);
         }

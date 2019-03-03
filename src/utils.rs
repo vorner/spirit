@@ -103,10 +103,15 @@ where
 /// The enum is non-exhaustive ‒ more variants may be added in the future and it won't be
 /// considered an API breaking change.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[allow(deprecated)] // We get a deprecated warning on the one variant we deprecate ourselves.
 pub enum ErrorLogFormat {
     /// Multi-cause error will span multiple log messages.
     ///
     /// If present, trace is printed on debug level.
+    MultiLine,
+
+    #[deprecated(note = "Typo, use MultiLine instead")]
+    #[doc(hidden)]
     Multiline,
 
     /// The error is formatted on a single line.
@@ -131,11 +136,12 @@ pub enum ErrorLogFormat {
 /// debug logging is enabled).
 ///
 /// This is the low-level version with full customization. You might also be interested in
-/// [`log_errors`].
+/// [`log_errors`] or one of the convenience macro ([`log_error`][macro@log_error]).
 pub fn log_error(level: Level, target: &str, e: &Error, format: ErrorLogFormat) {
     // Note: one of the causes is the error itself
+    #[allow(deprecated)] // The Multiline thing
     match format {
-        ErrorLogFormat::Multiline => {
+        ErrorLogFormat::MultiLine | ErrorLogFormat::Multiline => {
             for cause in e.iter_chain() {
                 log!(target: target, level, "{}", cause);
             }
@@ -151,6 +157,44 @@ pub fn log_error(level: Level, target: &str, e: &Error, format: ErrorLogFormat) 
             debug!(target: target, "{}", bt);
         }
     }
+}
+
+/// A convenience macro to log an [`Error`].
+///
+/// This logs an [`Error`] on given log level as a single line without backtrace. Removes some
+/// boilerplate from the [`log_error`][fn@log_error] function.
+///
+/// # Examples
+///
+/// ```rust
+/// use spirit::log_error;
+///
+/// let err = failure::err_msg("Something's broken");
+///
+/// log_error!(Warn, err);
+/// ```
+#[macro_export]
+macro_rules! log_error {
+    ($level: ident, $descr: expr => $err: expr) => {
+        $crate::log_error!(@SingleLineWithoutBacktrace, $level, $err.context($descr).into());
+    };
+    ($level: ident, $err: expr) => {
+        $crate::log_error!(@SingleLineWithoutBacktrace, $level, $err);
+    };
+    (multi $level: ident, $descr: expr => $err: expr) => {
+        $crate::log_error!(@MultiLine, $level, $err.context($descr).into());
+    };
+    (multi $level: ident, $err: expr) => {
+        $crate::log_error!(@MultiLine, $level, $err);
+    };
+    (@$format: ident, $level: ident, $err: expr) => {
+        $crate::utils::log_error(
+            $crate::macro_support::Level::$level,
+            module_path!(),
+            &$err,
+            $crate::utils::ErrorLogFormat::$format,
+        );
+    };
 }
 
 /// A wrapper around a fallible function, logging any returned errors.
@@ -180,7 +224,7 @@ where
 {
     let result = f();
     if let Err(ref e) = result {
-        log_error(Level::Error, target, e, ErrorLogFormat::Multiline);
+        log_error(Level::Error, target, e, ErrorLogFormat::MultiLine);
     }
     result
 }
@@ -314,5 +358,19 @@ mod tests {
             .unwrap_err()
             .downcast_ref::<MissingEquals>()
             .expect("Different error returned");
+    }
+
+    #[test]
+    fn log_error_macro() {
+        let err = failure::err_msg("A test error");
+        log_error!(Debug, err);
+        log_error!(Debug, &err);
+        log_error!(Debug, err.context("Another level").into());
+        let err = failure::err_msg("A test error");
+        log_error!(Debug, "Another level" => err);
+        let multi_err = failure::err_msg("A test error")
+            .context("Another level")
+            .into();
+        log_error!(multi Info, multi_err);
     }
 }
