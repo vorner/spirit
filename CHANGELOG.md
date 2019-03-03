@@ -4,6 +4,8 @@
 * `log_error!` macro, to cut down on boilerplate of the same-named function.
 * `ErrorLogFormat::Multiline` replaced by `MultiLine` (inconsistency, the old
   one still stays as a deprecated alias).
+* `ConfigBuilder::config_defaults_typed` to specify the lowest level of
+  configuration through a struct instead of just string.
 
 TODO: Release -tokio and -hyper too, switch to the not deprecated variant.
 
