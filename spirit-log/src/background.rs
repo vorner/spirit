@@ -237,13 +237,13 @@ impl AsyncLogger {
 
 impl Log for AsyncLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        self.shared.logger.enabled(metadata)
+        record.level() <= log::max_level() && self.shared.logger.enabled(metadata)
     }
     fn log(&self, record: &Record) {
         // Don't allocate bunch of strings if the log message would get thrown away anyway.
         // Do the cheap check first to avoid calling through the virtual table & doing arbitrary
         // stuff of the logger.
-        if record.level() <= log::max_level() && self.enabled(record.metadata()) {
+        if self.enabled(record.metadata()) {
             let i = Instruction::Msg {
                 file: record.file().map(ToOwned::to_owned),
                 level: record.level(),

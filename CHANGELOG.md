@@ -1,3 +1,7 @@
+# spirit-log-unreleased
+
+* Tweaking of AsyncLogger::enabled to do a cheap early check.
+
 # spirit-unreleased
 
 * `on_terminate` takes `FnOnce` instead of `FnMut`.
