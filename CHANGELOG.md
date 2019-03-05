@@ -8,6 +8,7 @@
 * `log_error!` macro, to cut down on boilerplate of the same-named function.
 * `ErrorLogFormat::Multiline` replaced by `MultiLine` (inconsistency, the old
   one still stays as a deprecated alias).
+* Fix corner cases around registering callbacks after termination.
 
 TODO: Release -tokio and -hyper too, switch to the not deprecated variant.
 

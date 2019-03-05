@@ -141,7 +141,8 @@ pub trait Extensible: Sized {
     /// provided to the builder, or a default one when called on the builder, but current
     /// configuration when run on [`Spirit`].
     ///
-    /// This is run right away if called on [`Spirit`].
+    /// This is run right away if called on [`Spirit`], unless it is already terminated. In such
+    /// case, the callback is dropped.
     ///
     /// [`Spirit`]: crate::Spirit
     fn before_config<F>(self, cback: F) -> Result<Self::Ok, Error>
@@ -185,7 +186,8 @@ pub trait Extensible: Sized {
     /// don't have to use them, just use verification and [`on_config`](#method.on_config)
     /// separately.
     ///
-    /// If called on the already started [`Spirit`][crate::Spirit], it is run right away.
+    /// If called on the already started [`Spirit`][crate::Spirit], it is run right away. If it is
+    /// called on terminated one, it is dropped.
     ///
     /// # Examples
     ///
@@ -205,7 +207,7 @@ pub trait Extensible: Sized {
     /// something else down the line.
     ///
     /// If run on an already started [`Spirit`][crate::Spirit], this only registers the callback
-    /// but doesn't call it.
+    /// but doesn't call it. If run on terminated one, it is dropped.
     fn config_mutator<F>(self, f: F) -> Self
     where
         F: FnMut(&mut Self::Config) + Send + 'static;
@@ -214,6 +216,9 @@ pub trait Extensible: Sized {
     ///
     /// The callback is called once a new configuration is loaded and successfully validated, so it
     /// can be directly used.
+    ///
+    /// It is run right away on a started [`Spirit`][crate::Spirit], but it is dropped if it was
+    /// already terminated.
     fn on_config<F>(self, hook: F) -> Self
     where
         F: FnMut(&Self::Opts, &Arc<Self::Config>) + Send + 'static;
@@ -226,6 +231,8 @@ pub trait Extensible: Sized {
     ///
     /// These are not run inside the real signal handler, but are delayed and run in the service
     /// thread. Therefore, restrictions about async-signal-safety don't apply to the hook.
+    ///
+    /// It is dropped if called on already terminated spirit.
     ///
     /// TODO: Threads, deadlocks
     fn on_signal<F>(self, signal: libc::c_int, hook: F) -> Result<Self::Ok, Error>

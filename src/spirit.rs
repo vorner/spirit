@@ -43,6 +43,9 @@ struct Hooks<O, C> {
     singletons: HashSet<TypeId>,
     terminate: Vec<Box<FnMut() + Send>>,
     guards: Vec<Box<Any + Send>>,
+    // There's terminated inside spirit itself, as atomic variable (for lock-less fast access). But
+    // that is prone to races, so we keep a separate one here.
+    terminated: bool,
 }
 
 impl<O, C> Default for Hooks<O, C> {
@@ -56,6 +59,7 @@ impl<O, C> Default for Hooks<O, C> {
             singletons: HashSet::new(),
             terminate: Vec::new(),
             guards: Vec::new(),
+            terminated: false,
         }
     }
 }
@@ -343,8 +347,18 @@ where
         }
         self.terminate.store(true, Ordering::Relaxed);
         // Get rid of all other hooks too. This drops any variables held by the closures,
-        // potentially shutting down things than need to be shut down.
+        // potentially shutting down things than need to be shut down. But we need to keep the
+        // guards (until the end of the spirit lifetime) and the singletons (so we don't register
+        // something a second time in some corner case when it didn't notice it already
+        // terminated).
+        let mut guards = Vec::new();
+        mem::swap(&mut guards, &mut hooks.guards);
+        let mut singletons = HashSet::new();
+        mem::swap(&mut singletons, &mut hooks.singletons);
         *hooks = Hooks::default();
+        hooks.guards = guards;
+        hooks.singletons = singletons;
+        hooks.terminated = true;
     }
 
     fn background(&self, signals: &Signals) {
@@ -425,9 +439,11 @@ where
     {
         trace!("Adding config validator at runtime");
         let mut hooks = self.hooks.lock();
-        let cfg = Lease::into_upgrade(self.config());
-        f(&cfg, &cfg, self.cmd_opts())?.run(true);
-        hooks.config_validators.push(Box::new(f));
+        if !hooks.terminated {
+            let cfg = Lease::into_upgrade(self.config());
+            f(&cfg, &cfg, self.cmd_opts())?.run(true);
+            hooks.config_validators.push(Box::new(f));
+        }
         Ok(self)
     }
 
@@ -437,15 +453,19 @@ where
     {
         trace!("Adding config mutator at runtime");
         let mut hooks = self.hooks.lock();
-        hooks.config_mutators.push(Box::new(f));
+        if !hooks.terminated {
+            hooks.config_mutators.push(Box::new(f));
+        }
         self
     }
 
     fn on_config<F: FnMut(&O, &Arc<C>) + Send + 'static>(self, mut hook: F) -> Self {
         trace!("Adding config hook at runtime");
         let mut hooks = self.hooks.lock();
-        hook(self.cmd_opts(), &Lease::upgrade(&self.config()));
-        hooks.config.push(Box::new(hook));
+        if !hooks.terminated {
+            hook(self.cmd_opts(), &Lease::upgrade(&self.config()));
+            hooks.config.push(Box::new(hook));
+        }
         self
     }
 
@@ -455,12 +475,14 @@ where
     {
         trace!("Adding signal hook at runtime");
         self.signals.add_signal(signal)?;
-        self.hooks
-            .lock()
-            .sigs
-            .entry(signal)
-            .or_insert_with(Vec::new)
-            .push(Box::new(hook));
+        let mut hooks = self.hooks.lock();
+        if !hooks.terminated {
+            hooks
+                .sigs
+                .entry(signal)
+                .or_insert_with(Vec::new)
+                .push(Box::new(hook));
+        }
         Ok(self)
     }
 
@@ -468,13 +490,12 @@ where
         trace!("Running termination hook at runtime");
         let mut hook = Some(hook);
         let mut hooks = self.hooks.lock();
-        hooks.terminate.push(Box::new(move || {
-            (hook.take().expect("Termination hook called multiple times"))()
-        }));
-        // FIXME: Is there possibly a race condition because the lock and the is_terminated are
-        // unsychronized/not SeqCst?
-        if self.is_terminated() {
+        if hooks.terminated {
             (hooks.terminate.last_mut().unwrap())();
+        } else {
+            hooks.terminate.push(Box::new(move || {
+                (hook.take().expect("Termination hook called multiple times"))()
+            }));
         }
         self
     }
@@ -503,7 +524,6 @@ where
             + Send
             + 'static,
     {
-        // XXX: Link to some documentation/help how to resolve
         panic!("Wrapping body while already running is not possible, move this to the builder (see https://docs.rs/spirit/*/extension/trait.Extensible.html#method.run_around");
     }
 
@@ -851,6 +871,7 @@ where
                 sigs: self.sig_hooks,
                 singletons: self.singletons,
                 terminate: self.terminate_hooks,
+                terminated: false,
                 guards: self.guards,
             }),
             opts,
