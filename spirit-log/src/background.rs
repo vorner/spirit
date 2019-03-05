@@ -237,7 +237,7 @@ impl AsyncLogger {
 
 impl Log for AsyncLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        record.level() <= log::max_level() && self.shared.logger.enabled(metadata)
+        metadata.level() <= log::max_level() && self.shared.logger.enabled(metadata)
     }
     fn log(&self, record: &Record) {
         // Don't allocate bunch of strings if the log message would get thrown away anyway.
