@@ -170,6 +170,23 @@ pub enum OverflowMode {
 
     /// Drop the messages that don't without any indication it happened.
     DropMsgSilently,
+
+    /// Drop less severe messages sooner than filling the whole buffer.
+    ///
+    /// If the buffer is completely full, it acts like the [`DropMsg`][OverflowMode::DropMsg]. If
+    /// it's not full, but has more than `fill_limit` messages in it, messages with severity
+    /// `from_level` or less severe are dropped, while more severe are still inserted into the
+    /// buffer.
+    ///
+    /// Both limits are inclusive.
+    AdaptiveDrop {
+        /// Level of severity of messages to drop if the buffer is more full that `from_level`.
+        from_level: Level,
+
+        /// The level at which the less severe messages start being dropped.
+        fill_limit: usize,
+    },
+
     #[doc(hidden)]
     #[allow(non_camel_case_types)]
     __NON_EXHAUSTIVE__,
@@ -211,7 +228,21 @@ impl AsyncLogger {
     /// * `logger`: The logger to use in the background thread.
     /// * `buffer`: How many messages there can be waiting in the channel to the background thread.
     /// * `mode`: What to do if a message doesn't fit into the channel.
+    ///
+    /// # Panics
+    ///
+    /// * If the buffer size is 0.
+    /// * If the [`AdaptiveDrop`][OverflowMode::AdaptiveDrop] `fill_limit` is zero or larger or
+    ///   equal to `buffer`.
     pub fn new(logger: Box<dyn Log>, buffer: usize, mode: OverflowMode) -> Self {
+        assert!(
+            buffer > 0,
+            "Zero-sized buffer for async logging makes no sense"
+        );
+        if let OverflowMode::AdaptiveDrop { fill_limit, .. } = mode {
+            assert!(fill_limit > 0);
+            assert!(fill_limit < buffer);
+        }
         let shared = Arc::new(SyncLogger {
             logger,
             lost_msgs: AtomicUsize::new(0),
@@ -244,6 +275,16 @@ impl Log for AsyncLogger {
         // Do the cheap check first to avoid calling through the virtual table & doing arbitrary
         // stuff of the logger.
         if self.enabled(record.metadata()) {
+            if let OverflowMode::AdaptiveDrop {
+                from_level,
+                fill_limit,
+            } = self.mode
+            {
+                if record.level() >= from_level && self.ch.len() >= fill_limit {
+                    self.shared.lost_msgs.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
+            }
             let i = Instruction::Msg {
                 file: record.file().map(ToOwned::to_owned),
                 level: record.level(),
@@ -257,8 +298,11 @@ impl Log for AsyncLogger {
                 self.ch.send(i).expect("Logging thread disappeared");
             } else if let Err(e) = self.ch.try_send(i) {
                 assert!(e.is_full(), "Logging thread disappeared");
-                if self.mode == OverflowMode::DropMsg {
-                    self.shared.lost_msgs.fetch_add(1, Ordering::Relaxed);
+                match self.mode {
+                    OverflowMode::DropMsg | OverflowMode::AdaptiveDrop { .. } => {
+                        self.shared.lost_msgs.fetch_add(1, Ordering::Relaxed);
+                    }
+                    _ => (),
                 }
             }
         }
