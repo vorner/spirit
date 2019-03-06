@@ -118,6 +118,7 @@ impl Recv {
         loop {
             let result = panic::catch_unwind(AssertUnwindSafe(|| {
                 if panicked {
+                    super::LOG_THREAD_NAME.with(|n| n.replace(None).is_none());
                     self.shared.logger.log(
                         &Record::builder()
                             .args(format_args!("Panic in the logger thread, restarted"))
@@ -131,6 +132,7 @@ impl Recv {
                 for i in &self.instructions {
                     let lost_msgs = self.shared.lost_msgs.swap(0, Ordering::Relaxed);
                     if lost_msgs > 0 {
+                        super::LOG_THREAD_NAME.with(|n| n.replace(None).is_none());
                         self.shared.logger.log(
                             &Record::builder()
                                 .args(format_args!("Lost {} messages", lost_msgs))
