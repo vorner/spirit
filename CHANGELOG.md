@@ -9,6 +9,7 @@
 * `ErrorLogFormat::Multiline` replaced by `MultiLine` (inconsistency, the old
   one still stays as a deprecated alias).
 * Fix corner cases around registering callbacks after termination.
+* Don't register signals if the background thread is not started.
 
 TODO: Release -tokio and -hyper too, switch to the not deprecated variant.
 

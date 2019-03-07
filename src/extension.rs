@@ -234,6 +234,11 @@ pub trait Extensible: Sized {
     ///
     /// It is dropped if called on already terminated spirit.
     ///
+    /// # Panics
+    ///
+    /// This may panic in case the application runs without the background signal thread. See
+    /// [`SpiritBuilder::build`][crate::SpiritBuilder::build].
+    ///
     /// TODO: Threads, deadlocks
     fn on_signal<F>(self, signal: libc::c_int, hook: F) -> Result<Self::Ok, Error>
     where
