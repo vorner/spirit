@@ -13,6 +13,8 @@
 //! [`Pipeline`]: spirit::fragment::pipeline::Pipeline
 //! [`Transformation`]: spirit::fragment::Transformation
 
+use std::borrow::Cow;
+use std::cell::Cell;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -27,6 +29,14 @@ use log::{Level, LevelFilter, Log, Metadata, Record};
 use parking_lot::{Condvar, Mutex};
 use spirit::extension::{Extensible, Extension};
 use spirit::fragment::Transformation;
+
+thread_local! {
+    static LOG_THREAD_NAME: Cell<Option<String>> = Cell::new(None);
+}
+
+pub(crate) fn prepared_thread_name() -> Option<Cow<'static, str>> {
+    LOG_THREAD_NAME.with(|n| n.replace(None).map(Cow::Owned))
+}
 
 struct FlushDone {
     done: Mutex<bool>,
@@ -82,7 +92,7 @@ impl Instruction {
                 line,
                 thread,
             } => {
-                super::LOG_THREAD_NAME.with(|n| n.replace(thread).is_none());
+                LOG_THREAD_NAME.with(|n| n.replace(thread).is_none());
                 dst.log(
                     &Record::builder()
                         .args(format_args!("{}", msg))
@@ -118,7 +128,7 @@ impl Recv {
         loop {
             let result = panic::catch_unwind(AssertUnwindSafe(|| {
                 if panicked {
-                    super::LOG_THREAD_NAME.with(|n| n.replace(None).is_none());
+                    LOG_THREAD_NAME.with(|n| n.replace(None).is_none());
                     self.shared.logger.log(
                         &Record::builder()
                             .args(format_args!("Panic in the logger thread, restarted"))
@@ -132,7 +142,7 @@ impl Recv {
                 for i in &self.instructions {
                     let lost_msgs = self.shared.lost_msgs.swap(0, Ordering::Relaxed);
                     if lost_msgs > 0 {
-                        super::LOG_THREAD_NAME.with(|n| n.replace(None).is_none());
+                        LOG_THREAD_NAME.with(|n| n.replace(None).is_none());
                         self.shared.logger.log(
                             &Record::builder()
                                 .args(format_args!("Lost {} messages", lost_msgs))

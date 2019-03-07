@@ -159,7 +159,6 @@
 //! ```
 
 use std::borrow::Cow;
-use std::cell::Cell;
 use std::cmp;
 use std::collections::HashMap;
 use std::fmt::Arguments;
@@ -191,6 +190,15 @@ pub mod background;
 
 #[cfg(feature = "background")]
 pub use background::{Background, FlushGuard, OverflowMode};
+
+#[cfg(not(feature = "background"))]
+mod background {
+    use std::borrow::Cow;
+
+    pub(crate) fn prepared_thread_name() -> Option<Cow<'static, str>> {
+        None
+    }
+}
 
 /// A fragment for command line options.
 ///
@@ -407,13 +415,8 @@ impl Default for Format {
     }
 }
 
-thread_local! {
-    static LOG_THREAD_NAME: Cell<Option<String>> = Cell::new(None);
-}
-
 fn get_thread_name(thread: &Thread) -> Cow<str> {
-    LOG_THREAD_NAME
-        .with(|n| n.replace(None).map(Cow::Owned))
+    crate::background::prepared_thread_name()
         .or_else(|| thread.name().map(Cow::Borrowed))
         .unwrap_or(Cow::Borrowed("<unknown>"))
 }
