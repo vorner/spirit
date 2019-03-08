@@ -35,7 +35,7 @@ parking_lot = "~0.7"
 serde = "~1"
 serde_derive = "~1"
 serde-humantime = "~0.1"
-spirit = { version = "~0.3", path = "..", default-features = false }
+spirit = { version = "~0.3.3", path = "..", default-features = false }
 structdoc = { version = "~0.1", optional = true }
 structopt = "~0.2"
 tk-listen = "~0.2"
