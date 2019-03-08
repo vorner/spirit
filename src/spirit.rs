@@ -114,7 +114,7 @@ pub struct Spirit<O = Empty, C = Empty> {
     opts: O,
     terminate: AtomicBool,
     autojoin_bg_thread: AtomicBool,
-    signals: Signals,
+    signals: Option<Signals>,
     bg_thread: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -336,7 +336,9 @@ where
     /// within a callback (it would lead to deadlock).
     pub fn terminate(&self) {
         debug!("Running termination hooks");
-        self.signals.close();
+        if let Some(signals) = &self.signals {
+            signals.close();
+        }
         let mut hooks = self.hooks.lock();
         // Take out the terminate hooks out first, so they are not called multiple times even in
         // case of panic.
@@ -473,8 +475,12 @@ where
     where
         F: FnMut() + Send + 'static,
     {
+        let signals = self
+            .signals
+            .as_ref()
+            .expect("Signals thread disabled by caller");
         trace!("Adding signal hook at runtime");
-        self.signals.add_signal(signal)?;
+        signals.add_signal(signal)?;
         let mut hooks = self.hooks.lock();
         if !hooks.terminated {
             hooks
@@ -805,6 +811,10 @@ pub trait SpiritBuilder: ConfigBuilder + Extensible {
     /// or you'll lose them ‒ only the thread doing fork is preserved across it.
     ///
     /// [`run`]: SpiritBuilder::run
+    ///
+    /// # Panics
+    ///
+    /// This will panic if `background_thread` is set to `false` and there are registered signals.
     // TODO: The new return value
     fn build(self, background_thread: bool) -> Result<App<Self::Opts, Self::Config>, Error>;
 
@@ -858,7 +868,15 @@ where
             .cloned()
             .collect::<HashSet<_>>(); // Eliminate duplicates
         let config = ArcSwap::from(Arc::from(self.config));
-        let signals = Signals::new(interesting_signals)?;
+        let signals = if background_thread {
+            Some(Signals::new(interesting_signals)?)
+        } else {
+            assert!(
+                self.sig_hooks.is_empty(),
+                "Registered signals; now starting without a signal thread",
+            );
+            None
+        };
         let signals_spirit = signals.clone();
         let spirit = Spirit {
             autojoin_bg_thread: AtomicBool::new(self.autojoin_bg_thread),
@@ -891,7 +909,8 @@ where
                     loop {
                         // Note: we run a bunch of callbacks inside the service thread. We restart
                         // the thread if it fails.
-                        let run = AssertUnwindSafe(|| spirit_bg.background(&signals));
+                        let run =
+                            AssertUnwindSafe(|| spirit_bg.background(signals.as_ref().unwrap()));
                         if panic::catch_unwind(run).is_err() {
                             // FIXME: Something better than this to prevent looping?
                             thread::sleep(Duration::from_secs(1));
