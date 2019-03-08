@@ -1,8 +1,15 @@
-# spirit-log-unreleased
+# spirit-log-0.2.3
 
 * Tweaking of AsyncLogger::enabled to do a cheap early check.
+* Async logging has adaptive dropping ‒ can be configured to drop less severe
+  messages sooner.
 
-# spirit-unreleased
+# spirit-tokio-0.5.1
+# spirit-hyper-0.5.2
+
+* Update to deprecations from spirit 0.3.2
+
+# 0.3.2
 
 * `on_terminate` takes `FnOnce` instead of `FnMut`.
 * `log_error!` macro, to cut down on boilerplate of the same-named function.
@@ -12,8 +19,6 @@
 * Don't register signals if the background thread is not started.
 * `ConfigBuilder::config_defaults_typed` to specify the lowest level of
   configuration through a struct instead of just string.
-
-TODO: Release -tokio and -hyper too, switch to the not deprecated variant.
 
 # spirit-hyper-0.5.1
 

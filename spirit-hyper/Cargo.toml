@@ -1,6 +1,6 @@
 [package]
 name = "spirit-hyper"
-version = "0.5.1"
+version = "0.5.2"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Hyper helpers for Spirit"
 documentation = "https://docs.rs/spirit-hyper"
