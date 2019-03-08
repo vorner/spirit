@@ -52,6 +52,7 @@ use failure::{bail, Error, Fail, ResultExt};
 use fallible_iterator::FallibleIterator;
 use log::{debug, trace};
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use structopt::clap::App;
 use structopt::StructOpt;
 use toml::Value;
@@ -133,7 +134,76 @@ pub trait ConfigBuilder: Sized {
     /// format is TOML.
     ///
     /// Any user-provided configuration will be layered on top of it.
+    ///
+    /// An alternative is to supply the lowest layer through the
+    /// [`config_defaults_typed`][ConfigBuilder::config_defaults_typed] ‒ only the last one of the
+    /// two wins.
     fn config_defaults<D: Into<String>>(self, config: D) -> Self;
+
+    /// Specifies the default configuration as typed value.
+    ///
+    /// This is an alternative to [`config_defaults`]. Unlike that
+    /// one, this accepts a typed instance of the configuration ‒ the configuration structure.
+    ///
+    /// The advantage is there's less risk of typos or malformed input and sometimes convenience.
+    /// This is, however, less flexible as this needs a *complete* configuration, while
+    /// [`config_defaults] accepts even configurations that are missing some fields. In such case,
+    /// defaults would be used (if they are available on the [`Deserialize`] level) or the
+    /// configuration would fail if the user provided configuration files don't contain it.
+    ///
+    /// Note that pairing between the type passed here and the type of configuration structure
+    /// extracted later is not tied together at compile time (as this allows a workaround for the
+    /// above described inflexibility, but also because tying them together would be too much work
+    /// for very little benefit ‒ it's not likely there would be two different configuration
+    /// structures in the same program and got mixed up).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use failure::Error;
+    /// use serde::{Deserialize, Serialize};
+    /// use spirit::cfg_loader::{Builder, ConfigBuilder};
+    ///
+    /// #[derive(Default, Deserialize, Serialize)]
+    /// struct Cfg {
+    ///     #[serde(default)]
+    ///     message: String,
+    /// }
+    ///
+    /// fn main() -> Result<(), Error> {
+    ///     let mut loader = Builder::new()
+    ///         .config_defaults_typed(&Cfg {
+    ///             message: "hello".to_owned()
+    ///         })
+    ///         // Expect, as error here would mean a bug, not bad external conditions.
+    ///         .expect("Invalid default configuration")
+    ///         .build_no_opts();
+    ///     let cfg: Cfg = loader.load()?;
+    ///     assert_eq!(cfg.message, "hello");
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// [`config_defaults`]: ConfigBuilder::config_defaults
+    fn config_defaults_typed<C: Serialize>(self, config: &C) -> Result<Self, Error> {
+        // We internally delegate into serializing to toml and just calling the other method. This
+        // is mostly to avoid implementation complexity:
+        // * We don't want two different parts of code doing about the same.
+        // * This trait isn't parametrized by any type, but we would have to store the structure
+        //   inside. `Serialize` is not very friendly to type erasure.
+        // * We would have to explicitly handle the situation where both this and config_defaults
+        //   gets called, while this way the last-to-be-called wins naturally follows from the
+        //   implementation.
+        //
+        // The overhead should not be interesting, since configuration loading happens only
+        // infrequently.
+
+        // A little trick here. Converting a structure to TOML may result in errors if the
+        // structure has the „wrong“ order of fields. Putting it into a type-less Value first
+        // doesn't suffer from this error and Value outputs its contents in the correct order.
+        let untyped = Value::try_from(config)?;
+        Ok(self.config_defaults(toml::to_string(&untyped)?))
+    }
 
     /// Enables loading configuration from environment variables.
     ///

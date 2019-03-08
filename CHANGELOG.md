@@ -10,6 +10,8 @@
   one still stays as a deprecated alias).
 * Fix corner cases around registering callbacks after termination.
 * Don't register signals if the background thread is not started.
+* `ConfigBuilder::config_defaults_typed` to specify the lowest level of
+  configuration through a struct instead of just string.
 
 TODO: Release -tokio and -hyper too, switch to the not deprecated variant.
 
