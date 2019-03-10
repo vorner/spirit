@@ -7,7 +7,7 @@ client and a helper to keep one around with up to date configuration.
 It is part of the [spirit](https://crates.io/crates/spirit) system.
 
 See the [docs](https://docs.rs/spirit-reqwest) and the
-[examples](spirit-hyper/examples).
+[examples](spirit-reqwest/examples).
 
 ## License
 

@@ -31,12 +31,10 @@ humantime = "~1"
 log = "~0.4"
 parking_lot = "~0.7"
 reqwest = "~0.9.5"
-serde = "~1"
-serde_derive = "~1"
+serde = { version = "~1", features = ["derive"] }
 serde-humantime = "~0.1"
 spirit = { version = "~0.3", path = "..", default-features = false }
 structdoc = { version = "~0.1", optional = true }
-structopt = "~0.2"
 url = "~1.7"
 url_serde = "~0.2"
 

@@ -1,4 +1,4 @@
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use spirit::prelude::*;
 use spirit_reqwest::{AtomicClient, ReqwestClient};
 

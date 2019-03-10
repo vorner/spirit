@@ -1,3 +1,7 @@
+# spirit-reqwest-unreleased
+
+* Internal code cleanups.
+
 # unreleased
 
 * Add a routine to serialize duration in human-readable format (when there are
