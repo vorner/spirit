@@ -1,3 +1,8 @@
+# unreleased
+
+* Add a routine to serialize duration in human-readable format (when there are
+  configs with durations). Might as well eventually go to serde-humantime.
+
 # spirit-log-0.2.3
 
 * Tweaking of AsyncLogger::enabled to do a cheap early check.

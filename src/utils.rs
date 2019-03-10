@@ -9,6 +9,7 @@ use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Duration;
 
 use failure::{Error, Fail};
 use itertools::Itertools;
@@ -296,6 +297,31 @@ impl<T> Serialize for Hidden<T> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_str("******")
     }
+}
+
+/// Serialize a duration.
+///
+/// This can be used in configuration structures containing durations. The deserialization can be
+/// done with serde-humantime.
+///
+/// # Examples
+///
+/// ```rust
+/// use std::time::Duration;
+///
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+/// struct Cfg {
+///     #[serde(
+///         serialize_with = "spirit::utils::serialize_duration",
+///         deserialize_with = "serde_humantime::deserialize",
+///     )]
+///     how_long: Duration,
+/// }
+/// ```
+pub fn serialize_duration<S: Serializer>(dur: &Duration, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&humantime::format_duration(*dur).to_string())
 }
 
 #[cfg(test)]
