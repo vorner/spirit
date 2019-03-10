@@ -1,3 +1,7 @@
+# spirit-dipstick
+
+* First shot at the crate.
+
 # spirit-reqwest-unreleased
 
 * Internal code cleanups.

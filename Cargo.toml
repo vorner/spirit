@@ -21,6 +21,7 @@ members = [
     "./",
     "spirit-cfg-helpers",
     "spirit-daemonize",
+    "spirit-dipstick",
     "spirit-hyper",
     "spirit-log",
     "spirit-reqwest",
@@ -45,6 +46,7 @@ config = { version = "~0.9", default-features = false, features = ["toml"] }
 either = "~1"
 failure = "~0.1"
 fallible-iterator = "~0.1"
+humantime = "~1"
 itertools = "~0.8"
 libc = "~0.2"
 log = "~0.4"
