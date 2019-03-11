@@ -354,7 +354,7 @@ impl Builder {
         } else {
             opts.common.configs
         };
-        debug!("Parsed command line arguments");
+        trace!("Parsed command line arguments");
 
         let loader = Loader {
             files,
@@ -374,7 +374,7 @@ impl Builder {
     ///
     /// This is likely useful for tests.
     pub fn build_no_opts(self) -> Loader {
-        debug!("Created cfg loader without command line");
+        trace!("Created cfg loader without command line");
         Loader {
             files: self.default_paths,
             defaults: self.defaults,
