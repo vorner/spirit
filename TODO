@@ -8,3 +8,9 @@
 * Reintroduce scaling
 * Parts of the core spirit can be split off and useful separately ‒ base traits, config loading. Then, if the user doesn't want the background thread and stuff, it can be used manually.
 * When rust-1.33 is out go back to using references inside extractors in the examples.
+* Being able to configure the tokio thread pool
+  - As a fragment
+  - Have a callback/time when we already have the config loaded byt we can still create the singleton and body wrapper ‒ like, on_build?
+* Make some of the traits sealed
+* Bug? This shows on *shutdown*:
+  - 09:53:57.873 DEBUG spirit::cfg_loader             Created cfg loader without command line
