@@ -344,7 +344,7 @@ where
         // case of panic.
         let mut term_hooks = Vec::new();
         mem::swap(&mut term_hooks, &mut hooks.terminate);
-        for hook in &mut hooks.terminate {
+        for hook in &mut term_hooks {
             hook();
         }
         self.terminate.store(true, Ordering::Relaxed);

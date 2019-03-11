@@ -162,7 +162,7 @@ pub fn log_error(level: Level, target: &str, e: &Error, format: ErrorLogFormat) 
 /// A convenience macro to log an [`Error`].
 ///
 /// This logs an [`Error`] on given log level as a single line without backtrace. Removes some
-/// boilerplate from the [`log_error`][fn@log_error] function.
+/// boilerplate from the [`log_error`] function.
 ///
 /// # Examples
 ///
@@ -173,6 +173,9 @@ pub fn log_error(level: Level, target: &str, e: &Error, format: ErrorLogFormat) 
 ///
 /// log_error!(Warn, err);
 /// ```
+///
+/// [`Error`]: failure::Error
+/// [`log_error`]: fn@crate::utils::log_error
 #[macro_export]
 macro_rules! log_error {
     ($level: ident, $descr: expr => $err: expr) => {

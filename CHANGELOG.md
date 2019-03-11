@@ -1,3 +1,8 @@
+# spirit-0.3.4
+
+* Fix running termination hooks.
+* Fix some links in config.
+
 # spirit-log-0.2.3
 
 * Tweaking of AsyncLogger::enabled to do a cheap early check.
