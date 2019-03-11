@@ -12,5 +12,3 @@
   - As a fragment
   - Have a callback/time when we already have the config loaded byt we can still create the singleton and body wrapper ‒ like, on_build?
 * Make some of the traits sealed
-* Bug? This shows on *shutdown*:
-  - 09:53:57.873 DEBUG spirit::cfg_loader             Created cfg loader without command line
