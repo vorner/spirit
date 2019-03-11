@@ -1,4 +1,8 @@
-# spirit-dipstick
+# spirit-unreleased
+
+* Fix of the CacheEq driver's abort.
+
+# spirit-dipstick-unreleased
 
 * First shot at the crate.
 
