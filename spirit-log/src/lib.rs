@@ -290,6 +290,8 @@ enum LogDestination {
 const LEVEL_FILTERS: &[&str] = &["OFF", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"];
 
 // A newtype to help us with serde, structdoc, default... more convenient inside maps and such.
+//
+// We could get serde support with a feature flag from log itself, but not the rest :-(.
 #[derive(Copy, Clone, Debug)]
 struct LevelFilterSerde(LevelFilter);
 
