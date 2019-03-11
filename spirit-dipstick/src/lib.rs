@@ -76,10 +76,13 @@ pub struct Config {
     #[serde(default = "app_name")]
     pub prefix: String,
 
-    #[serde(default = "default_flush")]
+    #[serde(
+        deserialize_with = "serde_humantime::deserialize",
+        serialize_with = "spirit::utils::serialize_duration",
+        default = "default_flush"
+    )]
     pub flush_period: Duration,
 
-    #[serde(default)]
     backends: Vec<Backend>,
 }
 
