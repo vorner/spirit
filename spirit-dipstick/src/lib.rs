@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+use std::fs::File;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -15,7 +16,7 @@ use dipstick::{
     MetricValue, MultiOutput, NameParts, Prefixed, Prometheus, Result as DipResult, ScheduleFlush,
     ScoreType, Statsd, Stream,
 };
-use failure::Error;
+use failure::{Error, ResultExt};
 use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::CacheEq;
@@ -39,7 +40,13 @@ impl Backend {
         match self {
             Backend::Stdout => Ok(out.add_target(Stream::to_stdout())),
             Backend::Stderr => Ok(out.add_target(Stream::to_stderr())),
-            Backend::File { filename } => Stream::to_file(filename).map(|s| out.add_target(s)),
+            Backend::File { filename } => {
+                // Workaroud until https://github.com/fralalonde/dipstick/pull/53 lands
+                let f = File::create(&filename).with_context(|_| {
+                    format!("Failed to create metrics file {}", filename.display())
+                })?;
+                Ok(out.add_target(Stream::write_to(f)))
+            }
             Backend::Graphite { host, port } => {
                 Graphite::send_to((host as &str, *port)).map(|g| out.add_target(g))
             }

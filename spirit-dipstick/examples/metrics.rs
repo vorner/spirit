@@ -23,6 +23,7 @@ const CFG: &str = r#"
 prefix = "example" # If omitted, the name of the application is used
 flush-period = "5s"  # Dump metric statistics every 5 seconds
 backends = [
+    { type = "file", filename = "/tmp/metrics.txt" },
     { type = "stdout" },
 ]
 "#;
