@@ -9,11 +9,11 @@ use spirit_dipstick::{Config as MetricsConfig, Monitor};
 
 #[derive(Debug, Default, Deserialize)]
 struct Cfg {
-    metrics: MetricsConfig,
+    metrics: Option<MetricsConfig>,
 }
 
 impl Cfg {
-    fn metrics(&self) -> &MetricsConfig {
+    fn metrics(&self) -> &Option<MetricsConfig> {
         &self.metrics
     }
 }

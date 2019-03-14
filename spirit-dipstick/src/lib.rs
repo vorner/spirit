@@ -5,6 +5,59 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+//! Configuration support for the [dipstick] metrics library.
+//!
+//! This provides a configuration [`Fragment`] for the [`spirit`] family of libraries. It
+//! configures the „backend“ part of the library ‒ the part that sends the metrics somewhere, like
+//! to statsd or a file.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use dipstick::{stats_all, InputScope};
+//! use serde::Deserialize;
+//! use spirit::prelude::*;
+//! use spirit_dipstick::{Config as MetricsConfig, Monitor};
+//!
+//! #[derive(Debug, Default, Deserialize)]
+//! struct Cfg {
+//!     metrics: MetricsConfig,
+//! }
+//!
+//! impl Cfg {
+//!    fn metrics(&self) -> &MetricsConfig {
+//!         &self.metrics
+//!    }
+//! }
+//!
+//! const CFG: &str = r#"
+//! [metrics]
+//! prefix = "example" # If omitted, the name of the application is used
+//! flush-period = "5s"  # Dump metric statistics every 5 seconds
+//! backends = [
+//!     { type = "file", filename = "/tmp/metrics.txt" },
+//!     { type = "stdout" },
+//! ]
+//! "#;
+//!
+//! fn main() {
+//!    let root = Monitor::new();
+//!
+//!     Spirit::<Empty, Cfg>::new()
+//!        .config_defaults(CFG)
+//!        .with(
+//!            Pipeline::new("metrics")
+//!                .extract_cfg(Cfg::metrics)
+//!                .install(root.installer(stats_all)),
+//!        )
+//!        .run(move |_| {
+//!            let counter = root.counter("looped");
+//!            counter.count(1);
+//!            Ok(())
+//!        });
+//!}
+//! ```
+
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -20,7 +73,7 @@ use failure::{Error, ResultExt};
 use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::CacheEq;
-use spirit::fragment::{Fragment, Installer};
+use spirit::fragment::{Fragment, Installer, Optional};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
@@ -61,10 +114,22 @@ impl Backend {
     }
 }
 
+/// An intermediate resource produced by [`Config`].
+///
+/// This contains all the parts ready to be used.
 pub struct Backends {
+    /// A composed output for the metrics.
+    ///
+    /// This can be manually installed into an [`AtomicBucket`], or automatically used through a
+    /// pipeline and installed into the [`Monitor`].
     pub outputs: MultiOutput,
+
+    /// The configured prefix at the root of the metrics tree.
     pub prefix: String,
+
+    /// How often should the metrics be sent.
     pub flush_period: Duration,
+
     _sentinel: (),
 }
 
@@ -76,13 +141,42 @@ const fn default_flush() -> Duration {
     Duration::from_secs(60)
 }
 
+/// The [`Fragment`] to configure [`dipstick`]s backends.
+///
+/// This contains the configuration options to configure where the metrics go.
+///
+/// If you want to be able to turn the metrics off completely, use `Option<Config>`.
+///
+/// Some of the fields are publicly available and accessible, as they might be useful for other
+/// purposes ‒ like generating some metrics at the same frequency as they are being sent.
+///
+/// # Examples
+///
+/// ```rust
+/// use serde::Deserialize;
+/// use spirit_dipstick::Config;
+///
+/// #[derive(Default, Deserialize)]
+/// # #[allow(dead_code)]
+/// struct Cfg {
+///     metrics: Config,
+/// }
+/// ```
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
+    /// The prefix ‒ first level of the metrics tree, under which all the metrics are stored.
+    ///
+    /// If not specifie, it defaults to the application name (gotten from the `CARGO_PKG_NAME`
+    /// environment variable).
     #[serde(default = "app_name")]
     pub prefix: String,
 
+    /// An interval at which the metrics are sent in aggregated form.
+    ///
+    /// The metrics are not sent right away, they are buffered and collated for this period of
+    /// time, then they are sent in a batch.
     #[serde(
         deserialize_with = "serde_humantime::deserialize",
         serialize_with = "spirit::utils::serialize_duration",
@@ -112,6 +206,8 @@ impl Default for Config {
     }
 }
 
+impl Optional for Config {}
+
 impl Fragment for Config {
     type Driver = CacheEq<Config>;
     type Installer = ();
@@ -136,18 +232,73 @@ impl Fragment for Config {
     }
 }
 
+/// An inner node in a metrics tree.
+///
+/// This is just a thin wrapper around the [`AtomicBucket`], hiding some of its functionality. That
+/// functionality is used for configuration of the backends and how metrics are collated and
+/// filtered, which is handled by this library.
+///
+/// If you want to use the library to just get the configuration and manage it manually, use
+/// [`AtomicBucket`] directly. This is for the use with [`Pipeline`]s. See the [crate
+/// example](index.html#examples).
+///
+/// # Cloning
+///
+/// Cloning is cheap and creates another „handle“ to the same bucket. Therefore, it can be
+/// distributed through the application and another layer of [`Arc`] is not needed.
+///
+/// # Extraction of [`AtomicBucket`]
+///
+/// The bucket inside can be extracted by the [`Monitor::into_inner`] method, to access
+/// functionality hidden by this wrapper. Note that doing so and messing with the bucket might
+/// interfere with configuration from this library (the wrapper is more of a road bump than a full
+/// barrier).
+///
+/// # Examples
+///
+/// ```
+/// use dipstick::{InputScope, Prefixed};
+/// use spirit_dipstick::Monitor;
+///
+/// let monitor = Monitor::new();
+/// // Plug the monitor.installer() into a pipeline here on startup
+/// let sub_monitor = monitor.add_prefix("sub");
+/// let timer = sub_monitor.timer("a-timer");
+/// let timer_measurement = timer.start();
+/// let counter = sub_monitor.counter("cnt");
+/// counter.count(1);
+/// timer.stop(timer_measurement);
+/// ```
+///
+/// [`Pipeline`]: spirit::fragment::pipeline::Pipeline
 #[derive(Clone, Debug)]
 pub struct Monitor(AtomicBucket);
 
 impl Monitor {
+    /// Creates a new root node.
+    ///
+    /// This becomes an independent node. Some backends can be installed into it later on and
+    /// metrics or other nodes can be created under it.
     pub fn new() -> Self {
         Self(AtomicBucket::new())
     }
 
+    /// Extracts the internal [`AtomicBucket`]
+    ///
+    /// See the warning above about doing so ‒ the bucket is actually shared by all clones of the
+    /// same [`Monitor`] and therefore you can interfere with the installed backends.
     pub fn into_inner(self) -> AtomicBucket {
         self.0
     }
 
+    /// Creates an installer for installing into this monitor.
+    ///
+    /// This creates an installer which can be used inside a [`Pipeline`] to attach backends to it.
+    ///
+    /// The `stats` is the same kind of filtering and selection function the [`dipstick`] uses in
+    /// the [`AtomicBucket::set_stats`].
+    ///
+    /// [`Pipeline`]: spirit::fragment::pipeline::Pipeline
     pub fn installer<F>(&self, stats: F) -> MonitorInstaller<F>
     where
         F: Fn(InputKind, MetricName, ScoreType) -> Option<(InputKind, MetricName, MetricValue)>
@@ -208,6 +359,10 @@ impl InstallerInner {
     }
 }
 
+/// An uninstall handle for backends.
+///
+/// This is used internally and made public only out of necessary. The user doesn't have to
+/// interact directly with this.
 pub struct Uninstaller {
     inner: Arc<InstallerInner>,
     orig_gen: usize,
@@ -233,6 +388,12 @@ impl Drop for Uninstaller {
     }
 }
 
+/// The [`Installer`] of backends into the [`Monitor`].
+///
+/// This is created by [`Monitor::installer`] and used inside of [`Pipeline`]s. The user of this
+/// library usually doesn't have to interact with this directly.
+///
+/// [`Pipeline`]: spirit::fragment::pipeline::Pipeline
 pub struct MonitorInstaller<F> {
     inner: Arc<InstallerInner>,
     stats: Arc<F>,
