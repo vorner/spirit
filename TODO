@@ -9,8 +9,3 @@
 * Parts of the core spirit can be split off and useful separately ‒ base traits, config loading. Then, if the user doesn't want the background thread and stuff, it can be used manually.
 * When rust-1.33 is out go back to using references inside extractors in the examples.
 * The log_error macro thinks it logs from spirit::utils?
-
-# Dipstick
-
-* The errors are not very telling.
-* Why, when sending to file, it errors?

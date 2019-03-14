@@ -88,29 +88,37 @@ enum Backend {
     Statsd { host: String, port: u16 },
 }
 
+// TODO: Until the error is fixed on dipstick side
+fn err_convert(e: Box<dyn std::error::Error>) -> Error {
+    failure::err_msg(e.to_string())
+}
+
 impl Backend {
     fn add_to(&self, out: &MultiOutput) -> Result<MultiOutput, Error> {
         match self {
             Backend::Stdout => Ok(out.add_target(Stream::to_stdout())),
             Backend::Stderr => Ok(out.add_target(Stream::to_stderr())),
             Backend::File { filename } => {
-                // Workaroud until https://github.com/fralalonde/dipstick/pull/53 lands
+                // TODO: Workaroud until https://github.com/fralalonde/dipstick/pull/53 lands
                 let f = File::create(&filename).with_context(|_| {
                     format!("Failed to create metrics file {}", filename.display())
                 })?;
                 Ok(out.add_target(Stream::write_to(f)))
             }
-            Backend::Graphite { host, port } => {
-                Graphite::send_to((host as &str, *port)).map(|g| out.add_target(g))
-            }
-            Backend::Prometheus { url } => {
-                Prometheus::push_to(url as &str).map(|p| out.add_target(p))
-            }
-            Backend::Statsd { host, port } => {
-                Statsd::send_to((host as &str, *port)).map(|s| out.add_target(s))
-            }
+            Backend::Graphite { host, port } => Graphite::send_to((host as &str, *port))
+                .map(|g| out.add_target(g))
+                .map_err(err_convert)
+                .with_context(|_| format!("Error sending to graphite {}:{}", host, port)),
+            Backend::Prometheus { url } => Prometheus::push_to(url as &str)
+                .map(|p| out.add_target(p))
+                .map_err(err_convert)
+                .with_context(|_| format!("Error sending to prometheus {}", url)),
+            Backend::Statsd { host, port } => Statsd::send_to((host as &str, *port))
+                .map(|s| out.add_target(s))
+                .map_err(err_convert)
+                .with_context(|_| format!("Error sending to statsd {}:{}", host, port)),
         }
-        .map_err(|e| failure::err_msg(e.to_string()))
+        .map_err(Error::from)
     }
 }
 
