@@ -92,7 +92,7 @@ impl Instruction {
                 line,
                 thread,
             } => {
-                LOG_THREAD_NAME.with(|n| n.replace(thread).is_none());
+                LOG_THREAD_NAME.with(|n| n.replace(thread));
                 dst.log(
                     &Record::builder()
                         .args(format_args!("{}", msg))
@@ -128,7 +128,7 @@ impl Recv {
         loop {
             let result = panic::catch_unwind(AssertUnwindSafe(|| {
                 if panicked {
-                    LOG_THREAD_NAME.with(|n| n.replace(None).is_none());
+                    LOG_THREAD_NAME.with(|n| n.replace(None));
                     self.shared.logger.log(
                         &Record::builder()
                             .args(format_args!("Panic in the logger thread, restarted"))
@@ -142,7 +142,7 @@ impl Recv {
                 for i in &self.instructions {
                     let lost_msgs = self.shared.lost_msgs.swap(0, Ordering::Relaxed);
                     if lost_msgs > 0 {
-                        LOG_THREAD_NAME.with(|n| n.replace(None).is_none());
+                        LOG_THREAD_NAME.with(|n| n.replace(None));
                         self.shared.logger.log(
                             &Record::builder()
                                 .args(format_args!("Lost {} messages", lost_msgs))
