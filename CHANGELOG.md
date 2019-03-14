@@ -1,6 +1,8 @@
 # spirit-unreleased
 
 * Fix of the CacheEq driver's abort.
+* Separate `Optional` trait from `Stackable`, separating ability to use
+  `Option<F>` from other collections.
 
 # spirit-dipstick-unreleased
 
