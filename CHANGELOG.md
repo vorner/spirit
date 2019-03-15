@@ -1,6 +1,23 @@
+# spirit-dipstick-unreleased
+
+* First shot at the crate.
+
+# spirit-reqwest-unreleased
+
+* Internal code cleanups.
+
 # spirit-log-unreleased
 
 * Fix thread name in case of background logging into multiple loggers.
+
+# unreleased
+
+* Add a routine to serialize duration in human-readable format (when there are
+  configs with durations). Might as well eventually go to serde-humantime.
+
+* Fix of the CacheEq driver's abort.
+* Separate `Optional` trait from `Stackable`, separating ability to use
+  `Option<F>` from other collections.
 
 # spirit-0.3.4
 

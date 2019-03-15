@@ -13,3 +13,4 @@
   - Have a callback/time when we already have the config loaded byt we can still create the singleton and body wrapper ‒ like, on_build?
 * Make some of the traits sealed
 * Builder::run should not need the closure to be static.
+

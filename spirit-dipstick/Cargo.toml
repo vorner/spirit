@@ -1,14 +1,14 @@
 [package]
-name = "spirit-reqwest"
-version = "0.2.0"
+name = "spirit-dipstick"
+version = "0.1.0"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 edition = "2018"
-description = "Reqwest helpers for Spirit"
-documentation = "https://docs.rs/spirit-reqwest"
+description = "Automatic configuration of dipstick backends"
+documentation = "https://docs.rs/spirit-dipstick"
 repository = "https://github.com/vorner/spirit"
 license = "Apache-2.0 OR MIT"
-categories = ["config", "web-programming"]
-keywords = ["http", "reqwest", "service", "configuration", "spirit"]
+categories = ["config", "development-tools::profiling"]
+keywords = ["dipstick", "metrics", "configuration", "spirit"]
 readme = "README.md"
 include = [
     "Cargo.toml",
@@ -25,18 +25,14 @@ default = ["cfg-help"]
 cfg-help = ["spirit/cfg-help", "structdoc"]
 
 [dependencies]
-arc-swap = "~0.3.6"
+dipstick = "~0.7.1"
 failure = "~0.1"
-humantime = "~1"
 log = "~0.4"
-parking_lot = "~0.7"
 reqwest = "~0.9.5"
 serde = { version = "~1", features = ["derive"] }
 serde-humantime = "~0.1"
-spirit = { version = "~0.3", path = "..", default-features = false }
+spirit = { version = "~0.3.3", path = "..", default-features = false }
 structdoc = { version = "~0.1", optional = true }
-url = "~1.7"
-url_serde = "~0.2"
 
 [dev-dependencies]
 version-sync = "~0.7"

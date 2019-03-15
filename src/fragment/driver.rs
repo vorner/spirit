@@ -502,6 +502,7 @@ where
         trace!("Aborting {}", name);
         // Note: we don't check if anything is in here, because in case these were the same we
         // didn't fill in the proposition.
+        self.proposition.take();
     }
     fn confirm(&mut self, name: &'static str) {
         trace!("Confirming {}", name);

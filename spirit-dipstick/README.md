@@ -2,12 +2,11 @@
 
 [![Travis Build Status](https://api.travis-ci.org/vorner/spirit.png?branch=master)](https://travis-ci.org/vorner/spirit)
 
-A helper to create configured [reqwest](https://crates.io/crates/reqwest)
-client and a helper to keep one around with up to date configuration.
-It is part of the [spirit](https://crates.io/crates/spirit) system.
+A helper to auto-configure [dipstick](https://crates.io/crates/dipstick)
+backend. It is part of the [spirit](https://crates.io/crates/spirit) system.
 
-See the [docs](https://docs.rs/spirit-reqwest) and the
-[examples](spirit-reqwest/examples).
+See the [docs](https://docs.rs/spirit-dipstick) and the
+[examples](spirit-dipstick/examples).
 
 ## License
 

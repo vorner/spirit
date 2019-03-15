@@ -18,7 +18,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use serde_derive::Deserialize;
+//! use serde::Deserialize;
 //! use spirit::prelude::*;
 //! use spirit_reqwest::{AtomicClient, ReqwestClient};
 //!
@@ -69,9 +69,9 @@ use reqwest::{
     Certificate, Client, ClientBuilder, Identity, IntoUrl, Method, Proxy, RedirectPolicy,
     RequestBuilder,
 };
-use serde::de::{Deserialize, Deserializer};
-use serde::ser::{Serialize, Serializer};
-use serde_derive::{Deserialize, Serialize};
+use serde::de::Deserializer;
+use serde::ser::Serializer;
+use serde::{Deserialize, Serialize};
 use serde_humantime::De;
 use spirit::fragment::driver::CacheEq;
 use spirit::fragment::Installer;

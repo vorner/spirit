@@ -214,6 +214,14 @@ where
 /// collections.
 pub trait Stackable {}
 
+/// A trait similar to [`Stackable`], but marking the ability to be optional.
+///
+/// This allows using the [`Fragment`] as `Option<F>`. This is automatically implemented for all
+/// [`Stackable`] fragments.
+pub trait Optional {}
+
+impl<F: Stackable> Optional for F {}
+
 /// A fragment of configuration.
 ///
 /// The fragment is the part of configuration [`Pipeline`][pipeline::Pipeline]s work with. It
@@ -361,8 +369,8 @@ where
 // TODO: Export the macro for other containers?
 // TODO: The where-* should be where-?
 macro_rules! fragment_for_seq {
-    ($container: ident<$base: ident $(, $extra: ident)*> $(where $($bounds: tt)+)*) => {
-        impl<$base: Fragment + Stackable + 'static $(, $extra)*> Fragment
+    ($cond: ident => $container: ident<$base: ident $(, $extra: ident)*> $(where $($bounds: tt)+)*) => {
+        impl<$base: Fragment + $cond + 'static $(, $extra)*> Fragment
             for $container<$base $(, $extra)*>
         $(
             where
@@ -396,12 +404,12 @@ macro_rules! fragment_for_seq {
     }
 }
 
-fragment_for_seq!(Vec<T>);
-fragment_for_seq!(BTreeSet<T>);
-fragment_for_seq!(LinkedList<T>);
-fragment_for_seq!(Option<T>);
-fragment_for_seq!(BinaryHeap<T> where T: Ord);
-fragment_for_seq!(HashSet<T, S> where T: Eq + Hash, S: BuildHasher);
+fragment_for_seq!(Stackable => Vec<T>);
+fragment_for_seq!(Stackable => BTreeSet<T>);
+fragment_for_seq!(Stackable => LinkedList<T>);
+fragment_for_seq!(Stackable => BinaryHeap<T> where T: Ord);
+fragment_for_seq!(Stackable => HashSet<T, S> where T: Eq + Hash, S: BuildHasher);
+fragment_for_seq!(Optional => Option<T>);
 
 /// A helper macro to implement a simple [`Fragment`].
 ///
