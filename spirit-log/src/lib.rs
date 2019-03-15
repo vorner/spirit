@@ -158,7 +158,6 @@
 //! clock = "UTC"
 //! ```
 
-use std::borrow::Cow;
 use std::cmp;
 use std::collections::HashMap;
 use std::fmt::Arguments;
@@ -167,7 +166,7 @@ use std::iter;
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::{self, Thread};
+use std::thread;
 
 use chrono::format::{DelayedFormat, StrftimeItems};
 use chrono::{Local, Utc};
@@ -191,14 +190,7 @@ pub mod background;
 #[cfg(feature = "background")]
 pub use background::{Background, FlushGuard, OverflowMode};
 
-#[cfg(not(feature = "background"))]
-mod background {
-    use std::borrow::Cow;
-
-    pub(crate) fn prepared_thread_name() -> Option<Cow<'static, str>> {
-        None
-    }
-}
+const UNKNOWN_THREAD: &str = "<unknown>";
 
 /// A fragment for command line options.
 ///
@@ -417,11 +409,13 @@ impl Default for Format {
     }
 }
 
-fn get_thread_name(thread: &Thread) -> Cow<str> {
-    crate::background::prepared_thread_name()
-        .or_else(|| thread.name().map(Cow::Borrowed))
-        .unwrap_or(Cow::Borrowed("<unknown>"))
+#[cfg(not(feature = "background"))]
+fn get_thread_name(thread: &thread::Thread) -> &str {
+    thread.name().unwrap_or(UNKNOWN_THREAD)
 }
+
+#[cfg(feature = "background")]
+use background::get_thread_name;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
@@ -490,23 +484,21 @@ impl Logger {
                             message,
                         )),
                         Format::Extended => {
-                            let thread = thread::current();
                             out.finish(format_args!(
                                 "{} {:5} {:30} {:30} {}",
                                 clock.now(&time_format),
                                 record.level(),
-                                get_thread_name(&thread),
+                                get_thread_name(&thread::current()),
                                 record.target(),
                                 message,
                             ));
                         }
                         Format::Full => {
-                            let thread = thread::current();
                             out.finish(format_args!(
                                 "{} {:5} {:10} {:>25}:{:<5} {:30} {}",
                                 clock.now(&time_format),
                                 record.level(),
-                                get_thread_name(&thread),
+                                get_thread_name(&thread::current()),
                                 record.file().unwrap_or("<unknown>"),
                                 record.line().unwrap_or(0),
                                 record.target(),
@@ -514,12 +506,11 @@ impl Logger {
                             ));
                         }
                         Format::Machine => {
-                            let thread = thread::current();
                             out.finish(format_args!(
                                 "{}\t{}\t{}\t{}\t{}\t{}\t{}",
                                 clock.now(&time_format),
                                 record.level(),
-                                get_thread_name(&thread),
+                                get_thread_name(&thread::current()),
                                 record.file().unwrap_or("<unknown>"),
                                 record.line().unwrap_or(0),
                                 record.target(),
@@ -535,7 +526,7 @@ impl Logger {
                             struct Msg<'a> {
                                 timestamp: Arguments<'a>,
                                 level: Arguments<'a>,
-                                thread_name: Cow<'a, str>,
+                                thread_name: &'a str,
                                 file: Option<&'a str>,
                                 line: Option<u32>,
                                 target: &'a str,
@@ -554,11 +545,10 @@ impl Logger {
                                     .expect("Failed to serialize JSON log");
                                 out.finish(format_args!("{}", msg));
                             };
-                            let thread = thread::current();
                             log(&Msg {
                                 timestamp: format_args!("{}", clock.now(&time_format)),
                                 level: format_args!("{}", record.level()),
-                                thread_name: get_thread_name(&thread),
+                                thread_name: &get_thread_name(&thread::current()),
                                 file: record.file(),
                                 line: record.line(),
                                 target: record.target(),
@@ -577,7 +567,7 @@ impl Logger {
                                 #[serde(rename = "@version")]
                                 version: u8,
                                 level: Arguments<'a>,
-                                thread_name: Cow<'a, str>,
+                                thread_name: &'a str,
                                 logger_name: &'a str,
                                 message: &'a Arguments<'a>,
                             }
@@ -594,12 +584,11 @@ impl Logger {
                                     .expect("Failed to serialize JSON log");
                                 out.finish(format_args!("{}", msg));
                             };
-                            let thread = thread::current();
                             log(&Msg {
                                 timestamp: format_args!("{}", clock.now(&time_format)),
                                 version: 1,
                                 level: format_args!("{}", record.level()),
-                                thread_name: get_thread_name(&thread),
+                                thread_name: &get_thread_name(&thread::current()),
                                 logger_name: record.target(),
                                 message,
                             });

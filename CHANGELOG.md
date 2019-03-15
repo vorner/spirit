@@ -1,3 +1,7 @@
+# spirit-log-unreleased
+
+* Fix thread name in case of background logging into multiple loggers.
+
 # spirit-0.3.4
 
 * Fix running termination hooks.

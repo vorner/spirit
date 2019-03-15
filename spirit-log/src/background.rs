@@ -13,16 +13,16 @@
 //! [`Pipeline`]: spirit::fragment::pipeline::Pipeline
 //! [`Transformation`]: spirit::fragment::Transformation
 
-use std::borrow::Cow;
-use std::cell::Cell;
+use std::cell::RefCell;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::thread::Builder as ThreadBuilder;
+use std::thread::{Builder as ThreadBuilder, Thread};
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender};
+use either::Either;
 use failure::Error;
 use fern::Dispatch;
 use log::{Level, LevelFilter, Log, Metadata, Record};
@@ -31,11 +31,37 @@ use spirit::extension::{Extensible, Extension};
 use spirit::fragment::Transformation;
 
 thread_local! {
-    static LOG_THREAD_NAME: Cell<Option<String>> = Cell::new(None);
+    // The thread name injected by the background logging.
+    //
+    // There's a chance someone uses sync logging even with the background logging enabled, in
+    // which case this'll always stay None (notice that the background logger creates its own
+    // thread and only that one sets this, so we can't pollute other thread).
+    static LOG_THREAD_NAME: RefCell<Option<Arc<str>>> = RefCell::new(None);
+
+    // Reusable mine thread name, used as a source when putting the log message into the channel.
+    //
+    // Because we need to potentially log the thread name into multiple loggers, we don't want to
+    // clone it every time we take it out from LOG_THREAD_NAME, but we can't have a reference into
+    // it both because of refcell and thread-local. We can, however, clone an Arc. When we already
+    // have Arcs around, we can as well cache the name in it for the whole lifetime of the thread.
+    static MY_THREAD_NAME: Arc<str> = {
+        Arc::from(thread::current().name().unwrap_or(super::UNKNOWN_THREAD))
+    };
 }
 
-pub(crate) fn prepared_thread_name() -> Option<Cow<'static, str>> {
-    LOG_THREAD_NAME.with(|n| n.replace(None).map(Cow::Owned))
+fn reset_thread_name() {
+    LOG_THREAD_NAME.with(|log| *log.borrow_mut() = None);
+}
+
+// In case it we are inside the background logging thread, we have the LOG_THREAD_NAME set (unless
+// we log a message ourselves). If not, then we simply take the local thread name.
+pub(crate) fn get_thread_name(thread: &Thread) -> Either<&str, Arc<str>> {
+    LOG_THREAD_NAME.with(|n| {
+        n.borrow()
+            .as_ref()
+            .map(|n| Either::Right(Arc::clone(n)))
+            .unwrap_or_else(|| Either::Left(thread.name().unwrap_or(super::UNKNOWN_THREAD)))
+    })
 }
 
 struct FlushDone {
@@ -75,7 +101,7 @@ enum Instruction {
         module_path: Option<String>,
         file: Option<String>,
         line: Option<u32>,
-        thread: Option<String>,
+        thread: Arc<str>,
     },
     Flush(DropNotify),
 }
@@ -92,7 +118,7 @@ impl Instruction {
                 line,
                 thread,
             } => {
-                LOG_THREAD_NAME.with(|n| n.replace(thread));
+                LOG_THREAD_NAME.with(|n| n.replace(Some(thread)));
                 dst.log(
                     &Record::builder()
                         .args(format_args!("{}", msg))
@@ -128,7 +154,7 @@ impl Recv {
         loop {
             let result = panic::catch_unwind(AssertUnwindSafe(|| {
                 if panicked {
-                    LOG_THREAD_NAME.with(|n| n.replace(None));
+                    reset_thread_name();
                     self.shared.logger.log(
                         &Record::builder()
                             .args(format_args!("Panic in the logger thread, restarted"))
@@ -142,7 +168,7 @@ impl Recv {
                 for i in &self.instructions {
                     let lost_msgs = self.shared.lost_msgs.swap(0, Ordering::Relaxed);
                     if lost_msgs > 0 {
-                        LOG_THREAD_NAME.with(|n| n.replace(None));
+                        reset_thread_name();
                         self.shared.logger.log(
                             &Record::builder()
                                 .args(format_args!("Lost {} messages", lost_msgs))
@@ -304,7 +330,7 @@ impl Log for AsyncLogger {
                 module_path: record.module_path().map(ToOwned::to_owned),
                 msg: format!("{}", record.args()),
                 target: record.target().to_owned(),
-                thread: thread::current().name().map(ToOwned::to_owned),
+                thread: MY_THREAD_NAME.with(|n| Arc::clone(&n)),
             };
             if self.mode == OverflowMode::Block {
                 self.ch.send(i).expect("Logging thread disappeared");

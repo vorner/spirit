@@ -21,15 +21,15 @@ travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
 [features]
-background = ["crossbeam-channel", "parking_lot"]
+background = ["crossbeam-channel", "either", "parking_lot"]
 default = ["with-backtrace", "cfg-help"]
 with-backtrace = ["log-panics/with-backtrace"]
 cfg-help = ["spirit/cfg-help", "structdoc"]
 
-
 [dependencies]
 crossbeam-channel = { version = "~0.3", optional = true }
 chrono = "~0.4"
+either = { version = "~1", optional = true }
 failure = "~0.1"
 fern = { version = "~0.5.7", features = ["syslog-4"] }
 itertools = "~0.8"
