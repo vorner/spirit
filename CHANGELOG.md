@@ -1,16 +1,16 @@
-# spirit-dipstick-unreleased
+# spirit-dipstick-0.1.0
 
 * First shot at the crate.
 
-# spirit-reqwest-unreleased
+# spirit-reqwest-0.2.1
 
 * Internal code cleanups.
 
-# spirit-log-unreleased
+# spirit-log-0.2.4
 
 * Fix thread name in case of background logging into multiple loggers.
 
-# unreleased
+# spirit-0.3.5
 
 * Add a routine to serialize duration in human-readable format (when there are
   configs with durations). Might as well eventually go to serde-humantime.
