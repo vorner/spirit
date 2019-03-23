@@ -14,6 +14,7 @@ use std::time::Duration;
 use failure::{Error, Fail};
 use itertools::Itertools;
 use log::{debug, log, log_enabled, warn, Level};
+use serde::de::{Deserializer, Error as DeError, Unexpected};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
@@ -307,6 +308,9 @@ impl<T> Serialize for Hidden<T> {
 /// This can be used in configuration structures containing durations. The deserialization can be
 /// done with serde-humantime.
 ///
+/// The default serialization produces human unreadable values, this is more suitable for dumping
+/// configuration users will read.
+///
 /// # Examples
 ///
 /// ```rust
@@ -325,6 +329,54 @@ impl<T> Serialize for Hidden<T> {
 /// ```
 pub fn serialize_duration<S: Serializer>(dur: &Duration, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(&humantime::format_duration(*dur).to_string())
+}
+
+/// Deserialize an `Option<Duration>` using the [`humantime`] crate.
+///
+/// This allows reading human-friendly representations of time, like `30s` or `5days`. It should be
+/// paired with [`serialize_opt_duration`]. Also, to act like [`Option`] does when deserializing by
+/// default, the `#[serde(default)]` is recommended.
+///
+/// # Examples
+///
+/// ```rust
+/// use std::time::Duration;
+///
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+/// struct Cfg {
+///     #[serde(
+///         serialize_with = "spirit::utils::serialize_opt_duration",
+///         deserialize_with = "spirit::utils::deserialize_opt_duration",
+///         default,
+///     )]
+///     how_long: Option<Duration>,
+/// }
+/// ```
+pub fn deserialize_opt_duration<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Duration>, D::Error> {
+    if let Some(dur) = Option::<String>::deserialize(d)? {
+        humantime::parse_duration(&dur)
+            .map_err(|_| DeError::invalid_value(Unexpected::Str(&dur), &"Human readable duration"))
+            .map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
+/// Serialize an `Option<Duration>` in a human friendly form.
+///
+/// See the [`deserialize_opt_duration`] for more details and an example.
+pub fn serialize_opt_duration<S: Serializer>(
+    dur: &Option<Duration>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    match dur {
+        Some(d) => serialize_duration(d, s),
+        None => s.serialize_none(),
+    }
 }
 
 #[cfg(test)]

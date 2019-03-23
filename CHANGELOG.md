@@ -1,3 +1,7 @@
+# spirit-unreleased
+
+* A routine to serialize/deserialize `Option<Duration>` in human readable form.
+
 # spirit-dipstick-0.1.0
 
 * First shot at the crate.
@@ -14,7 +18,6 @@
 
 * Add a routine to serialize duration in human-readable format (when there are
   configs with durations). Might as well eventually go to serde-humantime.
-
 * Fix of the CacheEq driver's abort.
 * Separate `Optional` trait from `Stackable`, separating ability to use
   `Option<F>` from other collections.
