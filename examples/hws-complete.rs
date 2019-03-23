@@ -25,7 +25,8 @@ use spirit_tokio::either::Either;
 use spirit_tokio::net::limits::WithLimits;
 #[cfg(unix)]
 use spirit_tokio::net::unix::UnixListen;
-use spirit_tokio::{Runtime, TcpListen};
+use spirit_tokio::runtime::ThreadPoolConfig;
+use spirit_tokio::TcpListen;
 use structdoc::StructDoc;
 use structopt::StructOpt;
 
@@ -152,6 +153,11 @@ struct Cfg {
 
     /// The user interface.
     ui: Ui,
+
+    /// The work threadpool.
+    ///
+    /// This is for performance tuning.
+    threadpool: ThreadPoolConfig,
 }
 
 impl Cfg {
@@ -160,6 +166,9 @@ impl Cfg {
     }
     fn listen(&self) -> Vec<Server> {
         self.listen.clone()
+    }
+    fn threadpool(&self) -> ThreadPoolConfig {
+        self.threadpool.clone()
     }
 }
 
@@ -209,6 +218,10 @@ error-sleep = "100ms"
 
 [ui]
 msg = "Hello world"
+
+[threadpool]
+async-threads = 2
+keep-alive = "15s"
 "#;
 
 /// This is the actual workhorse of the application.
@@ -261,13 +274,15 @@ fn main() {
         .on_config(|cmd_line, new_cfg| {
             debug!("Current cmdline: {:?} and config {:?}", cmd_line, new_cfg);
         })
-        // Make sure we have tokio runtime (the server pipeline would make sure it is available,
-        // but we plug it in quite late).
-        .with_singleton(Runtime::default())
+        // Configure number of threads & similar
+        .with(ThreadPoolConfig::extension(Cfg::threadpool))
+        // If we didn't use ThreadPoolConfig, we would have to make sure we have tokio runtime (the
+        // server pipeline would make sure it is available, but we plug it in quite late).
+        //.with_singleton(Runtime::default())
         // And run the application.
         //
-        // Empty body here is fine. The rest of the work will happen afterwards, inside the HTTP
-        // server.
+        // Mostly empty body here is fine. The rest of the work will happen afterwards, inside the
+        // HTTP server.
         .run(|spirit| {
             let spirit_srv = Arc::clone(spirit);
             let build_server = move |builder: Builder<_>, cfg: &Server, _: &'static str| {
