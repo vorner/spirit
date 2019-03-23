@@ -28,7 +28,7 @@ use std::sync::Arc;
 use failure::Error;
 use spirit::prelude::*;
 use spirit_tokio::net::limits::LimitedConn;
-use spirit_tokio::runtime::Runtime;
+use spirit_tokio::runtime::ThreadPoolConfig;
 use spirit_tokio::{HandleListener, TcpListenWithLimits};
 use tokio::net::TcpStream;
 use tokio::prelude::*;
@@ -46,6 +46,10 @@ struct Config {
     listen: HashSet<TcpListenWithLimits>,
     /// The UI (there's only the message to send).
     ui: Ui,
+
+    /// Threadpool to do the async work.
+    #[serde(default)]
+    threadpool: ThreadPoolConfig,
 }
 
 impl Config {
@@ -53,9 +57,18 @@ impl Config {
     fn listen(&self) -> HashSet<TcpListenWithLimits> {
         self.listen.clone()
     }
+
+    /// Extraction of the threadpool configuration
+    fn threadpool(&self) -> ThreadPoolConfig {
+        self.threadpool.clone()
+    }
 }
 
 const DEFAULT_CONFIG: &str = r#"
+[threadpool]
+async-threads = 2
+blocking-threads = 2
+
 [[listen]]
 port = 1234
 max-conn = 30
@@ -94,7 +107,10 @@ pub fn main() {
     Spirit::<Empty, Config>::new()
         .config_defaults(DEFAULT_CONFIG)
         .config_exts(&["toml", "ini", "json"])
-        .with_singleton(Runtime::default())
+        .with(ThreadPoolConfig::extension(Config::threadpool))
+        // If the runtime wasn't provided by the ThreadPoolConfig, we would want to plug one
+        // manually.
+        //.with_singleton(Runtime::default())
         .run(|spirit| {
             let spirit_handler = Arc::clone(spirit);
             let handler =

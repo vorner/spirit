@@ -1,3 +1,7 @@
+# spirit-tokio-unreleased
+
+* Ability to configure the threadpool runtime from config file.
+
 # spirit-unreleased
 
 * A routine to serialize/deserialize `Option<Duration>` in human readable form.

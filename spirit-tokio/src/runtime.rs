@@ -1,12 +1,18 @@
 //! An extension to start the tokio runtime at the appropriate time.
 
+use std::fmt::Debug;
 use std::sync::Arc;
+use std::time::Duration;
 
 use failure::Error;
 use futures::future::{self, Future};
-use log::trace;
+use log::{trace, warn};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use spirit::bodies::InnerBody;
 use spirit::extension::{Extensible, Extension};
+use spirit::{Builder, Spirit};
+use structdoc::StructDoc;
 use structopt::StructOpt;
 use tokio::runtime;
 
@@ -28,11 +34,17 @@ pub type TokioBody = Box<Future<Item = (), Error = Error> + Send>;
 /// must register it using the [`with_singleton`] method.
 ///
 /// Similarly, if all the pipelines are registered within the [`run`] method (or generally, after
-/// building is done).
+/// building is done), you need to install this manually *before* doing [`run`].
 ///
 /// Note that the provided closures are `FnMut` mostly because `Box<FnOnce>` doesn't work. They
 /// will be called just once, so you can use `Option<T>` inside and consume the value by
 /// `take.unwrap()`.
+///
+/// # Runtime configuration
+///
+/// You may have noticed the callbacks here don't have access to configuration. If you intend to
+/// configure eg. the number of threads from user configuration, use the [`ThreadPoolConfig`]
+/// instead.
 ///
 /// # Future compatibility
 ///
@@ -134,6 +146,40 @@ impl Default for Runtime {
     }
 }
 
+impl Runtime {
+    fn execute<O, C>(self, spirit: &Arc<Spirit<O, C>>, inner: InnerBody) -> Result<(), Error>
+    where
+        C: DeserializeOwned + Send + Sync + 'static,
+        O: StructOpt + Send + Sync + 'static,
+    {
+        let spirit = Arc::clone(spirit);
+        let fut = future::lazy(move || {
+            inner.run().map_err(move |e| {
+                spirit.terminate();
+                e
+            })
+        });
+        match self {
+            Runtime::ThreadPool(mut mod_builder) => {
+                let mut builder = runtime::Builder::new();
+                mod_builder(&mut builder);
+                let mut runtime = builder.build()?;
+                runtime.block_on(fut)?;
+                runtime.block_on_all(future::lazy(|| Ok(())))
+            }
+            Runtime::CurrentThread(mut mod_builder) => {
+                let mut builder = runtime::current_thread::Builder::new();
+                mod_builder(&mut builder);
+                let mut runtime = builder.build()?;
+                runtime.block_on(fut)?;
+                runtime.run().map_err(Error::from)
+            }
+            Runtime::Custom(mut callback) => callback(Box::new(fut)),
+            Runtime::__NonExhaustive__ => unreachable!(),
+        }
+    }
+}
+
 impl<E> Extension<E> for Runtime
 where
     E: Extensible<Ok = E>,
@@ -142,32 +188,157 @@ where
 {
     fn apply(self, ext: E) -> Result<E, Error> {
         trace!("Wrapping in tokio runtime");
-        ext.run_around(|spirit, inner| {
-            let spirit = Arc::clone(spirit);
-            let fut = future::lazy(move || {
-                inner.run().map_err(move |e| {
-                    spirit.terminate();
-                    e
+        ext.run_around(|spirit, inner| self.execute(spirit, inner))
+    }
+}
+
+/// A configuration extension for the Tokio Threadpool runtime.
+///
+/// Using the [`extension`][ThreadPoolConfig::extension] or the
+/// [`postprocess_extension`][ThreadPoolConfig::postprocess_extension] provides the [`Runtime`] to
+/// the spirit application. However, this allows reading the parameters of the threadpool (mostly
+/// number of threads) from the configuration instead of hardcoding it into the application.
+///
+/// # Panics
+///
+/// If this is inserted after something already registered a [`Runtime`].
+///
+/// # Examples
+///
+/// ```rust
+/// use serde::Deserialize;
+/// use spirit::prelude::*;
+/// use spirit_tokio::runtime::ThreadPoolConfig;
+///
+/// #[derive(Debug, Default, Deserialize)]
+/// struct Cfg {
+///     #[serde(default)] // Allow empty configuration with default runtime
+///     threadpool: ThreadPoolConfig,
+/// }
+///
+/// impl Cfg {
+///     fn threadpool(&self) -> ThreadPoolConfig {
+///         self.threadpool.clone()
+///     }
+/// }
+///
+/// fn main() {
+///     Spirit::<Empty, Cfg>::new()
+///         .with(ThreadPoolConfig::extension(Cfg::threadpool))
+///         .run(|_| {
+///             // This runs inside a configured runtime
+///             Ok(())
+///         });
+/// }
+/// ```
+#[derive(
+    Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, StructDoc, Ord, PartialOrd, Hash,
+)]
+#[serde(rename_all = "kebab-case")]
+pub struct ThreadPoolConfig {
+    /// Maximum number of asynchronous worker threads.
+    ///
+    /// These do most of the work. There's little reason to set it to more than number of CPUs, but
+    /// it may make sense to set it lower.
+    ///
+    /// If not set, the application will start with number of CPUs available in the system.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub async_threads: Option<usize>,
+
+    /// Maximum number of blocking worker threads.
+    ///
+    /// These do tasks that take longer time. This includes file IO and CPU intensive tasks.
+    ///
+    /// If not set, defaults to 100.
+    ///
+    /// Often, the application doesn't start these threads as they might not always be needed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocking_threads: Option<usize>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "spirit::utils::serialize_opt_duration",
+        deserialize_with = "spirit::utils::deserialize_opt_duration",
+        default
+    )]
+
+    /// How long to keep an idle thread around.
+    ///
+    /// A thread will be shut down if it sits around idle for this long. The default (unset) is
+    /// never to shut it down.
+    ///
+    /// Accepts human-parsable times, like „3days“ or „5s“.
+    pub keep_alive: Option<Duration>,
+    #[serde(skip)]
+    _sentinel: (),
+}
+
+impl ThreadPoolConfig {
+    /// The extension to be plugged in with [`with`].
+    ///
+    /// See the [example](#examples).
+    ///
+    /// [`with`]: spirit::extension::Extension::with
+    pub fn extension<O, C, F>(extract: F) -> impl Extension<Builder<O, C>>
+    where
+        F: Fn(&C) -> Self + Clone + Send + Sync + 'static,
+        O: Debug + StructOpt + Send + Sync + 'static,
+        C: DeserializeOwned + Send + Sync + 'static,
+    {
+        Self::postprocess_extension(extract, |_: &mut _| ())
+    }
+
+    /// Similar to [`extension`][ThreadPoolConfig::extension], but allows further tweaking.
+    ///
+    /// This allows to tweak the [threadpool builder][runtime::Builder] after it was pre-configured
+    /// by the configuration file. This might be desirable, for example, if the application also
+    /// wants to install an [`after_start`][runtime::Builder::after_start] or set the stack size
+    /// which either can't or don't make sense to configure by the user.
+    pub fn postprocess_extension<O, C, F, P>(extract: F, post: P) -> impl Extension<Builder<O, C>>
+    where
+        F: Fn(&C) -> Self + Clone + Send + Sync + 'static,
+        P: FnOnce(&mut runtime::Builder) + Send + 'static,
+        O: Debug + StructOpt + Send + Sync + 'static,
+        C: DeserializeOwned + Send + Sync + 'static,
+    {
+        let mut post = Some(post);
+        |mut builder: Builder<O, C>| {
+            assert!(
+                builder.singleton::<Runtime>(),
+                "Tokio Runtime already inserted"
+            );
+            trace!("Inserting configurable tokio runtime");
+            builder
+                .on_config({
+                    let extract = extract.clone();
+                    let mut first = None;
+                    move |_: &O, cfg: &Arc<C>| {
+                        let cfg = extract(cfg);
+                        if first.is_none() {
+                            first = Some(cfg);
+                        } else if first.as_ref() != Some(&cfg) {
+                            warn!("Tokio threadpool configuration can't be changed at runtime");
+                        }
+                    }
                 })
-            });
-            match self {
-                Runtime::ThreadPool(mut mod_builder) => {
-                    let mut builder = runtime::Builder::new();
-                    mod_builder(&mut builder);
-                    let mut runtime = builder.build()?;
-                    runtime.block_on(fut)?;
-                    runtime.block_on_all(future::lazy(|| Ok(())))
-                }
-                Runtime::CurrentThread(mut mod_builder) => {
-                    let mut builder = runtime::current_thread::Builder::new();
-                    mod_builder(&mut builder);
-                    let mut runtime = builder.build()?;
-                    runtime.block_on(fut)?;
-                    runtime.run().map_err(Error::from)
-                }
-                Runtime::Custom(mut callback) => callback(Box::new(fut)),
-                Runtime::__NonExhaustive__ => unreachable!(),
-            }
-        })
+                .run_around(|spirit, inner| {
+                    Runtime::ThreadPool({
+                        let spirit = Arc::clone(spirit);
+                        Box::new(move |builder| {
+                            let cfg = extract(&spirit.config());
+                            if let Some(threads) = cfg.async_threads {
+                                builder.core_threads(threads);
+                            }
+                            if let Some(threads) = cfg.blocking_threads {
+                                builder.blocking_threads(threads);
+                            }
+                            if let Some(alive) = cfg.keep_alive {
+                                builder.keep_alive(Some(alive));
+                            }
+                            (post.take().unwrap())(builder)
+                        })
+                    })
+                    .execute(spirit, inner)
+                })
+        }
     }
 }
