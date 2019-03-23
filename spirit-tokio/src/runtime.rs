@@ -20,7 +20,7 @@ use tokio::runtime;
 ///
 /// When specifying custom tokio runtime through the [`Runtime`](enum.Runtime.html) extension, this
 /// is the future to be run inside the runtime.
-pub type TokioBody = Box<Future<Item = (), Error = Error> + Send>;
+pub type TokioBody = Box<dyn Future<Item = (), Error = Error> + Send>;
 
 /// An extension to initialize a tokio runtime as part of spirit.
 ///
@@ -117,13 +117,13 @@ pub enum Runtime {
     ///
     /// This allows you to modify the builder prior to starting it, specifying custom options like
     /// number of threads.
-    ThreadPool(Box<FnMut(&mut runtime::Builder) + Send>),
+    ThreadPool(Box<dyn FnMut(&mut runtime::Builder) + Send>),
 
     /// Use the current thread runtime.
     ///
     /// If you prefer to run everything in a single thread, use this variant. The provided closure
     /// can modify the builder prior to starting it.
-    CurrentThread(Box<FnMut(&mut runtime::current_thread::Builder) + Send>),
+    CurrentThread(Box<dyn FnMut(&mut runtime::current_thread::Builder) + Send>),
 
     /// Use completely custom runtime.
     ///
@@ -132,7 +132,7 @@ pub enum Runtime {
     ///
     /// This allows combining arbitrary runtimes that are not directly supported by either tokio or
     /// spirit.
-    Custom(Box<FnMut(TokioBody) -> Result<(), Error> + Send>),
+    Custom(Box<dyn FnMut(TokioBody) -> Result<(), Error> + Send>),
 
     #[doc(hidden)]
     __NonExhaustive__,

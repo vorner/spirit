@@ -614,7 +614,7 @@ impl Logger {
             LogDestination::Network { ref host, port } => {
                 // TODO: Reconnection support
                 let conn = TcpStream::connect((&host as &str, port))?;
-                Ok(logger.chain(Box::new(conn) as Box<Write + Send>))
+                Ok(logger.chain(Box::new(conn) as Box<dyn Write + Send>))
             }
             LogDestination::StdOut => Ok(logger.chain(io::stdout())),
             LogDestination::StdErr => Ok(logger.chain(io::stderr())),

@@ -1,7 +1,7 @@
 //! Utility body wrapper types.
 //!
-//! There are some problems with `Box<FnOnce()>` types in Rust. The types here are less convenient
-//! but actually usable types with similar function.
+//! There are some problems with `Box<dyn FnOnce()>` types in Rust. The types here are less
+//! convenient but actually usable types with similar function.
 
 use std::sync::Arc;
 
@@ -19,14 +19,14 @@ impl<F: FnOnce(Param) -> Result<(), Error> + Send, Param> Body<Param> for Option
     }
 }
 
-/// A workaround type for `Box<FnOnce() -> Result<(), Error>`.
+/// A workaround type for `Box<dyn FnOnce() -> Result<(), Error>`.
 ///
 /// Since it is not possible to use the aforementioned type in any meaningful way in Rust yet, this
 /// works around the problem. The type has a [`run`][InnerBody::run] method which does the same thing.
 ///
 /// This is passed as parameter to the closure passed to
 /// [`run_around`][crate::Extensible::run_around], representing the body to be run inside.
-pub struct InnerBody(pub(crate) Box<Body<()>>);
+pub struct InnerBody(pub(crate) Box<dyn Body<()>>);
 
 impl InnerBody {
     /// Run the body.
@@ -36,7 +36,7 @@ impl InnerBody {
 }
 
 /// A wrapper around a body.
-pub(crate) struct WrapBody(pub(crate) Box<Body<InnerBody>>);
+pub(crate) struct WrapBody(pub(crate) Box<dyn Body<InnerBody>>);
 
 impl WrapBody {
     /// Call the closure inside.
@@ -45,5 +45,5 @@ impl WrapBody {
     }
 }
 
-pub(crate) type Wrapper<O, C> = Box<for<'a> Body<(&'a Arc<Spirit<O, C>>, InnerBody)>>;
-pub(crate) type SpiritBody<O, C> = Box<for<'a> Body<&'a Arc<Spirit<O, C>>>>;
+pub(crate) type Wrapper<O, C> = Box<dyn for<'a> Body<(&'a Arc<Spirit<O, C>>, InnerBody)>>;
+pub(crate) type SpiritBody<O, C> = Box<dyn for<'a> Body<&'a Arc<Spirit<O, C>>>>;

@@ -319,7 +319,7 @@ pub struct Builder {
     default_paths: Vec<PathBuf>,
     defaults: Option<String>,
     env: Option<String>,
-    filter: Box<FnMut(&Path) -> bool + Send>,
+    filter: Box<dyn FnMut(&Path) -> bool + Send>,
 }
 
 impl Default for Builder {
@@ -429,7 +429,7 @@ pub struct Loader {
     defaults: Option<String>,
     env: Option<String>,
     overrides: HashMap<String, String>,
-    filter: Box<FnMut(&Path) -> bool + Send>,
+    filter: Box<dyn FnMut(&Path) -> bool + Send>,
 }
 
 impl Loader {

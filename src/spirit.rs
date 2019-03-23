@@ -35,14 +35,14 @@ use crate::validation::Action;
 pub struct ValidationError(usize, usize);
 
 struct Hooks<O, C> {
-    config: Vec<Box<FnMut(&O, &Arc<C>) + Send>>,
+    config: Vec<Box<dyn FnMut(&O, &Arc<C>) + Send>>,
     config_loader: CfgLoader,
-    config_mutators: Vec<Box<FnMut(&mut C) + Send>>,
-    config_validators: Vec<Box<FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, Error> + Send>>,
-    sigs: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
+    config_mutators: Vec<Box<dyn FnMut(&mut C) + Send>>,
+    config_validators: Vec<Box<dyn FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, Error> + Send>>,
+    sigs: HashMap<libc::c_int, Vec<Box<dyn FnMut() + Send>>>,
     singletons: HashSet<TypeId>,
-    terminate: Vec<Box<FnMut() + Send>>,
-    guards: Vec<Box<Any + Send>>,
+    terminate: Vec<Box<dyn FnMut() + Send>>,
+    guards: Vec<Box<dyn Any + Send>>,
     // There's terminated inside spirit itself, as atomic variable (for lock-less fast access). But
     // that is prone to races, so we keep a separate one here.
     terminated: bool,
@@ -571,18 +571,18 @@ where
 pub struct Builder<O = Empty, C = Empty> {
     autojoin_bg_thread: bool,
     before_bodies: Vec<SpiritBody<O, C>>,
-    before_config: Vec<Box<FnMut(&C, &O) -> Result<(), Error> + Send>>,
+    before_config: Vec<Box<dyn FnMut(&C, &O) -> Result<(), Error> + Send>>,
     body_wrappers: Vec<Wrapper<O, C>>,
     config: C,
     config_loader: CfgBuilder,
-    config_hooks: Vec<Box<FnMut(&O, &Arc<C>) + Send>>,
-    config_mutators: Vec<Box<FnMut(&mut C) + Send>>,
-    config_validators: Vec<Box<FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, Error> + Send>>,
+    config_hooks: Vec<Box<dyn FnMut(&O, &Arc<C>) + Send>>,
+    config_mutators: Vec<Box<dyn FnMut(&mut C) + Send>>,
+    config_validators: Vec<Box<dyn FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, Error> + Send>>,
     opts: PhantomData<O>,
-    sig_hooks: HashMap<libc::c_int, Vec<Box<FnMut() + Send>>>,
+    sig_hooks: HashMap<libc::c_int, Vec<Box<dyn FnMut() + Send>>>,
     singletons: HashSet<TypeId>,
-    terminate_hooks: Vec<Box<FnMut() + Send>>,
-    guards: Vec<Box<Any + Send>>,
+    terminate_hooks: Vec<Box<dyn FnMut() + Send>>,
+    guards: Vec<Box<dyn Any + Send>>,
 }
 
 impl<O, C> Builder<O, C>

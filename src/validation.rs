@@ -105,8 +105,8 @@ pub use self::multi_error::*;
 /// ```
 #[derive(Default)]
 pub struct Action {
-    pub(crate) on_abort: Option<Box<FnMut()>>,
-    pub(crate) on_success: Option<Box<FnMut()>>,
+    pub(crate) on_abort: Option<Box<dyn FnMut()>>,
+    pub(crate) on_success: Option<Box<dyn FnMut()>>,
 }
 
 impl Action {
