@@ -464,7 +464,7 @@ impl Loader {
                 // way.
                 let filter = &mut self.filter;
                 let mut files = fallible_iterator::convert(path.read_dir()?)
-                    .and_then(|entry| -> Result<Option<PathBuf>, std::io::Error> {
+                    .map(|entry| -> Result<Option<PathBuf>, std::io::Error> {
                         let path = entry.path();
                         let meta = path.symlink_metadata()?;
                         if meta.is_file() && (filter)(&path) {
@@ -474,7 +474,7 @@ impl Loader {
                             Ok(None)
                         }
                     })
-                    .filter_map(|path| path)
+                    .filter_map(|path| Ok(path))
                     .collect::<Vec<_>>()?;
                 // Traverse them sorted.
                 files.sort();

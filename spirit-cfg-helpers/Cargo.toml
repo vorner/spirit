@@ -31,7 +31,7 @@ serde_yaml = { version = "~0.8", optional = true }
 spirit = { path = "..", version = "~0.3", default-features = false }
 structdoc = { version = "~0.1", default-features = false, optional = true }
 structopt = { version = "~0.2", default-features = false }
-toml = "~0.4"
+toml = "~0.5"
 
 [dev-dependencies]
 serde_derive = "~1"
