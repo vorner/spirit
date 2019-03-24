@@ -474,7 +474,7 @@ impl Loader {
                             Ok(None)
                         }
                     })
-                    .filter_map(|path| Ok(path))
+                    .filter_map(Ok)
                     .collect::<Vec<_>>()?;
                 // Traverse them sorted.
                 files.sort();
