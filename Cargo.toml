@@ -26,6 +26,7 @@ members = [
     "spirit-log",
     "spirit-reqwest",
     "spirit-tokio",
+    "tutopoc", # XXX: This is only temporary
 ]
 
 [badges]
@@ -60,7 +61,9 @@ toml = "~0.4"
 [dev-dependencies]
 lazy_static = "~1"
 hyper = "~0.12"
+http = "~0.1"
 serde-humantime = "~0.1"
+serde_json = "~1"
 spirit-cfg-helpers = { version = "~0.2", path = "spirit-cfg-helpers" }
 spirit-daemonize = { version = "~0.2", path = "spirit-daemonize" }
 spirit-hyper = { version = "~0.5", path = "spirit-hyper" }

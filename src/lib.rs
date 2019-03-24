@@ -422,6 +422,7 @@ pub mod fragment;
 #[doc(hidden)]
 pub mod macro_support;
 mod spirit;
+pub mod tutorial;
 pub mod utils;
 pub mod validation;
 
