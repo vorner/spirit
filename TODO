@@ -14,3 +14,7 @@
 * Make some of the traits sealed
 * Builder::run should not need the closure to be static.
 
+* -C doesn't work well with numbers. That's because we switched from
+  deserializing from config to deserializing from toml::Value and that one is
+  strict. Is there a trick to make it non-strict?
+* Stackable and optional for references, eg Vec<&Fragment> or Option<&Fragment>
