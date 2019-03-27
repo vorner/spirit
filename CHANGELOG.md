@@ -1,3 +1,7 @@
+# spirit-dipstick-unreleased
+
+* Fix application name as the default for prefix.
+
 # spirit-tokio-0.5.2
 
 * Ability to configure the threadpool runtime from config file.

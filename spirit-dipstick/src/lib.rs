@@ -59,7 +59,7 @@
 //! ```
 
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -142,7 +142,14 @@ pub struct Backends {
 }
 
 fn app_name() -> String {
-    env!("CARGO_PKG_NAME").to_owned()
+    std::env::args_os()
+        .nth(0)
+        .and_then(|p| {
+            Path::new(&p)
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+        })
+        .unwrap_or_else(|| env!("CARGO_PKG_NAME").to_owned())
 }
 
 const fn default_flush() -> Duration {
@@ -176,8 +183,7 @@ const fn default_flush() -> Duration {
 pub struct Config {
     /// The prefix ‒ first level of the metrics tree, under which all the metrics are stored.
     ///
-    /// If not specifie, it defaults to the application name (gotten from the `CARGO_PKG_NAME`
-    /// environment variable).
+    /// If not specifie, it defaults to the application name.
     #[serde(default = "app_name")]
     pub prefix: String,
 
