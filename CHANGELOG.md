@@ -1,6 +1,7 @@
 # spirit-dipstick-unreleased
 
 * Fix application name as the default for prefix.
+* Metrics to file are appended, not overwritten.
 
 # spirit-tokio-0.5.2
 

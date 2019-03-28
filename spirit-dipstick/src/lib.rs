@@ -58,7 +58,7 @@
 //!}
 //! ```
 
-use std::fs::File;
+use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -100,9 +100,14 @@ impl Backend {
             Backend::Stderr => Ok(out.add_target(Stream::to_stderr())),
             Backend::File { filename } => {
                 // TODO: Workaroud until https://github.com/fralalonde/dipstick/pull/53 lands
-                let f = File::create(&filename).with_context(|_| {
-                    format!("Failed to create metrics file {}", filename.display())
-                })?;
+                let f = OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .append(true)
+                    .open(&filename)
+                    .with_context(|_| {
+                        format!("Failed to create metrics file {}", filename.display())
+                    })?;
                 Ok(out.add_target(Stream::write_to(f)))
             }
             Backend::Graphite { host, port } => Graphite::send_to((host as &str, *port))
