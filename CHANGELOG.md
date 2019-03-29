@@ -1,3 +1,7 @@
+# spirit-reqwest-0.2.2
+
+* Addition of several more configuration fields.
+
 # spirit-dipstick-0.1.1
 
 * Fix application name as the default for prefix.

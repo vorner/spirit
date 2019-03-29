@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-reqwest/0.2.1/spirit_reqwest/",
+    html_root_url = "https://docs.rs/spirit-reqwest/0.2.2/spirit_reqwest/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -57,6 +57,7 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -156,14 +157,29 @@ fn deserialize_opt_dur<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Duratio
 ///   empty.
 /// * `timeout`: Default whole-request timeout. Can be a time specification (with units) or `nil`
 ///   for no timeout. Default is `30s`.
+/// * `connect-timeout`: Timeout for the connection phase of a request (with units) or `nil` for no
+///   such timeout. Default is no timeout.
+/// * `max-idle-per-host`: Maximal number of idle connection per one host in the pool. Defaults to
+///   `nil` (no limit).
+/// * `http2-only`: Use only HTTP/2. Default is false (both HTTP/1 and HTTP/2 are allowed).
+/// * `http1-case-sensitive-headers`: Consider HTTP/1 headers case sensitive.
+/// * `local-address`: Make the requests from this address. Default is `nil`, which lets the OS to
+///   choose.
 /// * `http-proxy`: An URL of proxy that serves http requests.
 /// * `https-proxy`: An URL of proxy that servers https requests.
 /// * `redirects`: Number of allowed redirects per one request, `nil` to disable. Defaults to `10`.
 /// * `referer`: Allow automatic setting of the referer header. Defaults to `true`.
+/// * `tcp-nodelay`: Use the `SO_NODELAY` flag on all connections.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 #[serde(rename_all = "kebab-case")]
 pub struct ReqwestClient {
+    /// Requires that all sockets used have the `SO_NODELAY` set.
+    ///
+    /// This improves latency in some cases at the cost of sending more packets.
+    #[serde(default)]
+    tcp_nodelay: bool,
+
     /// Additional certificates to add into the TLS trust store.
     ///
     /// Certificates in these files will be considered trusted in addition to the system trust
@@ -237,6 +253,16 @@ pub struct ReqwestClient {
     )]
     timeout: Option<Duration>,
 
+    /// A timeout for connecting to the server.
+    ///
+    /// The default is no connection timeout.
+    #[serde(
+        deserialize_with = "deserialize_opt_dur",
+        default,
+        serialize_with = "serialize_opt_dur"
+    )]
+    connect_timeout: Option<Duration>,
+
     /// An URL for proxy to use on HTTP requests.
     ///
     /// No proxy is used if not set.
@@ -263,6 +289,28 @@ pub struct ReqwestClient {
     /// Default is on.
     #[serde(default = "default_referer")]
     referer: bool,
+
+    /// Maximum number of idle connections per one host.
+    ///
+    /// Default is no limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    max_idle_per_host: Option<usize>,
+
+    /// Use only HTTP/2.
+    ///
+    /// Default is false.
+    #[serde(default)]
+    http2_only: bool,
+
+    /// Use HTTP/1 headers in case sensitive manner.
+    #[serde(default)]
+    http1_case_sensitive_headers: bool,
+
+    /// The local address connections are made from.
+    ///
+    /// Default is no address (the OS will choose).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    local_address: Option<IpAddr>,
 }
 
 impl Default for ReqwestClient {
@@ -276,10 +324,16 @@ impl Default for ReqwestClient {
             enable_gzip: default_gzip(),
             default_headers: HashMap::new(),
             timeout: default_timeout(),
+            connect_timeout: None,
             http_proxy: None,
             https_proxy: None,
             redirects: default_redirects(),
             referer: default_referer(),
+            http2_only: false,
+            http1_case_sensitive_headers: false,
+            max_idle_per_host: None,
+            tcp_nodelay: false,
+            local_address: None,
         }
     }
 }
@@ -312,9 +366,21 @@ impl ReqwestClient {
             .danger_accept_invalid_hostnames(self.tls_accept_invalid_hostnames)
             .gzip(self.enable_gzip)
             .timeout(self.timeout)
+            .connect_timeout(self.connect_timeout)
+            .max_idle_per_host(self.max_idle_per_host.unwrap_or(usize::max_value()))
+            .local_address(self.local_address)
             .default_headers(headers)
             .redirect(redirects)
             .referer(self.referer);
+        if self.tcp_nodelay {
+            builder = builder.tcp_nodelay();
+        }
+        if self.http2_only {
+            builder = builder.h2_prior_knowledge();
+        }
+        if self.http1_case_sensitive_headers {
+            builder = builder.http1_title_case_headers();
+        }
         for cert_path in &self.tls_extra_root_certs {
             trace!("Adding root certificate {:?}", cert_path);
             let cert = load_cert(cert_path)

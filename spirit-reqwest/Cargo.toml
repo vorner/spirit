@@ -1,6 +1,6 @@
 [package]
 name = "spirit-reqwest"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 edition = "2018"
 description = "Reqwest helpers for Spirit"
@@ -30,7 +30,7 @@ failure = "~0.1"
 humantime = "~1"
 log = "~0.4"
 parking_lot = "~0.7"
-reqwest = "~0.9.5"
+reqwest = "~0.9.12"
 serde = { version = "~1", features = ["derive"] }
 serde-humantime = "~0.1"
 spirit = { version = "~0.3", path = "..", default-features = false }
