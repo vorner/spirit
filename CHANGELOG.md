@@ -1,4 +1,4 @@
-# spirit-dipstick-unreleased
+# spirit-dipstick-0.1.1
 
 * Fix application name as the default for prefix.
 * Metrics to file are appended, not overwritten.
