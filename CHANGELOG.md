@@ -1,3 +1,7 @@
+# unreleased
+
+* Docs improvement (mention spirit-dipstick).
+
 # spirit-reqwest-0.2.2
 
 * Addition of several more configuration fields.

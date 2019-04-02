@@ -115,6 +115,7 @@
 //! Currently, there are these crates with fragments:
 //!
 //! * [`spirit-daemonize`]: Configuration and routines to go into background and be a nice daemon.
+//! * [`spirit-dipstick`]: Configuration of the dipstick metrics library.
 //! * [`spirit-log`]: Configuration of logging.
 //! * [`spirit-tokio`]: Integrates basic tokio primitives ‒ auto-reconfiguration for TCP and UDP
 //!   sockets and starting the runtime.
