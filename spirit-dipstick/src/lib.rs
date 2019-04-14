@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-dipstick/0.1.1/spirit_dipstick/",
+    html_root_url = "https://docs.rs/spirit-dipstick/0.1.2/spirit_dipstick/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -88,39 +88,26 @@ enum Backend {
     Statsd { host: String, port: u16 },
 }
 
-// TODO: Until the error is fixed on dipstick side
-fn err_convert(e: Box<dyn std::error::Error>) -> Error {
-    failure::err_msg(e.to_string())
-}
-
 impl Backend {
     fn add_to(&self, out: &MultiOutput) -> Result<MultiOutput, Error> {
         match self {
             Backend::Stdout => Ok(out.add_target(Stream::to_stdout())),
             Backend::Stderr => Ok(out.add_target(Stream::to_stderr())),
-            Backend::File { filename } => {
-                // TODO: Workaroud until https://github.com/fralalonde/dipstick/pull/53 lands
-                let f = OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .append(true)
-                    .open(&filename)
-                    .with_context(|_| {
-                        format!("Failed to create metrics file {}", filename.display())
-                    })?;
-                Ok(out.add_target(Stream::write_to(f)))
-            }
+            Backend::File { filename } => Stream::to_file(filename)
+                .map(|s| out.add_target(s))
+                .map_err(Error::from_boxed_compat)
+                .with_context(|_| format!("Failed to create metrics file {}", filename.display())),
             Backend::Graphite { host, port } => Graphite::send_to((host as &str, *port))
                 .map(|g| out.add_target(g))
-                .map_err(err_convert)
+                .map_err(Error::from_boxed_compat)
                 .with_context(|_| format!("Error sending to graphite {}:{}", host, port)),
             Backend::Prometheus { url } => Prometheus::push_to(url as &str)
                 .map(|p| out.add_target(p))
-                .map_err(err_convert)
+                .map_err(Error::from_boxed_compat)
                 .with_context(|_| format!("Error sending to prometheus {}", url)),
             Backend::Statsd { host, port } => Statsd::send_to((host as &str, *port))
                 .map(|s| out.add_target(s))
-                .map_err(err_convert)
+                .map_err(Error::from_boxed_compat)
                 .with_context(|_| format!("Error sending to statsd {}:{}", host, port)),
         }
         .map_err(Error::from)
@@ -210,7 +197,7 @@ impl Config {
     fn outputs(&self) -> Result<MultiOutput, Error> {
         self.backends
             .iter()
-            .try_fold(MultiOutput::output(), |mo, backend| backend.add_to(&mo))
+            .try_fold(MultiOutput::new(), |mo, backend| backend.add_to(&mo))
     }
 }
 
@@ -281,7 +268,7 @@ impl Fragment for Config {
 ///
 /// let monitor = Monitor::new();
 /// // Plug the monitor.installer() into a pipeline here on startup
-/// let sub_monitor = monitor.add_prefix("sub");
+/// let sub_monitor = monitor.add_name("sub");
 /// let timer = sub_monitor.timer("a-timer");
 /// let timer_measurement = timer.start();
 /// let counter = sub_monitor.counter("cnt");
@@ -315,7 +302,7 @@ impl Monitor {
     /// This creates an installer which can be used inside a [`Pipeline`] to attach backends to it.
     ///
     /// The `stats` is the same kind of filtering and selection function the [`dipstick`] uses in
-    /// the [`AtomicBucket::set_stats`].
+    /// the [`AtomicBucket::stats`].
     ///
     /// [`Pipeline`]: spirit::fragment::pipeline::Pipeline
     pub fn installer<F>(&self, stats: F) -> MonitorInstaller<F>
@@ -341,7 +328,15 @@ impl Prefixed for Monitor {
     }
 
     fn add_prefix<S: Into<String>>(&self, name: S) -> Self {
-        Monitor(self.0.add_prefix(name))
+        self.add_name(name)
+    }
+
+    fn add_name<S: Into<String>>(&self, name: S) -> Self {
+        Monitor(self.0.add_name(name))
+    }
+
+    fn named<S: Into<String>>(&self, name: S) -> Self {
+        Monitor(self.0.named(name))
     }
 }
 
@@ -452,10 +447,11 @@ where
             .wrapping_add(1);
         let stats = Arc::clone(&self.stats);
         let prefix = backends.prefix;
-        self.inner.monitor.0.set_stats(move |input, name, score| {
-            stats(input, name.prepend(&prefix as &str), score)
-        });
-        self.inner.monitor.0.set_drain(backends.outputs);
+        self.inner
+            .monitor
+            .0
+            .stats(move |input, name, score| stats(input, name.prepend(&prefix as &str), score));
+        self.inner.monitor.0.drain(backends.outputs);
         let cancel_handle = self.inner.monitor.0.flush_every(backends.flush_period);
         Uninstaller {
             inner: Arc::clone(&self.inner),
