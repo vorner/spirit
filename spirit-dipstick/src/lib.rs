@@ -58,7 +58,6 @@
 //!}
 //! ```
 
-use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
