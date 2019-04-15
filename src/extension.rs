@@ -408,7 +408,7 @@ pub trait Extensible: Sized {
     /// Specifies that the background thread should be joined automatically, as part of the [`run`]
     /// method.
     ///
-    /// [`run`]: spirit::SpiritBuilder::run
+    /// [`run`]: crate::SpiritBuilder::run
     fn autojoin_bg_thread(self) -> Self;
 }
 

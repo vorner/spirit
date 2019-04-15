@@ -312,6 +312,8 @@ impl From<UserDaemon> for Daemon {
 /// See the [crate example][index.html#examples].
 ///
 /// Flatten this into the top-level `StructOpt` structure.
+///
+/// [`extension`]: Daemon::extension
 #[derive(Clone, Debug, StructOpt)]
 pub struct Opts {
     /// Daemonize ‒ go to background (override the config).
@@ -345,7 +347,7 @@ impl Opts {
 /// `group` options.
 ///
 /// This configuration fragment serves the role. Convert it to [`Daemon`] first, by
-/// [`into_daemon`][Daemon::into_daemon] (or using the [`Into`] trait).
+/// [`into_daemon`][UserDaemon::into_daemon] (or using the [`Into`] trait).
 ///
 /// # Examples
 ///

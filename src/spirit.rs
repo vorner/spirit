@@ -403,6 +403,8 @@ where
     /// signal has been received.
     ///
     /// If the thread hasn't started or joined already, this returns right away.
+    ///
+    /// [`terminate`]: Spirit::terminate
     pub fn join_bg_thread(&self) {
         if let Some(handle) = self.bg_thread.lock().take() {
             handle
