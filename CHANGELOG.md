@@ -1,10 +1,14 @@
-# unreleased
+# spirit-daemonize-0.2.1
 
-* Docs improvement (mention spirit-dipstick).
+* Fix some links in docs.
+
+# 0.3.7
+
+* Docs improvement (mention spirit-dipstick, fix links).
 
 # spirit-dipstick-0.1.2
 
-* Compatibility with dipstick 0.7.2
+* Compatibility with dipstick 0.7.2.
 
 # spirit-reqwest-0.2.2
 
