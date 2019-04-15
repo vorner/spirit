@@ -2,6 +2,10 @@
 
 * Docs improvement (mention spirit-dipstick).
 
+# spirit-dipstick-0.1.2
+
+* Compatibility with dipstick 0.7.2
+
 # spirit-reqwest-0.2.2
 
 * Addition of several more configuration fields.
