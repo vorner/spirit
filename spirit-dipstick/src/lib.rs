@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-dipstick/0.1.2/spirit_dipstick/",
+    html_root_url = "https://docs.rs/spirit-dipstick/0.1.3/spirit_dipstick/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -395,8 +395,7 @@ impl Drop for Uninstaller {
             // Remove the backends only if it's not replaced by a newer one. The newer one would
             // have its own Uninstaller
             self.inner.monitor.0.unset_drain();
-            // TODO: Once this is no longer generic…
-            // self.inner.monitor.0.unset_stats();
+            self.inner.monitor.0.unset_stats();
         }
     }
 }

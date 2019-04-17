@@ -1,3 +1,7 @@
+# spirit-dipstick-0.1.3
+
+* Little internal optimisations.
+
 # spirit-daemonize-0.2.1
 
 * Fix some links in docs.
