@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-dipstick/0.1.3/spirit_dipstick/",
+    html_root_url = "https://docs.rs/spirit-dipstick/0.1.4/spirit_dipstick/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -64,9 +64,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dipstick::{
-    AtomicBucket, CancelHandle, Flush, Graphite, InputKind, InputMetric, InputScope, MetricName,
-    MetricValue, MultiOutput, NameParts, Prefixed, Prometheus, Result as DipResult, ScheduleFlush,
-    ScoreType, Statsd, Stream,
+    AtomicBucket, Cancel, CancelHandle, Flush, Graphite, InputKind, InputMetric, InputScope,
+    MetricName, MetricValue, MultiOutput, NameParts, Prefixed, Prometheus, Result as DipResult,
+    ScheduleFlush, ScoreType, Statsd, Stream,
 };
 use failure::{Error, ResultExt};
 use log::{debug, error};

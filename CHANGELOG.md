@@ -1,3 +1,7 @@
+# spirit-dipstick-0.1.4
+
+* Deal with dipstick upstream API breakage.
+
 # spirit-dipstick-0.1.3
 
 * Little internal optimisations.
