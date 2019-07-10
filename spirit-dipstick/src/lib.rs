@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-dipstick/0.1.4/spirit_dipstick/",
+    html_root_url = "https://docs.rs/spirit-dipstick/0.1.5/spirit_dipstick/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -58,15 +58,16 @@
 //!}
 //! ```
 
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use dipstick::{
     AtomicBucket, Cancel, CancelHandle, Flush, Graphite, InputKind, InputMetric, InputScope,
-    MetricName, MetricValue, MultiOutput, NameParts, Prefixed, Prometheus, Result as DipResult,
-    ScheduleFlush, ScoreType, Statsd, Stream,
+    MetricName, MetricValue, MultiOutput, NameParts, Observe, ObserveWhen, Prefixed, Prometheus,
+    Result as DipResult, ScheduleFlush, ScoreType, Statsd, Stream,
 };
 use failure::{Error, ResultExt};
 use log::{debug, error};
@@ -348,6 +349,20 @@ impl InputScope for Monitor {
 impl Flush for Monitor {
     fn flush(&self) -> DipResult<()> {
         self.0.flush()
+    }
+}
+
+impl Observe for Monitor {
+    type Inner = <AtomicBucket as Observe>::Inner;
+    fn observe<F>(
+        &self,
+        metric: impl Deref<Target = InputMetric>,
+        operation: F,
+    ) -> ObserveWhen<Self::Inner, F>
+    where
+        F: Fn(Instant) -> MetricValue + Send + Sync + 'static,
+    {
+        self.0.observe(metric, operation)
     }
 }
 

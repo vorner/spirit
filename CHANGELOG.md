@@ -1,3 +1,7 @@
+# spirit-dipstick-0.1.5
+
+* Delegate the Observe trait through the Monitor.
+
 # spirit-dipstick-0.1.4
 
 * Deal with dipstick upstream API breakage.
