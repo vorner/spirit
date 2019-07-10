@@ -16,6 +16,10 @@ include = [
     "src/**",
 ]
 
+[badges]
+travis-ci = { repository = "vorner/spirit" }
+maintenance = { status = "actively-developed" }
+
 [features]
 default = ["cfg-help", "json", "yaml"]
 cfg-help = ["spirit/cfg-help", "structdoc"]
