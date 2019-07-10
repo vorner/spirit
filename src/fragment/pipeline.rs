@@ -291,8 +291,8 @@ where
 /// [`Resource`]: Fragment::Resource
 pub struct Pipeline<Fragment, Extractor, Driver, Transformation, SpiritType> {
     name: &'static str,
-    _fragment: PhantomData<Fn(Fragment)>,
-    _spirit: PhantomData<Fn(SpiritType)>,
+    _fragment: PhantomData<dyn Fn(Fragment)>,
+    _spirit: PhantomData<dyn Fn(SpiritType)>,
     extractor: Extractor,
     driver: Driver,
     transformation: Transformation,
