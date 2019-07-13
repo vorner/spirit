@@ -410,6 +410,7 @@
 //! [`spirit-tokio`]: https://crates.io/crates/spirit-tokio
 //! [`spirit-reqwest`]: https://crates.io/crates/spirit-reqwest
 //! [`spirit-hyper`]: https://crates.io/crates/spirit-hyper
+//! [`spirit-dipstick`]: https://crates.io/crates/spirit-dipstick
 //! [reqwest-client]: https://docs.rs/reqwest/~0.9.5/reqwest/struct.Client.html
 //! [repository]: https://github.com/vorner/spirit
 //! [tutorial]: https://vorner.github.io/2018/12/09/Spirit-Tutorial.html
