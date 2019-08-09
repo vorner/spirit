@@ -58,8 +58,8 @@ structopt = "~0.2"
 toml = "~0.5"
 
 [dev-dependencies]
-lazy_static = "~1"
 hyper = "~0.12"
+once_cell = "~0.2"
 serde-humantime = "~0.1"
 spirit-cfg-helpers = { version = "~0.2", path = "spirit-cfg-helpers" }
 spirit-daemonize = { version = "~0.2", path = "spirit-daemonize" }

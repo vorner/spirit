@@ -13,16 +13,16 @@
 use std::collections::HashSet;
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
-use std::sync::{mpsc, Arc};
+use std::sync::mpsc;
 use std::thread;
 
+use arc_swap::ArcSwap;
 use failure::{ensure, Error};
-use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
+use once_cell::sync::Lazy;
 use serde::Deserialize;
 use spirit::extension;
 use spirit::prelude::*;
-use spirit::ArcSwap;
 
 // In this part, we define how our configuration looks like. Just like with the `config` crate
 // (which is actually used internally), the configuration is loaded using the serde's Deserialize.
@@ -58,11 +58,9 @@ struct Config {
     ui: Ui,
 }
 
-lazy_static! {
-    /// Here we'll have the current config stored at each time. The spirit library will refresh it
-    /// with a new version on reload (and the old one will get dropped eventually).
-    static ref CONFIG: ArcSwap<Config> = ArcSwap::from(Arc::new(Config::default()));
-}
+/// Here we'll have the current config stored at each time. The spirit library will refresh it
+/// with a new version on reload (and the old one will get dropped eventually).
+static CONFIG: Lazy<ArcSwap<Config>> = Lazy::new(Default::default);
 
 /// This is used as the base configuration.
 const DEFAULT_CONFIG: &str = r#"
@@ -116,7 +114,7 @@ fn main() -> Result<(), Error> {
     let (term_send, term_recv) = mpsc::channel();
     let _spirit = Spirit::<spirit::Empty, Config>::new()
         // Keep the current config accessible through a global variable
-        .with(extension::cfg_store(&*CONFIG))
+        .with(spirit_cfg_helpers::cfg_store(&*CONFIG))
         // Set the default config values. This is very similar to passing the first file on command
         // line, except that nobody can lose this one as it is baked into the application. Any
         // files passed by the user can override the values.

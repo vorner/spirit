@@ -43,9 +43,8 @@ impl<Socket, InputInstaller, SubFragment, F, R> Transformation<Socket, InputInst
     for HandleSocket<F>
 where
     F: FnMut(Socket, &SubFragment) -> Result<R, Error>,
-    R: 'static,
+    R: IntoFuture<Item = (), Error = ()> + 'static,
     SubFragment: Debug,
-    R: IntoFuture<Item = (), Error = ()>,
 {
     type OutputResource = R;
     type OutputInstaller = FutureInstaller<R>;

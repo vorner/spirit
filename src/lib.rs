@@ -427,8 +427,6 @@ mod spirit;
 pub mod utils;
 pub mod validation;
 
-pub use arc_swap::ArcSwap;
-
 pub use crate::cfg_loader::ConfigBuilder;
 pub use crate::empty::Empty;
 pub use crate::extension::Extensible;

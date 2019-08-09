@@ -18,11 +18,9 @@
 //! [`Extension`]: crate::extension::Extension
 
 use std::any::Any;
-use std::borrow::Borrow;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use arc_swap::ArcSwap;
 use failure::Error;
 use log::warn;
 
@@ -194,8 +192,9 @@ pub trait Extensible: Sized {
     /// TODO
     fn config_validator<F>(self, f: F) -> Result<Self::Ok, Error>
     where
-        F: FnMut(&Arc<Self::Config>, &Arc<Self::Config>, &Self::Opts) -> Result<Action, Error>,
-        F: Send + 'static;
+        F: FnMut(&Arc<Self::Config>, &Arc<Self::Config>, &Self::Opts) -> Result<Action, Error>
+            + Send
+            + 'static;
 
     /// Adds a callback able to mutate the configuration while being loaded.
     ///
@@ -437,8 +436,9 @@ where
 
     fn config_validator<F>(self, f: F) -> Result<<Self as Extensible>::Ok, Error>
     where
-        F: FnMut(&Arc<Self::Config>, &Arc<Self::Config>, &Self::Opts) -> Result<Action, Error>,
-        F: Send + 'static,
+        F: FnMut(&Arc<Self::Config>, &Arc<Self::Config>, &Self::Opts) -> Result<Action, Error>
+            + Send
+            + 'static,
     {
         self.and_then(|c| c.config_validator(f))
     }
@@ -583,50 +583,6 @@ where
     fn apply(self, builder: B) -> Result<B, Error> {
         self(builder).into_result()
     }
-}
-
-/// An extension to store configuration to some global-ish storage.
-///
-/// This makes sure every time a new config is loaded, it is made available inside the passed
-/// parameter. Therefore, places without direct access to the `Spirit` itself can look into the
-/// configuration.
-///
-/// The parameter can be a lot of things, but usually:
-///
-/// * `Arc<ArcSwap<C>>`.
-/// * A reference to global `ArcSwap<C>` (for example inside `lazy_static` or `once_cell`).
-///
-/// # Examples
-///
-/// ```rust
-/// #[macro_use]
-/// extern crate lazy_static;
-/// extern crate spirit;
-///
-/// use std::sync::Arc;
-///
-/// use arc_swap::ArcSwap;
-/// use spirit::prelude::*;
-/// use spirit::extension;
-///
-/// lazy_static! {
-///     static ref CFG: ArcSwap<Empty> = ArcSwap::from(Arc::new(Empty {}));
-/// }
-///
-/// # fn main() {
-/// # let _ =
-/// Spirit::<Empty, Empty>::new()
-///     // Will make sure CFG contains the newest config
-///     .with(extension::cfg_store(&*CFG))
-///     .build(false);
-/// # }
-/// ```
-pub fn cfg_store<S, E>(storage: S) -> impl Extension<E>
-where
-    E: Extensible,
-    S: Borrow<ArcSwap<E::Config>> + Send + Sync + 'static,
-{
-    |ext: E| ext.on_config(move |_o: &_, c: &Arc<E::Config>| storage.borrow().store(Arc::clone(c)))
 }
 
 /// An extension for one-time initial configuration.

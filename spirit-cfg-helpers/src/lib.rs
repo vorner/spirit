@@ -21,11 +21,13 @@
 //! * `toml` and `json` features enable dumping in the respective formats.
 //! * `cfg-help` enables the printing of configuration help.
 
+use std::borrow::Borrow;
 use std::fmt::Debug;
 use std::process;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use failure::Fail;
 use log::{log, Level};
 use serde::de::DeserializeOwned;
@@ -425,6 +427,42 @@ mod cfg_help {
 
 #[cfg(feature = "cfg-help")]
 pub use crate::cfg_help::{CfgHelp, Opts};
+
+/// An extension to store configuration to some global-ish storage.
+///
+/// This makes sure every time a new config is loaded, it is made available inside the passed
+/// parameter. Therefore, places without direct access to the `Spirit` itself can look into the
+/// configuration.
+///
+/// The parameter can be a lot of things, but usually:
+///
+/// * `Arc<ArcSwap<C>>`.
+/// * A reference to global `ArcSwap<C>` (for example inside `lazy_static` or `once_cell`).
+///
+/// # Examples
+///
+/// ```rust
+/// use arc_swap::ArcSwap;
+/// use once_cell::sync::Lazy;
+/// use spirit::prelude::*;
+///
+/// static CFG: Lazy<ArcSwap<Empty>> = Lazy::new(Default::default);
+///
+/// # fn main() {
+/// # let _ =
+/// Spirit::<Empty, Empty>::new()
+///     // Will make sure CFG contains the newest config
+///     .with(spirit_cfg_helpers::cfg_store(&*CFG))
+///     .build(false);
+/// # }
+/// ```
+pub fn cfg_store<S, E>(storage: S) -> impl Extension<E>
+where
+    E: Extensible,
+    S: Borrow<ArcSwap<E::Config>> + Send + Sync + 'static,
+{
+    |ext: E| ext.on_config(move |_o: &_, c: &Arc<E::Config>| storage.borrow().store(Arc::clone(c)))
+}
 
 #[cfg(test)]
 mod tests {

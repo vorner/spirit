@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use arc_swap::{ArcSwap, Lease};
+use arc_swap::ArcSwap;
 use failure::{Error, Fail, ResultExt};
 use log::{debug, error, info, trace};
 use parking_lot::Mutex;
@@ -171,13 +171,9 @@ where
     /// snapshot of configuration (which does not change), but calling this again might give a
     /// different config.
     ///
-    /// If you *do* want to hold onto the returned configuration for longer time, upgrade the
-    /// returned `Lease` to `Arc`.
-    ///
     /// # Examples
     ///
     /// ```rust
-    /// use arc_swap::Lease;
     /// use spirit::prelude::*;
     ///
     /// let app = Spirit::<Empty, Empty>::new()
@@ -186,7 +182,7 @@ where
     ///
     /// let spirit = app.spirit();
     ///
-    /// let old_config = Lease::upgrade(&spirit.config());
+    /// let old_config = spirit.config();
     /// # drop(old_config);
     /// ```
     ///
@@ -194,8 +190,8 @@ where
     ///
     /// It is also possible to hook an external configuration storage into [`Spirit`] (or
     /// [`Builder`]) through the [`cfg_store`][crate::extension::cfg_store] extension.
-    pub fn config(&self) -> Lease<Arc<C>> {
-        self.config.lease()
+    pub fn config(&self) -> Arc<C> {
+        self.config.load()
     }
 
     /// Force reload of configuration.
@@ -444,7 +440,7 @@ where
         trace!("Adding config validator at runtime");
         let mut hooks = self.hooks.lock();
         if !hooks.terminated {
-            let cfg = Lease::into_upgrade(self.config());
+            let cfg = self.config();
             f(&cfg, &cfg, self.cmd_opts())?.run(true);
             hooks.config_validators.push(Box::new(f));
         }
@@ -467,7 +463,7 @@ where
         trace!("Adding config hook at runtime");
         let mut hooks = self.hooks.lock();
         if !hooks.terminated {
-            hook(self.cmd_opts(), &Lease::upgrade(&self.config()));
+            hook(self.cmd_opts(), &self.config());
             hooks.config.push(Box::new(hook));
         }
         self

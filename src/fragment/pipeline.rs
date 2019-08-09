@@ -550,8 +550,7 @@ where
         <D::SubFragment as Fragment>::Resource,
         <D::SubFragment as Fragment>::Installer,
         D::SubFragment,
-    >,
-    T: 'static,
+    > + 'static,
     T::OutputResource: 'static,
     I: Installer<T::OutputResource, O, C> + Send + 'static,
 {
