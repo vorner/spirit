@@ -547,10 +547,10 @@ where
     E: Extractor<'a, O, C> + 'static,
     D: Driver<E::Fragment> + Send + 'static,
     T: Transformation<
-        <D::SubFragment as Fragment>::Resource,
-        <D::SubFragment as Fragment>::Installer,
-        D::SubFragment,
-    > + 'static,
+            <D::SubFragment as Fragment>::Resource,
+            <D::SubFragment as Fragment>::Installer,
+            D::SubFragment,
+        > + 'static,
     T::OutputResource: 'static,
     I: Installer<T::OutputResource, O, C> + Send + 'static,
 {

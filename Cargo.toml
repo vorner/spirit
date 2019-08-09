@@ -41,7 +41,7 @@ yaml = ["config/yaml"]
 cfg-help = ["structdoc"]
 
 [dependencies]
-arc-swap = "~0.3"
+arc-swap = "~0.4"
 config = { version = "~0.9", default-features = false, features = ["toml"] }
 either = "~1"
 failure = "~0.1"

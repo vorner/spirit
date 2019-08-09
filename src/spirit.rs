@@ -191,7 +191,7 @@ where
     /// It is also possible to hook an external configuration storage into [`Spirit`] (or
     /// [`Builder`]) through the [`cfg_store`][crate::extension::cfg_store] extension.
     pub fn config(&self) -> Arc<C> {
-        self.config.load()
+        self.config.load_full()
     }
 
     /// Force reload of configuration.

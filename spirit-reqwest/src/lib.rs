@@ -62,7 +62,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use arc_swap::{ArcSwapOption, Lease};
+use arc_swap::ArcSwapOption;
 use failure::{Error, ResultExt};
 use log::{debug, trace};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -478,8 +478,9 @@ macro_rules! method {
         $(
             $(#[$attr])*
             pub fn $name<U: IntoUrl>(&self, url: U) -> RequestBuilder {
-                let lease = self.0.lease();
-                Lease::get_ref(&lease)
+                self.0
+                    .load()
+                    .as_ref()
                     .expect("Accessing Reqwest HTTP client before setting it up")
                     .$name(url)
             }
@@ -529,7 +530,7 @@ impl AtomicClient {
     ///   [`Arc`] keeps its [`Client`] around (which may lead to multiple [`Client`]s in memory).
     pub fn client(&self) -> Arc<Client> {
         self.0
-            .load()
+            .load_full()
             .expect("Accessing Reqwest HTTP client before setting it up")
     }
 
@@ -537,8 +538,9 @@ impl AtomicClient {
     ///
     /// This is forwarded to [`Client::request`].
     pub fn request<U: IntoUrl>(&self, method: Method, url: U) -> RequestBuilder {
-        let lease = self.0.lease();
-        Lease::get_ref(&lease)
+        self.0
+            .load()
+            .as_ref()
             .expect("Accessing Reqwest HTTP client before setting it up")
             .request(method, url)
     }

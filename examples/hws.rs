@@ -85,7 +85,7 @@ fn handle_conn(mut conn: TcpStream) {
         // The address is just for logging, so don't hard-fail on that.
         .unwrap_or_else(|_| "<unknown>".to_owned());
     debug!("Handling connection from {}", addr);
-    let msg = format!("{}\n", CONFIG.lease().ui.msg);
+    let msg = format!("{}\n", CONFIG.load().ui.msg);
     if let Err(e) = conn.write_all(msg.as_bytes()) {
         error!("Failed to handle connection {}: {}", addr, e);
     }
@@ -93,7 +93,7 @@ fn handle_conn(mut conn: TcpStream) {
 
 /// Start all the threads, one for each listening socket.
 fn start_threads() -> Result<(), Error> {
-    let config = CONFIG.lease();
+    let config = CONFIG.load();
     ensure!(!config.listen.is_empty(), "No ports to listen on");
     for listen in &config.listen {
         info!("Starting thread on {}:{}", listen.host, listen.port);

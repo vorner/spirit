@@ -27,7 +27,7 @@ json = ["serde_json"]
 yaml = ["serde_yaml"]
 
 [dependencies]
-arc-swap = "~0.3"
+arc-swap = "~0.4"
 failure = "~0.1"
 log = "~0.4"
 serde = "~1"

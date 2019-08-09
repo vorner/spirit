@@ -25,7 +25,7 @@ default = ["cfg-help"]
 cfg-help = ["spirit/cfg-help", "structdoc"]
 
 [dependencies]
-arc-swap = "~0.3.6"
+arc-swap = "~0.4"
 failure = "~0.1"
 humantime = "~1"
 log = "~0.4"

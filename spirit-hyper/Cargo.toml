@@ -25,7 +25,6 @@ default = ["cfg-help"]
 cfg-help = ["spirit/cfg-help", "spirit-tokio/cfg-help", "structdoc"]
 
 [dependencies]
-arc-swap = "~0.3"
 failure = "~0.1"
 futures = "~0.1"
 hyper = "~0.12.17"
