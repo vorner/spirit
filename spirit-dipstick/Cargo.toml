@@ -35,5 +35,5 @@ spirit = { version = "~0.3.5", path = "..", default-features = false }
 structdoc = { version = "~0.1", optional = true }
 
 [dev-dependencies]
-version-sync = "~0.7"
+version-sync = "~0.8"
 env_logger = "~0.6"

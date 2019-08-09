@@ -26,8 +26,8 @@ cfg-help = ["spirit/cfg-help", "structdoc"]
 [dependencies]
 failure = "~0.1"
 log = "~0.4"
-nix = "~0.13"
-privdrop = "~0.2"
+nix = "~0.14"
+privdrop = "~0.3"
 serde = "~1"
 serde_derive = "~1"
 spirit = { version = "~0.3", path = "..", default-features = false }
@@ -36,4 +36,4 @@ structdoc = { version = "~0.1", optional = true }
 structopt = "~0.2"
 
 [dev-dependencies]
-version-sync = "~0.7"
+version-sync = "~0.8"

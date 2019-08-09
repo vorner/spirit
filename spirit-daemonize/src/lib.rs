@@ -253,12 +253,12 @@ impl Daemon {
         //  because the user or group names are invalid, the function will fail.
         match self.group {
             SecId::Id(id) => unistd::setgid(Gid::from_raw(id))?,
-            SecId::Name(ref name) => privdrop::PrivDrop::default().group(&name)?.apply()?,
+            SecId::Name(ref name) => privdrop::PrivDrop::default().group(&name).apply()?,
             SecId::Nothing => (),
         }
         match self.user {
             SecId::Id(id) => unistd::setuid(Uid::from_raw(id))?,
-            SecId::Name(ref name) => privdrop::PrivDrop::default().user(&name)?.apply()?,
+            SecId::Name(ref name) => privdrop::PrivDrop::default().user(&name).apply()?,
             SecId::Nothing => (),
         }
         Ok(())
