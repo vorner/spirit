@@ -768,7 +768,7 @@ where
 ///
 /// This driver creates the resource only the first time it is called. On an attempt to call it
 /// again it warns if the value of the fragment is different.
-struct OnceDriver<F: ToOwned> {
+pub struct OnceDriver<F: ToOwned> {
     loaded: Option<F::Owned>,
     initial: bool,
 }
