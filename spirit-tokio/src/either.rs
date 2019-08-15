@@ -211,7 +211,6 @@ mod other_either {
             }
         }
     }
-
 }
 
 macro_rules! either {
