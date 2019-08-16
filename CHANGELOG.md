@@ -1,3 +1,7 @@
+# 0.3.8
+
+* Make the OnceDriver public.
+
 # spirit-dipstick-0.1.5
 
 * Delegate the Observe trait through the Monitor.

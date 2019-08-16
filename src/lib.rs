@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit/0.3.7/spirit/",
+    html_root_url = "https://docs.rs/spirit/0.3.8/spirit/",
     test(attr(deny(warnings)))
 )]
 #![allow(clippy::type_complexity)]
