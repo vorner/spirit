@@ -50,7 +50,7 @@ use std::path::{Path, PathBuf};
 use config::{Config, Environment, File, FileFormat};
 use failure::{bail, Error, Fail, ResultExt};
 use fallible_iterator::FallibleIterator;
-use log::{debug, trace};
+use log::{debug, trace, warn};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use structopt::clap::App;
@@ -289,6 +289,14 @@ pub trait ConfigBuilder: Sized {
     /// For more convenient ways to set the filter, see [`config_ext`](#method.config_ext) and
     /// [`config_exts`](#method.config_exts).
     fn config_filter<F: FnMut(&Path) -> bool + Send + 'static>(self, filter: F) -> Self;
+
+    /// Sets if warning should be produced for each unused configuration key.
+    ///
+    /// If set, a warning message is produced upon loading a configuration for each unused key.
+    /// Note that this might not always work reliably.
+    ///
+    /// The default is true.
+    fn warn_on_unused(self, warn: bool) -> Self;
 }
 
 impl<C: ConfigBuilder, Error> ConfigBuilder for Result<C, Error> {
@@ -311,6 +319,10 @@ impl<C: ConfigBuilder, Error> ConfigBuilder for Result<C, Error> {
     fn config_filter<F: FnMut(&Path) -> bool + Send + 'static>(self, filter: F) -> Self {
         self.map(|c| c.config_filter(filter))
     }
+
+    fn warn_on_unused(self, warn: bool) -> Self {
+        self.map(|c| c.warn_on_unused(warn))
+    }
 }
 
 /// A builder for the [`Loader`].
@@ -321,6 +333,7 @@ pub struct Builder {
     defaults: Option<String>,
     env: Option<String>,
     filter: Box<dyn FnMut(&Path) -> bool + Send>,
+    warn_on_unused: bool,
 }
 
 impl Default for Builder {
@@ -337,6 +350,7 @@ impl Builder {
             defaults: None,
             env: None,
             filter: Box::new(|_| false),
+            warn_on_unused: true,
         }
     }
 
@@ -363,6 +377,7 @@ impl Builder {
             env: self.env,
             filter: self.filter,
             overrides: opts.common.config_overrides.into_iter().collect(),
+            warn_on_unused: self.warn_on_unused,
         };
         (opts.other, loader)
     }
@@ -382,6 +397,7 @@ impl Builder {
             env: self.env,
             filter: self.filter,
             overrides: HashMap::new(),
+            warn_on_unused: self.warn_on_unused,
         }
     }
 }
@@ -419,6 +435,13 @@ impl ConfigBuilder for Builder {
             ..self
         }
     }
+
+    fn warn_on_unused(self, warn: bool) -> Self {
+        Self {
+            warn_on_unused: warn,
+            ..self
+        }
+    }
 }
 
 /// The loader of configuration.
@@ -431,6 +454,7 @@ pub struct Loader {
     env: Option<String>,
     overrides: HashMap<String, String>,
     filter: Box<dyn FnMut(&Path) -> bool + Send>,
+    warn_on_unused: bool,
 }
 
 impl Loader {
@@ -504,6 +528,12 @@ impl Loader {
             })?;
         }
 
+        let mut ignored_cback = |ignored: serde_ignored::Path| {
+            if self.warn_on_unused {
+                warn!("Unused configuration key {}", ignored);
+            }
+        };
+        let config = serde_ignored::Deserializer::new(config, &mut ignored_cback);
         let result = serde_path_to_error::deserialize(config).map_err(|e| {
             let ctx = format!("Failed to decode configuration at {}", e.path());
             e.into_inner().context(ctx)

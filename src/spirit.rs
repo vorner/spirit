@@ -634,6 +634,13 @@ impl<O, C> ConfigBuilder for Builder<O, C> {
             ..self
         }
     }
+
+    fn warn_on_unused(self, warn: bool) -> Self {
+        Self {
+            config_loader: self.config_loader.warn_on_unused(warn),
+            ..self
+        }
+    }
 }
 
 impl<O, C> Extensible for Builder<O, C> {
