@@ -528,15 +528,13 @@ impl Loader {
             })?;
         }
 
-        /*
-         * FIXME: https://github.com/dtolnay/serde-ignored/issues/5
         let mut ignored_cback = |ignored: serde_ignored::Path| {
             if self.warn_on_unused {
                 warn!("Unused configuration key {}", ignored);
             }
         };
         let config = serde_ignored::Deserializer::new(config, &mut ignored_cback);
-        */
+
         let result = serde_path_to_error::deserialize(config).map_err(|e| {
             let ctx = format!("Failed to decode configuration at {}", e.path());
             e.into_inner().context(ctx)
