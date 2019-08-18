@@ -504,18 +504,109 @@ impl Loader {
             })?;
         }
 
-        // A hack: the config crate has a lot of glitches when it comes to deserializing ‒
-        // unhelpful error messages, enums as keys can't be decoded, etc. So we turn it into
-        // toml::Value (which should not fail) and then use that one to do the actual decoding. The
-        // latter is much better quality, so we get better error messages.
-        let intermediate: Value = config
-            .try_into()
-            .context("Failed to decode configuration")?;
-
-        let result = intermediate
-            .try_into()
-            .context("Failed to decode configuration")?;
+        let result = serde_path_to_error::deserialize(config).map_err(|e| {
+            let ctx = format!("Failed to decode configuration at {}", e.path());
+            e.into_inner().context(ctx)
+        })?;
 
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use maplit::hashmap;
+    use serde::Deserialize;
+
+    use super::*;
+
+    #[test]
+    fn enum_keys() {
+        #[derive(Debug, Deserialize, Eq, PartialEq, Hash)]
+        #[serde(rename_all = "kebab-case")]
+        enum Key {
+            A,
+            B,
+        }
+
+        #[derive(Debug, Deserialize, Eq, PartialEq)]
+        #[serde(rename_all = "kebab-case")]
+        struct Cfg {
+            map: HashMap<Key, String>,
+        }
+
+        const CFG: &str = r#"
+            [map]
+            a = "hello"
+            b = "world"
+        "#;
+
+        let cfg: Cfg = Builder::new()
+            .config_defaults(CFG)
+            .build_no_opts()
+            .load()
+            .unwrap();
+
+        assert_eq!(
+            cfg,
+            Cfg {
+                map: hashmap! {
+                    Key::A => "hello".to_owned(),
+                    Key::B => "world".to_owned(),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn usize_key() {
+        #[derive(Debug, Deserialize, Eq, PartialEq)]
+        #[serde(rename_all = "kebab-case")]
+        struct Cfg {
+            map: HashMap<usize, String>,
+        }
+
+        const CFG: &str = r#"
+            [map]
+            1 = "hello"
+            "2" = "world"
+        "#;
+
+        let cfg: Cfg = Builder::new()
+            .config_defaults(CFG)
+            .build_no_opts()
+            .load()
+            .unwrap();
+
+        assert_eq!(
+            cfg,
+            Cfg {
+                map: hashmap! {
+                    1 => "hello".to_owned(),
+                    2 => "world".to_owned(),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn str_to_int() {
+        #[derive(Debug, Deserialize, Eq, PartialEq)]
+        #[serde(rename_all = "kebab-case")]
+        struct Cfg {
+            value: usize,
+        }
+
+        // Here the value is encoded as string. The config crate should handle that.
+        // This happens for example when we do overrides from command line.
+        const CFG: &str = r#"value = "42""#;
+
+        let cfg: Cfg = Builder::new()
+            .config_defaults(CFG)
+            .build_no_opts()
+            .load()
+            .unwrap();
+
+        assert_eq!(cfg, Cfg { value: 42 });
     }
 }

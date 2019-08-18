@@ -52,6 +52,7 @@ libc = "~0.2"
 log = "~0.4"
 parking_lot = "~0.9"
 serde = { version = "~1", features = ["derive"] }
+serde_path_to_error = "~0.1"
 signal-hook = "~0.1.8"
 structdoc = { version = "~0.1.3", optional = true }
 structopt = "~0.2"
@@ -60,6 +61,7 @@ toml = "~0.5"
 [dev-dependencies]
 hyper = "~0.12"
 once_cell = "~0.2"
+maplit = "~1"
 serde-humantime = "~0.1"
 spirit-cfg-helpers = { version = "~0.2", path = "spirit-cfg-helpers" }
 spirit-daemonize = { version = "~0.2", path = "spirit-daemonize" }
