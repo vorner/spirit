@@ -189,7 +189,9 @@ where
     /// # Notes
     ///
     /// It is also possible to hook an external configuration storage into [`Spirit`] (or
-    /// [`Builder`]) through the [`cfg_store`][crate::extension::cfg_store] extension.
+    /// [`Builder`]) through the
+    /// [`cfg_store`](https://docs.rs/spirit-cfg-helpers/0.3.*/spirit_cfg_helpers/fn.cfg_store.html)
+    /// extension.
     pub fn config(&self) -> Arc<C> {
         self.config.load_full()
     }

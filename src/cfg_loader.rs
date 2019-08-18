@@ -147,9 +147,10 @@ pub trait ConfigBuilder: Sized {
     ///
     /// The advantage is there's less risk of typos or malformed input and sometimes convenience.
     /// This is, however, less flexible as this needs a *complete* configuration, while
-    /// [`config_defaults] accepts even configurations that are missing some fields. In such case,
-    /// defaults would be used (if they are available on the [`Deserialize`] level) or the
-    /// configuration would fail if the user provided configuration files don't contain it.
+    /// [`config_defaults`] accepts even configurations that are missing some fields. In such case,
+    /// defaults would be used (if they are available on the [`Deserialize`][serde::Deserialize]
+    /// level) or the configuration would fail if the user provided configuration files don't
+    /// contain it.
     ///
     /// Note that pairing between the type passed here and the type of configuration structure
     /// extracted later is not tied together at compile time (as this allows a workaround for the
