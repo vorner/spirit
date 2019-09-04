@@ -170,7 +170,7 @@ use std::thread;
 
 use chrono::format::{DelayedFormat, StrftimeItems};
 use chrono::{Local, Utc};
-use failure::{Error, Fail};
+use failure::Error;
 use fern::Dispatch;
 use itertools::Itertools;
 use log::{debug, trace, LevelFilter, Log, STATIC_MAX_LEVEL};
@@ -254,6 +254,7 @@ enum LogDestination {
     /// Sends the logs to local syslog.
     ///
     /// Note that syslog ignores formatting options.
+    #[cfg(feature = "to-syslog")]
     Syslog {
         /// Overrides the host value in the log messages.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -321,8 +322,9 @@ impl structdoc::StructDoc for LevelFilterSerde {
 }
 
 /// This error can be returned when initialization of logging to syslog fails.
-#[derive(Debug, Fail)]
+#[derive(Debug, failure::Fail)]
 #[fail(display = "{}", _0)]
+#[cfg(feature = "to-syslog")]
 pub struct SyslogError(String);
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -470,6 +472,7 @@ impl Logger {
         let format = self.format;
         match self.destination {
             // We don't want to format syslog
+            #[cfg(feature = "to-syslog")]
             LogDestination::Syslog { .. } => (),
             // We do with the other things
             _ => {
@@ -599,6 +602,7 @@ impl Logger {
         }
         match self.destination {
             LogDestination::File { ref filename } => Ok(logger.chain(fern::log_file(filename)?)),
+            #[cfg(feature = "to-syslog")]
             LogDestination::Syslog { ref host } => {
                 let formatter = syslog::Formatter3164 {
                     facility: syslog::Facility::LOG_USER,
@@ -695,7 +699,7 @@ where
 ///   - `host`: The hostname (or IP address) to connect to.
 ///   - `port`: The port to use.
 /// * `syslog`: Sends the logs to syslog. This ignores all the formatting and time options, as
-///   syslog handles this itself.
+///   syslog handles this itself. This depends on the `to-syslog` feature.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 pub struct Cfg {

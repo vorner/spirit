@@ -1,3 +1,8 @@
+
+Log:
+* Make the syslog support non-default feature.
+
+Root:
 * Remove ini and hjson from default-feautures
   - Nobody really uses hjson and it has ancient dependencies.
   - Ini is not very expressive.

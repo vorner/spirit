@@ -25,13 +25,14 @@ background = ["crossbeam-channel", "either", "parking_lot"]
 default = ["with-backtrace", "cfg-help"]
 with-backtrace = ["log-panics/with-backtrace"]
 cfg-help = ["spirit/cfg-help", "structdoc"]
+to-syslog = ["syslog", "fern/syslog-4"]
 
 [dependencies]
 crossbeam-channel = { version = "~0.3", optional = true }
 chrono = "~0.4"
 either = { version = "~1", optional = true }
 failure = "~0.1"
-fern = { version = "~0.5.7", features = ["syslog-4"] }
+fern = { version = "~0.5.7", default-features = false }
 itertools = "~0.8"
 log = "~0.4"
 log-panics = "~2"
@@ -42,7 +43,7 @@ serde_json = "~1"
 spirit = { version = "~0.3.1", path = "..", default-features = false }
 structdoc = { version = "~0.1", optional = true }
 structopt = "~0.2"
-syslog = "~4"
+syslog = { version = "~4", optional = true }
 
 [dev-dependencies]
 version-sync = "~0.8"
