@@ -54,6 +54,31 @@ impl<T> IntoResult<T> for T {
     }
 }
 
+/// Selection of the way the background thread is handled at the end of the [`run`] method.
+///
+/// Note that this is a non-exhaustive enum. More variants may be added without considering it a
+/// breaking change.
+///
+/// [`run`]: crate::app::App::run
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum Autojoin {
+    /// Terminate the application and join the background thread.
+    TerminateAndJoin,
+    /// Only join the background thread.
+    ///
+    /// It is up to the caller to ensure the background thread will actually terminate, so the
+    /// program doesn't deadlock.
+    Join,
+    /// Leave the background thread running and proceed.
+    ///
+    /// It is up to the caller to either join the thread manually or to make sure not doing proper
+    /// shutdown is OK. In particular, if the thread is left running on application termination,
+    /// the [guards](trait.Extension.html#fn.keep_guard) need not to be dropped.
+    Abandon,
+    #[doc(hidden)]
+    __NonExhaustive__,
+}
+
 /// An interface allowing to extend something with callbacks.
 ///
 /// This describes the interface to registering various callbacks. This unifies the interaction
@@ -404,11 +429,12 @@ pub trait Extensible: Sized {
     /// [wait for the background thread]: crate::Spirit::join_bg_thread
     fn keep_guard<G: Any + Send>(self, guard: G) -> Self;
 
-    /// Specifies that the background thread should be joined automatically, as part of the [`run`]
-    /// method.
+    /// Specifies if and when the background thread should be joined automatically.
+    ///
+    /// The default is to terminate and autojoin at the end of the [`run`] method.
     ///
     /// [`run`]: crate::SpiritBuilder::run
-    fn autojoin_bg_thread(self) -> Self;
+    fn autojoin_bg_thread(self, autojoin: Autojoin) -> Self;
 }
 
 impl<C> Extensible for Result<C, Error>
@@ -506,8 +532,8 @@ where
         self.map(|s| s.keep_guard(guard))
     }
 
-    fn autojoin_bg_thread(self) -> Self {
-        self.map(Extensible::autojoin_bg_thread)
+    fn autojoin_bg_thread(self, autojoin: Autojoin) -> Self {
+        self.map(|me| me.autojoin_bg_thread(autojoin))
     }
 }
 

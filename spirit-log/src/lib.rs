@@ -140,7 +140,7 @@
 //!                 cfg: cfg.log(),
 //!                 opts: opts.log(),
 //!             }),
-//!        )
+//!         )
 //!         .run(|_spirit| {
 //!             info!("Hello world");
 //!             Ok(())

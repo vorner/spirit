@@ -27,7 +27,7 @@ use failure::Error;
 use fern::Dispatch;
 use log::{Level, LevelFilter, Log, Metadata, Record};
 use parking_lot::{Condvar, Mutex};
-use spirit::extension::{Extensible, Extension};
+use spirit::extension::{Autojoin, Extensible, Extension};
 use spirit::fragment::Transformation;
 
 thread_local! {
@@ -503,7 +503,9 @@ where
     E: Extensible<Ok = E>,
 {
     fn apply(self, builder: E) -> Result<E, Error> {
-        let builder = builder.autojoin_bg_thread().keep_guard(self);
+        let builder = builder
+            .autojoin_bg_thread(Autojoin::TerminateAndJoin)
+            .keep_guard(self);
         Ok(builder)
     }
 }

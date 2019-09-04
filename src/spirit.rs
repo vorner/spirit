@@ -5,7 +5,7 @@ use std::mem;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -22,7 +22,7 @@ use crate::app::App;
 use crate::bodies::{InnerBody, SpiritBody, WrapBody, Wrapper};
 use crate::cfg_loader::{Builder as CfgBuilder, ConfigBuilder, Loader as CfgLoader};
 use crate::empty::Empty;
-use crate::extension::{Extensible, Extension};
+use crate::extension::{Autojoin, Extensible, Extension};
 use crate::fragment::pipeline::MultiError;
 use crate::utils;
 use crate::validation::Action;
@@ -113,7 +113,7 @@ pub struct Spirit<O = Empty, C = Empty> {
     // TODO: Mode selection for directories
     opts: O,
     terminate: AtomicBool,
-    autojoin_bg_thread: AtomicBool,
+    autojoin_bg_thread: AtomicUsize,
     signals: Option<Signals>,
     bg_thread: Mutex<Option<JoinHandle<()>>>,
 }
@@ -139,7 +139,7 @@ where
     /// Similar to [`new`][Spirit::new], but with specific initial config value
     pub fn with_initial_config(config: C) -> Builder<O, C> {
         Builder {
-            autojoin_bg_thread: false,
+            autojoin_bg_thread: Autojoin::TerminateAndJoin,
             before_bodies: Vec::new(),
             before_config: Vec::new(),
             body_wrappers: Vec::new(),
@@ -411,8 +411,19 @@ where
         }
     }
 
-    pub(crate) fn should_autojoin(&self) -> bool {
-        self.autojoin_bg_thread.load(Ordering::Relaxed)
+    pub(crate) fn maybe_autojoin_bg_thread(&self) {
+        const TERM_JOIN: usize = Autojoin::TerminateAndJoin as _;
+        const JOIN: usize = Autojoin::Join as _;
+        const ABANDON: usize = Autojoin::Abandon as _;
+        match self.autojoin_bg_thread.load(Ordering::Relaxed) {
+            TERM_JOIN => {
+                self.terminate();
+                self.join_bg_thread();
+            }
+            JOIN => self.join_bg_thread(),
+            ABANDON => (),
+            val => unreachable!("Invalid autojoin variant: {}", val),
+        }
     }
 }
 
@@ -549,8 +560,14 @@ where
         self
     }
 
-    fn autojoin_bg_thread(self) -> Self {
-        self.autojoin_bg_thread.store(true, Ordering::Relaxed);
+    fn autojoin_bg_thread(self, autojoin: Autojoin) -> Self {
+        assert_ne!(
+            autojoin,
+            Autojoin::__NonExhaustive__,
+            "__NonExhaustive__ not meant to be used"
+        );
+        self.autojoin_bg_thread
+            .store(autojoin as usize, Ordering::Relaxed);
         self
     }
 }
@@ -569,7 +586,7 @@ where
 /// * [`SpiritBuilder`] to turn the builder into [`Spirit`].
 #[must_use = "The builder is inactive without calling `run` or `build`"]
 pub struct Builder<O = Empty, C = Empty> {
-    autojoin_bg_thread: bool,
+    autojoin_bg_thread: Autojoin,
     before_bodies: Vec<SpiritBody<O, C>>,
     before_config: Vec<Box<dyn FnMut(&C, &O) -> Result<(), Error> + Send>>,
     body_wrappers: Vec<Wrapper<O, C>>,
@@ -763,9 +780,14 @@ impl<O, C> Extensible for Builder<O, C> {
         self
     }
 
-    fn autojoin_bg_thread(self) -> Self {
+    fn autojoin_bg_thread(self, autojoin: Autojoin) -> Self {
+        assert_ne!(
+            autojoin,
+            Autojoin::__NonExhaustive__,
+            "__NonExhaustive__ not meant to be used"
+        );
         Self {
-            autojoin_bg_thread: true,
+            autojoin_bg_thread: autojoin,
             ..self
         }
     }
@@ -886,7 +908,7 @@ where
         };
         let signals_spirit = signals.clone();
         let spirit = Spirit {
-            autojoin_bg_thread: AtomicBool::new(self.autojoin_bg_thread),
+            autojoin_bg_thread: AtomicUsize::new(self.autojoin_bg_thread as _),
             config,
             hooks: Mutex::new(Hooks {
                 config: self.config_hooks,

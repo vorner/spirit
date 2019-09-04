@@ -1,3 +1,9 @@
+* Bugfix: Allow overriding non-string config values from command line.
+* Warn on unused config options.
+  - Can be turned off.
+* The background thread is auto-joined by default now.
+  - And the terminate is called at the end of the `run` method (after all
+    around-bodies).
 * Hide the arc-swap from spirit's public interface.
   - Talk by Arcs directly
   - The `cfg_store` goes to `spirit_cfg_helpers` crate (bumping that one is much

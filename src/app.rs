@@ -83,6 +83,14 @@ where
     /// [before-bodies][crate::Extensible::run_before]. If any of these fail, or if the `body`
     /// fails, the error is propagated (and further bodies are not started).
     ///
+    /// Furthermore, depending on the [`autojoin_bg_thread`][crate::Extensible::autojoin_bg_thread]
+    /// configuration, termination and joining of the background thread may be performed. If the
+    /// body errors, termination is done unconditionally (which may be needed in some corner cases
+    /// to not deadlock on error).
+    ///
+    /// In other words, unless you have very special needs, this is how you actually invoke the
+    /// application itself.
+    ///
     /// Any errors are simply returned and it is up to the caller to handle them somehow.
     pub fn run<B>(self, body: B) -> Result<(), Error>
     where
@@ -95,9 +103,7 @@ where
         if result.is_err() {
             self.spirit.terminate();
         }
-        if self.spirit.should_autojoin() {
-            self.spirit.join_bg_thread();
-        }
+        self.spirit.maybe_autojoin_bg_thread();
         result
     }
 
