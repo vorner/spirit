@@ -33,7 +33,7 @@ travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
 [features]
-default = ["ini", "json", "hjson", "yaml", "cfg-help"]
+default = ["cfg-help", "json", "yaml"]
 ini = ["config/ini"]
 json = ["config/json"]
 hjson = ["config/hjson"]

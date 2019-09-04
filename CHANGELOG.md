@@ -1,3 +1,6 @@
+* Remove ini and hjson from default-feautures
+  - Nobody really uses hjson and it has ancient dependencies.
+  - Ini is not very expressive.
 * Bugfix: Allow overriding non-string config values from command line.
 * Warn on unused config options.
   - Can be turned off.
