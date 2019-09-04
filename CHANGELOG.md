@@ -3,6 +3,7 @@ Log:
 * Make the syslog support non-default feature.
 
 Root:
+* StructOpt updated to 0.3 (you'll have to update too).
 * Remove ini and hjson from default-feautures
   - Nobody really uses hjson and it has ancient dependencies.
   - Ini is not very expressive.

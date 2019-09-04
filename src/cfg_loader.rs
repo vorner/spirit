@@ -63,13 +63,13 @@ struct CommonOpts {
     #[structopt(
         short = "C",
         long = "config-override",
-        parse(try_from_str = "crate::utils::key_val"),
-        raw(number_of_values = "1")
+        parse(try_from_str = crate::utils::key_val),
+        number_of_values(1),
     )]
     config_overrides: Vec<(String, String)>,
 
     /// Configuration files or directories to load.
-    #[structopt(parse(from_os_str = "crate::utils::absolute_from_os_str"))]
+    #[structopt(parse(from_os_str = crate::utils::absolute_from_os_str))]
     configs: Vec<PathBuf>,
 }
 

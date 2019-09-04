@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Debug, StructOpt)]
 /// struct MyOpts {
-///     #[structopt(short = "p", parse(from_os_str = "spirit::utils::absolute_from_os_str"))]
+///     #[structopt(short = "p", parse(from_os_str = spirit::utils::absolute_from_os_str))]
 ///     path: PathBuf,
 /// }
 ///
@@ -81,8 +81,8 @@ pub struct MissingEquals;
 ///     #[structopt(
 ///         short = "D",
 ///         long = "define",
-///         parse(try_from_str = "spirit::utils::key_val"),
-///         raw(number_of_values = "1"),
+///         parse(try_from_str = spirit::utils::key_val),
+///         number_of_values(1),
 ///     )]
 ///     defines: Vec<(String, String)>,
 /// }

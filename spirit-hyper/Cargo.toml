@@ -34,7 +34,7 @@ serde_derive = "~1"
 spirit = { path = "..", version = "~0.3.3", default-features = false }
 spirit-tokio = { path = "../spirit-tokio", version = "~0.5", default-features = false }
 structdoc = { version = "~0.1", optional = true }
-structopt = "~0.2"
+structopt = "~0.3"
 tokio = "~0.1"
 
 [dev-dependencies]

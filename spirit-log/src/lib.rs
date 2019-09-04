@@ -202,15 +202,15 @@ const UNKNOWN_THREAD: &str = "<unknown>";
 #[derive(Clone, Debug, StructOpt)]
 pub struct Opts {
     /// Log to stderr with this log level.
-    #[structopt(short = "l", long = "log", raw(number_of_values = "1"))]
+    #[structopt(short = "l", long = "log", number_of_values(1))]
     log: Option<LevelFilter>,
 
     /// Log to stderr with overriden levels for specific modules.
     #[structopt(
         short = "L",
         long = "log-module",
-        parse(try_from_str = "spirit::utils::key_val"),
-        raw(number_of_values = "1")
+        parse(try_from_str = spirit::utils::key_val),
+        number_of_values(1),
     )]
     log_modules: Vec<(String, LevelFilter)>,
 }
