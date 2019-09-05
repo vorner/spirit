@@ -7,16 +7,11 @@
 
 * Reintroduce scaling
 * Parts of the core spirit can be split off and useful separately ‒ base traits, config loading. Then, if the user doesn't want the background thread and stuff, it can be used manually.
-* When rust-1.33 is out go back to using references inside extractors in the examples.
 * Being able to configure the tokio thread pool
   - As a fragment
   - Have a callback/time when we already have the config loaded byt we can still create the singleton and body wrapper ‒ like, on_build?
 * Make some of the traits sealed
 * Builder::run should not need the closure to be static.
 
-* -C doesn't work well with numbers. That's because we switched from
-  deserializing from config to deserializing from toml::Value and that one is
-  strict. Is there a trick to make it non-strict?
 * Stackable and optional for references, eg Vec<&Fragment> or Option<&Fragment>
 * Use humantime-serde to get rid of our own humantime/serde integration
-* Use serde_path_to_error to recover nice error messages for configs

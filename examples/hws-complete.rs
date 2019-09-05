@@ -164,8 +164,8 @@ impl Cfg {
     fn logging(&self) -> Logging {
         self.log.clone()
     }
-    fn listen(&self) -> Vec<Server> {
-        self.listen.clone()
+    fn listen(&self) -> &Vec<Server> {
+        &self.listen
     }
     fn threadpool(&self) -> ThreadPoolConfig {
         self.threadpool.clone()

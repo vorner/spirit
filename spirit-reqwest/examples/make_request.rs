@@ -9,8 +9,8 @@ struct Cfg {
 }
 
 impl Cfg {
-    fn client(&self) -> ReqwestClient {
-        self.client.clone()
+    fn client(&self) -> &ReqwestClient {
+        &self.client
     }
 }
 

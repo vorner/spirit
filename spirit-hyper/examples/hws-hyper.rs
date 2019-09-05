@@ -40,8 +40,8 @@ struct Config {
 
 impl Config {
     /// A function to extract the HTTP servers configuration
-    fn listen(&self) -> HashSet<HttpServer<Signature>> {
-        self.listen.clone()
+    fn listen(&self) -> &HashSet<HttpServer<Signature>> {
+        &self.listen
     }
 }
 

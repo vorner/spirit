@@ -54,8 +54,8 @@ struct Config {
 
 impl Config {
     /// A function to extract the tcp ports configuration.
-    fn listen(&self) -> HashSet<TcpListenWithLimits> {
-        self.listen.clone()
+    fn listen(&self) -> &HashSet<TcpListenWithLimits> {
+        &self.listen
     }
 
     /// Extraction of the threadpool configuration
