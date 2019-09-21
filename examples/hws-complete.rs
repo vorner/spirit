@@ -54,7 +54,7 @@ struct Opts {
 
     // Adds the `--log` and `--log-module` options.
     #[structopt(flatten)]
-    log: LogOpts,
+    logging: LogOpts,
 
     // Adds the --help-config and --dump-config options
     #[structopt(flatten)]
@@ -63,7 +63,7 @@ struct Opts {
 
 impl Opts {
     fn logging(&self) -> LogOpts {
-        self.log.clone()
+        self.logging.clone()
     }
     fn cfg_opts(&self) -> &CfgOpts {
         &self.cfg_opts
@@ -142,8 +142,8 @@ struct Cfg {
     ///
     /// This allows multiple logging destinations in parallel, configuring the format, timestamp
     /// format, destination.
-    #[serde(flatten)]
-    log: Logging,
+    #[serde(default, skip_serializing_if = "Logging::is_empty")]
+    logging: Logging,
 
     /// Where to listen on.
     ///
@@ -162,7 +162,7 @@ struct Cfg {
 
 impl Cfg {
     fn logging(&self) -> Logging {
-        self.log.clone()
+        self.logging.clone()
     }
     fn listen(&self) -> &Vec<Server> {
         &self.listen

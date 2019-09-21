@@ -10,12 +10,12 @@ use structopt::StructOpt;
 #[derive(Clone, Debug, StructOpt)]
 struct Opts {
     #[structopt(flatten)]
-    log: LogOpts,
+    logging: LogOpts,
 }
 
 impl Opts {
-    fn log(&self) -> LogOpts {
-        self.log.clone()
+    fn logging(&self) -> LogOpts {
+        self.logging.clone()
     }
 }
 
@@ -27,14 +27,14 @@ struct Ui {
 
 #[derive(Clone, Debug, Default, Deserialize)]
 struct Cfg {
-    #[serde(flatten)]
-    log: LogCfg,
+    #[serde(default, skip_serializing_if = "LogCfg::is_empty")]
+    logging: LogCfg,
     ui: Ui,
 }
 
 impl Cfg {
-    fn log(&self) -> LogCfg {
-        self.log.clone()
+    fn logging(&self) -> LogCfg {
+        self.logging.clone()
     }
 }
 
@@ -60,8 +60,8 @@ fn main() {
         .config_exts(&["toml", "ini", "json"])
         .with(
             Pipeline::new("logging").extract(|opts: &Opts, cfg: &Cfg| LogBoth {
-                cfg: cfg.log(),
-                opts: opts.log(),
+                cfg: cfg.logging(),
+                opts: opts.logging(),
             }),
         )
         .run(|spirit| {

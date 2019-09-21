@@ -1,6 +1,9 @@
 
 Log:
 * Make the syslog support non-default feature.
+* Flatten inside, not outside ‒ the caller needs #[serde(default,
+  skip_serializing_if)] instead of #[serde(flatten)]. But the caller can choose
+  the name.
 
 Root:
 * StructOpt updated to 0.3 (you'll have to update too).

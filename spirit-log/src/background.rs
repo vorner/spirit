@@ -384,13 +384,13 @@ impl Drop for AsyncLogger {
 ///
 /// #[derive(Clone, Debug, Default, Deserialize)]
 /// struct Cfg {
-///     #[serde(flatten)]
-///     log: LogCfg,
+///     #[serde(default, skip_serializing_if = "LogCfg::is_empty")]
+///     logging: LogCfg,
 /// }
 ///
 /// impl Cfg {
-///     fn log(&self) -> LogCfg {
-///         self.log.clone()
+///     fn logging(&self) -> LogCfg {
+///         self.logging.clone()
 ///     }
 /// }
 ///
@@ -398,7 +398,7 @@ impl Drop for AsyncLogger {
 ///     Spirit::<Empty, Cfg>::new()
 ///         .with(
 ///             Pipeline::new("logging")
-///                 .extract_cfg(Cfg::log)
+///                 .extract_cfg(Cfg::logging)
 ///                 .transform(Background::new(100, OverflowMode::Block)),
 ///         )
 ///         .with_singleton(FlushGuard)

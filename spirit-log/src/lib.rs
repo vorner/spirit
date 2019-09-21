@@ -112,24 +112,24 @@
 //! #[derive(Clone, Debug, StructOpt)]
 //! struct Opts {
 //!     #[structopt(flatten)]
-//!     log: LogOpts,
+//!     logging: LogOpts,
 //! }
 //!
 //! impl Opts {
-//!     fn log(&self) -> LogOpts {
-//!         self.log.clone()
+//!     fn logging(&self) -> LogOpts {
+//!         self.logging.clone()
 //!     }
 //! }
 //!
 //! #[derive(Clone, Debug, Default, Deserialize)]
 //! struct Cfg {
-//!     #[serde(flatten)]
-//!     log: LogCfg,
+//!     #[serde(default, skip_serializing_if = "LogCfg::is_empty")]
+//!     logging: LogCfg,
 //! }
 //!
 //! impl Cfg {
-//!     fn log(&self) -> LogCfg {
-//!         self.log.clone()
+//!     fn logging(&self) -> LogCfg {
+//!         self.logging.clone()
 //!     }
 //! }
 //!
@@ -137,8 +137,8 @@
 //!     Spirit::<Opts, Cfg>::new()
 //!         .with(
 //!             Pipeline::new("logging").extract(|opts: &Opts, cfg: &Cfg| LogBoth {
-//!                 cfg: cfg.log(),
-//!                 opts: opts.log(),
+//!                 cfg: cfg.logging(),
+//!                 opts: opts.logging(),
 //!             }),
 //!         )
 //!         .run(|_spirit| {
@@ -702,10 +702,8 @@ where
 ///   syslog handles this itself. This depends on the `to-syslog` feature.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
-pub struct Cfg {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    logging: Vec<Logger>,
-}
+#[serde(transparent)]
+pub struct Cfg(Vec<Logger>);
 
 struct Configured;
 
@@ -731,6 +729,13 @@ impl Cfg {
             }
             e
         }
+    }
+
+    /// Checks if the logging configuration is empty.
+    ///
+    /// Can be used for skipping serialization of the config array if empty.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
@@ -793,7 +798,7 @@ impl Fragment for Cfg {
         Ok(())
     }
     fn make_resource(&self, _: &mut (), _name: &str) -> Result<Dispatch, Error> {
-        create(&self.logging)
+        create(&self.0)
     }
 }
 
@@ -837,12 +842,12 @@ impl Fragment for CfgAndOpts {
     fn make_resource(&self, _: &mut (), _name: &str) -> Result<Dispatch, Error> {
         let mut cmd = self.opts.logger_cfg();
         // No logging at all ‒ log errors to stderr
-        if self.cfg.logging.is_empty() && cmd.is_none() {
+        if self.cfg.0.is_empty() && cmd.is_none() {
             cmd = Some(Logger::default());
         }
         create(
             self.cfg
-                .logging
+                .0
                 .iter()
                 // A command line overrides any logger to stderr in configuration. But only if it
                 // is set at all.

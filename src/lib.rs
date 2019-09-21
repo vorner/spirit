@@ -143,7 +143,7 @@
 //! struct Cfg {
 //!     message: String,
 //!     // Some configuration options to configure logging.
-//!     #[serde(flatten)]
+//!     #[serde(default, skip_serializing_if = "LogCfg::is_empty")]
 //!     logging: LogCfg,
 //! }
 //!
@@ -223,7 +223,7 @@
 //! struct Cfg {
 //!     message: String,
 //!     sleep: u64,
-//!     #[serde(flatten)]
+//!     #[serde(default, skip_serializing_if = "LogCfg::is_empty")]
 //!     logging: LogCfg,
 //! }
 //!
@@ -318,7 +318,8 @@
 //!     /// How long to wait in between messages, in seconds.
 //!     sleep: u64,
 //!
-//!     #[serde(flatten)]
+//!     /// How and where to log.
+//!     #[serde(default, skip_serializing_if = "LogCfg::is_empty")]
 //!     logging: LogCfg,
 //!
 //!     /// How to switch into the background.
