@@ -1,69 +1,6 @@
 //! Helpers for configuration validation.
 //!
 //! See [`config_validator`][crate::Extensible::config_validator].
-use std::fmt::{Display, Formatter, Result as FmtResult};
-
-use failure::{Backtrace, Error, Fail};
-
-// We are getting our own deprecated thing :-(
-#[allow(deprecated)]
-mod multi_error {
-    use super::*;
-
-    /// An error caused by failed validation.
-    ///
-    /// Carries all the errors that caused it to fail (publicly accessible). Multiple are possible.
-    ///
-    /// The `cause` is delegated to the first error, if any is present.
-    #[derive(Debug)]
-    #[deprecated(note = "validation::MultiError is no longer used")]
-    pub struct MultiError(pub Vec<Error>);
-
-    impl MultiError {
-        /// Creates a multi-error.
-        ///
-        /// Depending on if one error is passed or multiple, the error is either propagated through
-        /// (without introducing another layer of indirection) or all the errors are wrapped into a
-        /// `MultiError`.
-        ///
-        /// # Panics
-        ///
-        /// If the `errs` passed is empty (eg. then there are no errors, so it logically makes no sense
-        /// to call it an error).
-        #[deprecated(note = "validation::MultiError is no longer used")]
-        pub fn wrap(mut errs: Vec<Error>) -> Error {
-            match errs.len() {
-                0 => panic!("No errors in multi-error"),
-                1 => errs.pop().unwrap(),
-                _ => MultiError(errs).into(),
-            }
-        }
-    }
-
-    impl Display for MultiError {
-        fn fmt(&self, formatter: &mut Formatter) -> FmtResult {
-            write!(
-                formatter,
-                "Config validation failed with {} errors",
-                self.0.len()
-            )
-        }
-    }
-
-    impl Fail for MultiError {
-        // There may actually be multiple causes. But we just stick with the first one for lack of
-        // better way to pick.
-        fn cause(&self) -> Option<&dyn Fail> {
-            self.0.get(0).map(Error::as_fail)
-        }
-
-        fn backtrace(&self) -> Option<&Backtrace> {
-            self.0.get(0).map(Error::backtrace)
-        }
-    }
-}
-
-pub use self::multi_error::*;
 
 /// A validation action.
 ///
