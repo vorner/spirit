@@ -4,6 +4,9 @@
 )]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+// Because of https://github.com/TeXitoi/structopt/issues/262
+// TODO: Remove once structopt 0.3.3 is out.
+#![allow(unknown_lints, clippy::let_and_return)]
 
 //! Spirit configuration helpers
 //!
