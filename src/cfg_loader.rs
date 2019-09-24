@@ -57,7 +57,7 @@ use structopt::clap::App;
 use structopt::StructOpt;
 use toml::Value;
 
-#[derive(StructOpt)]
+#[derive(Default, StructOpt)]
 struct CommonOpts {
     /// Override specific config values.
     #[structopt(
@@ -354,6 +354,25 @@ impl Builder {
         }
     }
 
+    /// The inner part of building, independent of where the options come from.
+    fn build_inner(self, opts: CommonOpts) -> Loader {
+        let files = if opts.configs.is_empty() {
+            self.default_paths
+        } else {
+            opts.configs
+        };
+        trace!("Parsed command line arguments");
+
+        Loader {
+            files,
+            defaults: self.defaults,
+            env: self.env,
+            filter: self.filter,
+            overrides: opts.config_overrides.into_iter().collect(),
+            warn_on_unused: self.warn_on_unused,
+        }
+    }
+
     /// Turns the builder into the [`Loader`].
     ///
     /// This parses the command line options ‒ the ones specified by the type parameter, enriched
@@ -364,21 +383,7 @@ impl Builder {
     /// If the command line parsing fails, the application terminates (and prints relevant help).
     pub fn build<O: StructOpt>(self) -> (O, Loader) {
         let opts = OptWrapper::<O>::from_args();
-        let files = if opts.common.configs.is_empty() {
-            self.default_paths
-        } else {
-            opts.common.configs
-        };
-        trace!("Parsed command line arguments");
-
-        let loader = Loader {
-            files,
-            defaults: self.defaults,
-            env: self.env,
-            filter: self.filter,
-            overrides: opts.common.config_overrides.into_iter().collect(),
-            warn_on_unused: self.warn_on_unused,
-        };
+        let loader = self.build_inner(opts.common);
         (opts.other, loader)
     }
 
@@ -390,15 +395,23 @@ impl Builder {
     ///
     /// This is likely useful for tests.
     pub fn build_no_opts(self) -> Loader {
-        trace!("Created cfg loader without command line");
-        Loader {
-            files: self.default_paths,
-            defaults: self.defaults,
-            env: self.env,
-            filter: self.filter,
-            overrides: HashMap::new(),
-            warn_on_unused: self.warn_on_unused,
-        }
+        self.build_inner(Default::default())
+    }
+
+    /// Turns this into the [`Loader`], and command line is parsed from the provided iterator.
+    ///
+    /// Similar to the [`build`][Builder::build], this returns the options and the loader. However,
+    /// the options is loaded from the provided iterator and error is explicitly returned. This
+    /// makes it better match for tests, but can be useful in other circumstances too.
+    pub fn build_explicit_opts<O, I>(self, args: I) -> Result<(O, Loader), Error>
+    where
+        O: StructOpt,
+        I: IntoIterator,
+        I::Item: Into<OsString> + Clone,
+    {
+        let opts = OptWrapper::<O>::from_iter_safe(args)?;
+        let loader = self.build_inner(opts.common);
+        Ok((opts.other, loader))
     }
 }
 

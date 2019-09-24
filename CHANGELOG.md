@@ -6,6 +6,7 @@ Log:
   the name.
 
 Root:
+* The config loader can now parse arbitrary iterator as command line too.
 * StructOpt updated to 0.3 (you'll have to update too).
 * Remove ini and hjson from default-feautures
   - Nobody really uses hjson and it has ancient dependencies.
