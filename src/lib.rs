@@ -48,9 +48,9 @@
 //! Sometimes, you need tight control over what happens and when. Sometimes, you just want all the
 //! *stuff* to happen and not care.
 //!
-//! For that reason, the functionality comes in tiers, opting into more and more automagic
-//! functionality. In some cases, it is possible to combine the approaches cross-tiers too and
-//! having parts of your application fully managed, while others handled manually.
+//! For that reason the library is flexible and allows you to opt into tiers of functionality.
+//! In some cases, it is possible to combine the approaches cross-tiers too and having parts of
+//! your application fully managed, while others handled manually.
 //!
 //! ## Loading of configuration
 //!
@@ -378,9 +378,9 @@
 //!
 //! # Features
 //!
-//! There are several features that can tweak functionality. Currently, they are all *on* by
-//! default, but they can be opted out of. All the other spirit crates depend only on the bare
-//! minimum of features they need.
+//! There are several features that can tweak functionality. Currently, the `json`, `yaml` and
+//! `cfg-help` are on by default. All the other spirit crates depend only on the bare minimum of
+//! features they need (and may have their own features).
 //!
 //! * `ini`, `json`, `hjson`, `yaml`: support for given configuration formats.
 //! * `cfg-help`: support for adding documentation to the configuration fragmtents that can be used
@@ -395,6 +395,9 @@
 //! There are examples scattered through the [repository] ‒ each subcrate has its own and there are
 //! some commons. Look at them and play with them a little (try running them, sending SIGHUP to
 //! them, etc).
+//!
+//! If you're upgrading from older version, you might be interested in the
+//! [CHANGELOG](https://github.com/vorner/spirit/blob/master/CHANGELOG.md).
 //!
 //! There's an **outdated** [tutorial] ‒ while the API isn't the same any more, it might provide the
 //! feel of the library. Bringing it up to date is a TODO item (and help will be appreciated).

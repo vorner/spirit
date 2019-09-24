@@ -5,7 +5,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-//! A spirit fragments and helpers to configure and control logging.
+//! A [`spirit`] fragments and helpers to configure and control logging.
 //!
 //! The [`Fragment`]s here allow to configure relatively complex logging (multiple loggers,
 //! different formats, different destinations), both from command line and the configuration. It
@@ -17,14 +17,22 @@
 //! It assumes the application doesn't set the global logger itself. It also sets the panic hook
 //! through the [`log_panics`] crate. The `with-backtrace` cargo feature is propagated through.
 //!
+//! # Features
+//!
+//! * `background`: Includes the ability to log asynchronously ‒ the writing to log files happens
+//!   in a background thread and allows the rest of the application to not block on IO.
+//! * `cfg-help`: Support for configuration options help at runtime. On by default.
+//! * `with-backtrace`: The [`log_panics`] logs with backtraces. On by default.
+//! * `to-syslog`: Adds the support for logging into syslog.
+//!
 //! # Startup
 //!
-//! The logging is set in multiple steps:
+//! When using the automatic management with a pipeline, this is how a startup happens:
 //!
 //! * As soon as the pipeline is registered, a logging on the `WARN` level is sent to `stderr`.
 //! * After command line arguments are parsed the `stderr` logging is updated to reflect that (or
 //!   left on the `WARN` level if nothing is set by the user).
-//! * After configuration is loaded from the files, full logging is configured.
+//! * After configuration is loaded from the files, full logging is configured according to that.
 //!
 //! # Integration with other loggers
 //!
@@ -52,7 +60,8 @@
 //!
 //! # Planned features
 //!
-//! These pieces are planned some time in future, but haven't happened yet.
+//! These pieces are planned some time in future, but haven't happened yet (pull requests are
+//! welcome).
 //!
 //! * Reconnecting to the remote server if a TCP connection is lost.
 //! * Log file rotation.
@@ -157,6 +166,9 @@
 //! filename = "/tmp/example.log"
 //! clock = "UTC"
 //! ```
+//!
+//! [`log-reroute`]: https://docs.rs/log-reroute
+//! [`log_panics`]: https://docs.rs/log_panics
 
 use std::cmp;
 use std::collections::HashMap;
