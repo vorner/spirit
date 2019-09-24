@@ -422,6 +422,9 @@ impl Builder {
     /// Similar to the [`build`][Builder::build], this returns the options and the loader. However,
     /// the options is loaded from the provided iterator and error is explicitly returned. This
     /// makes it better match for tests, but can be useful in other circumstances too.
+    ///
+    /// Note that the 0th argument is considered to be the name of the application and is not
+    /// parsed as an option.
     pub fn build_explicit_opts<O, I>(self, args: I) -> Result<(O, Loader), Error>
     where
         O: StructOpt,
@@ -582,6 +585,7 @@ mod tests {
     use serde::Deserialize;
 
     use super::*;
+    use crate::Empty;
 
     #[test]
     fn enum_keys() {
@@ -671,5 +675,66 @@ mod tests {
             .unwrap();
 
         assert_eq!(cfg, Cfg { value: 42 });
+    }
+
+    #[test]
+    fn cmd_overrides() {
+        #[derive(Debug, Deserialize, Eq, PartialEq)]
+        #[serde(rename_all = "kebab-case")]
+        struct Cfg {
+            value: usize,
+        }
+
+        #[derive(Debug, Eq, PartialEq, StructOpt)]
+        struct Opts {
+            #[structopt(short = "o")]
+            option: bool,
+        }
+
+        const CFG: &str = r#"
+            value = 42
+        "#;
+
+        let (opts, mut loader): (Opts, Loader) = Builder::new()
+            .config_defaults(CFG)
+            .build_explicit_opts(vec!["my-app", "-o", "-C", "value=12"])
+            .unwrap();
+
+        assert_eq!(opts, Opts { option: true });
+
+        let cfg: Cfg = loader.load().unwrap();
+
+        assert_eq!(cfg, Cfg { value: 12 });
+    }
+
+    #[test]
+    fn combine_dir() {
+        #[derive(Debug, Deserialize, Eq, PartialEq)]
+        struct Cfg {
+            value: usize,
+            option: bool,
+            another: String,
+        }
+
+        const CFG: &str = r#"
+            value = 42
+            another = "Hello"
+        "#;
+
+        let (Empty {}, mut loader) = Builder::new()
+            .config_supported_exts()
+            .config_defaults(CFG)
+            .build_explicit_opts(vec!["my-app", "tests/data"])
+            .unwrap();
+
+        let cfg: Cfg = loader.load().unwrap();
+        assert_eq!(
+            cfg,
+            Cfg {
+                value: 12,                   // Overridden from tests/data/cfg1.yaml
+                option: true,                // From tests/data/cfg2.toml
+                another: "Hello".to_owned(), // From the defaults
+            }
+        );
     }
 }
