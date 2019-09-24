@@ -273,6 +273,25 @@ pub trait ConfigBuilder: Sized {
         })
     }
 
+    /// Sets the config dir filter for all the supported extensions.
+    ///
+    /// Note that the list of extensions depends on the enabled features.
+    fn config_supported_exts(self) -> Self {
+        let mut exts = Vec::new();
+
+        exts.push("toml");
+        #[cfg(feature = "json")]
+        exts.push("json");
+        #[cfg(feature = "yaml")]
+        exts.push("yaml");
+        #[cfg(feature = "ini")]
+        exts.push("ini");
+        #[cfg(feature = "hjson")]
+        exts.push("hjson");
+
+        self.config_exts(exts)
+    }
+
     /// Sets a configuration dir filter.
     ///
     /// If the user passes a directory path instead of a file path, the directory is traversed

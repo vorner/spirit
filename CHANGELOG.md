@@ -6,6 +6,7 @@ Log:
   the name.
 
 Root:
+* Ability to ask for all supported extensions when visiting a directory.
 * The config loader can now parse arbitrary iterator as command line too.
 * StructOpt updated to 0.3 (you'll have to update too).
 * Remove ini and hjson from default-feautures
