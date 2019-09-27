@@ -37,12 +37,12 @@ serde_derive = "~1"
 serde-humantime = "~0.1"
 spirit = { version = "~0.3.6", path = "..", default-features = false }
 structdoc = { version = "~0.1", optional = true }
-structopt = "~0.3"
+structopt = { version = "~0.3", default-features = false }
 tk-listen = "~0.2"
 tokio = "~0.1.8"
 
 [dev-dependencies]
 corona = "~0.4.1"
-env_logger = "~0.6"
+env_logger = "~0.7"
 serde_json = "~1"
 version-sync = "~0.8"

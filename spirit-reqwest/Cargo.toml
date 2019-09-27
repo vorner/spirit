@@ -40,4 +40,4 @@ url_serde = "~0.2"
 
 [dev-dependencies]
 version-sync = "~0.8"
-env_logger = "~0.6"
+env_logger = "~0.7"

@@ -6,6 +6,8 @@ Log:
   the name.
 
 Root:
+* Removing dependencies and making a lot of things optional, to cut down on the
+  dependency graph size.
 * Ability to ask for all supported extensions when visiting a directory.
 * The config loader can now parse arbitrary iterator as command line too.
 * StructOpt updated to 0.3 (you'll have to update too).

@@ -33,7 +33,7 @@ serde_derive = "~1"
 spirit = { version = "~0.3", path = "..", default-features = false }
 # TODO: Proper versions, feature flag
 structdoc = { version = "~0.1", optional = true }
-structopt = "~0.3"
+structopt = { version = "~0.3", default-features = false }
 
 [dev-dependencies]
 version-sync = "~0.8"

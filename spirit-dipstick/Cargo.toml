@@ -28,7 +28,6 @@ cfg-help = ["spirit/cfg-help", "structdoc"]
 dipstick = "~0.7.9"
 failure = "~0.1"
 log = "~0.4"
-reqwest = "~0.9.5"
 serde = { version = "~1", features = ["derive"] }
 serde-humantime = "~0.1"
 spirit = { version = "~0.3.5", path = "..", default-features = false }
@@ -36,4 +35,4 @@ structdoc = { version = "~0.1", optional = true }
 
 [dev-dependencies]
 version-sync = "~0.8"
-env_logger = "~0.6"
+env_logger = "~0.7"

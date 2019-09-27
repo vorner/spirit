@@ -387,6 +387,8 @@
 //!   by the [`spirit-cfg-helpers`] crate to add the `--help-config` command line option. It is
 //!   implemented by the [`structdoc`] crate behind the scenes. On by default. This feature flag is
 //!   actually available in all the other sub-crates too.
+//! * `color`: support for colored command line help (on by default).
+//! * `suggestions`: support for command line suggestions on errors (on by default).
 //!
 //! # Other documentation
 //!
