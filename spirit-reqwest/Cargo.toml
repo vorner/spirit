@@ -29,7 +29,6 @@ arc-swap = "~0.4"
 failure = "~0.1"
 humantime = "~1"
 log = "~0.4"
-parking_lot = "~0.9"
 reqwest = "~0.9.12"
 serde = { version = "~1", features = ["derive"] }
 serde-humantime = "~0.1"

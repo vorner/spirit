@@ -21,7 +21,7 @@ travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
 [features]
-background = ["crossbeam-channel", "either", "parking_lot"]
+background = ["crossbeam-channel", "either"]
 default = ["with-backtrace", "cfg-help"]
 with-backtrace = ["log-panics/with-backtrace"]
 cfg-help = ["spirit/cfg-help", "structdoc"]
@@ -37,7 +37,6 @@ itertools = "~0.8"
 log = "~0.4"
 log-panics = "~2"
 log-reroute = "~0.1.2"
-parking_lot = { version = "~0.9", optional = true }
 serde = { version = "~1", features = ["derive"] }
 serde_json = "~1"
 spirit = { version = "~0.3.1", path = "..", default-features = false }

@@ -1,3 +1,5 @@
+// The mutex_atomic here is a false positive. We use the mutex because of the condvar.
+#![allow(unknown_lints, clippy::mutex_atomic)]
 //! Support for logging in the background.
 //!
 //! The [`AsyncLogger`] can wrap a logger and do the logging in a separate thread. Note that to not
@@ -16,7 +18,7 @@
 use std::cell::RefCell;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::thread::{Builder as ThreadBuilder, Thread};
 use std::time::Duration;
@@ -26,7 +28,6 @@ use either::Either;
 use failure::Error;
 use fern::Dispatch;
 use log::{Level, LevelFilter, Log, Metadata, Record};
-use parking_lot::{Condvar, Mutex};
 use spirit::extension::{Autojoin, Extensible, Extension};
 use spirit::fragment::Transformation;
 
@@ -77,9 +78,9 @@ impl FlushDone {
         }
     }
     fn wait(&self) {
-        let mut done = self.done.lock();
+        let mut done = self.done.lock().unwrap();
         while !*done {
-            self.wakeup.wait(&mut done);
+            done = self.wakeup.wait(done).unwrap();
         }
     }
 }
@@ -88,7 +89,7 @@ struct DropNotify(Arc<FlushDone>);
 
 impl Drop for DropNotify {
     fn drop(&mut self) {
-        *self.0.done.lock() = true;
+        *self.0.done.lock().unwrap() = true;
         self.0.wakeup.notify_all();
     }
 }

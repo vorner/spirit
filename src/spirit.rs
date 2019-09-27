@@ -6,14 +6,13 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use failure::{Error, Fail, ResultExt};
 use log::{debug, error, info, trace};
-use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use signal_hook::iterator::Signals;
 use structopt::StructOpt;
@@ -109,6 +108,7 @@ impl<O, C> Default for Hooks<O, C> {
 /// ```
 pub struct Spirit<O = Empty, C = Empty> {
     config: ArcSwap<C>,
+    // Note: we ignore poisoning here. If one of the hooks fail, we do continue on purpose.
     hooks: Mutex<Hooks<O, C>>,
     // TODO: Mode selection for directories
     opts: O,
@@ -223,7 +223,7 @@ where
         let mut new = self.load_config().context("Failed to load configuration")?;
         // The lock here is across the whole processing, to avoid potential races in logic
         // processing. This makes writing the hooks correctly easier.
-        let mut hooks = self.hooks.lock();
+        let mut hooks = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
         debug!("Running {} config mutators", hooks.config_mutators.len());
         for m in &mut hooks.config_mutators {
             m(&mut new);
@@ -337,7 +337,7 @@ where
         if let Some(signals) = &self.signals {
             signals.close();
         }
-        let mut hooks = self.hooks.lock();
+        let mut hooks = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
         // Take out the terminate hooks out first, so they are not called multiple times even in
         // case of panic.
         let mut term_hooks = Vec::new();
@@ -378,7 +378,9 @@ where
                 _ => false,
             };
 
-            if let Some(hooks) = self.hooks.lock().sigs.get_mut(&signal) {
+            let mut lock = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
+
+            if let Some(hooks) = lock.sigs.get_mut(&signal) {
                 for hook in hooks {
                     hook();
                 }
@@ -392,7 +394,11 @@ where
     }
 
     fn load_config(&self) -> Result<C, Error> {
-        self.hooks.lock().config_loader.load()
+        self.hooks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .config_loader
+            .load()
     }
 
     /// Waits for the background thread to terminate.
@@ -404,7 +410,12 @@ where
     ///
     /// [`terminate`]: Spirit::terminate
     pub fn join_bg_thread(&self) {
-        if let Some(handle) = self.bg_thread.lock().take() {
+        let handle = self
+            .bg_thread
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(handle) = handle {
             handle
                 .join()
                 .expect("Spirit BG thread handles panics, shouldn't panic itself");
@@ -451,7 +462,7 @@ where
         F: FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, Error> + Send + 'static,
     {
         trace!("Adding config validator at runtime");
-        let mut hooks = self.hooks.lock();
+        let mut hooks = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
         if !hooks.terminated {
             let cfg = self.config();
             f(&cfg, &cfg, self.cmd_opts())?.run(true);
@@ -465,7 +476,7 @@ where
         F: FnMut(&mut C) + Send + 'static,
     {
         trace!("Adding config mutator at runtime");
-        let mut hooks = self.hooks.lock();
+        let mut hooks = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
         if !hooks.terminated {
             hooks.config_mutators.push(Box::new(f));
         }
@@ -474,7 +485,7 @@ where
 
     fn on_config<F: FnMut(&O, &Arc<C>) + Send + 'static>(self, mut hook: F) -> Self {
         trace!("Adding config hook at runtime");
-        let mut hooks = self.hooks.lock();
+        let mut hooks = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
         if !hooks.terminated {
             hook(self.cmd_opts(), &self.config());
             hooks.config.push(Box::new(hook));
@@ -492,7 +503,7 @@ where
             .expect("Signals thread disabled by caller");
         trace!("Adding signal hook at runtime");
         signals.add_signal(signal)?;
-        let mut hooks = self.hooks.lock();
+        let mut hooks = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
         if !hooks.terminated {
             hooks
                 .sigs
@@ -506,7 +517,7 @@ where
     fn on_terminate<F: FnOnce() + Send + 'static>(self, hook: F) -> Self {
         trace!("Running termination hook at runtime");
         let mut hook = Some(hook);
-        let mut hooks = self.hooks.lock();
+        let mut hooks = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
         if hooks.terminated {
             (hooks.terminate.last_mut().unwrap())();
         } else {
@@ -525,7 +536,11 @@ where
     }
 
     fn singleton<T: 'static>(&mut self) -> bool {
-        self.hooks.lock().singletons.insert(TypeId::of::<T>())
+        self.hooks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .singletons
+            .insert(TypeId::of::<T>())
     }
 
     fn run_before<B>(self, body: B) -> Result<Self, Error>
@@ -556,7 +571,11 @@ where
     }
 
     fn keep_guard<G: Any + Send>(self, guard: G) -> Self {
-        self.hooks.lock().guards.push(Box::new(guard));
+        self.hooks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .guards
+            .push(Box::new(guard));
         self
     }
 
@@ -951,7 +970,10 @@ where
                     }
                 })
                 .unwrap(); // Could fail only if the name contained \0
-            *spirit.bg_thread.lock() = Some(handle);
+            *spirit
+                .bg_thread
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(handle);
         }
         debug!(
             "Building bodies from {} before-bodies and {} wrappers",

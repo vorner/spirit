@@ -12,11 +12,10 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use failure::{Backtrace, Error, Fail};
 use log::{debug, trace};
-use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use structopt::StructOpt;
 
@@ -555,7 +554,7 @@ where
     I: Installer<T::OutputResource, O, C> + Send + 'static,
 {
     fn run(me: &Arc<Mutex<Self>>, opts: &'a O, config: &'a C) -> Result<Action, Vec<Error>> {
-        let mut me_lock = me.lock();
+        let mut me_lock = me.lock().unwrap_or_else(PoisonError::into_inner);
         let fragment = me_lock.extractor.extract(opts, config);
         let (name, transform, driver) = me_lock.explode();
         debug!("Running pipeline {}", name);
@@ -563,7 +562,10 @@ where
         let me_f = Arc::clone(&me);
         let failure = move || {
             debug!("Rolling back pipeline {}", name);
-            me_f.lock().driver.abort(name);
+            me_f.lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .driver
+                .abort(name);
         };
         let me_s = Arc::clone(&me);
         let success = move || {
@@ -572,7 +574,7 @@ where
                 name,
                 instructions.len(),
             );
-            let mut me = me_s.lock();
+            let mut me = me_s.lock().unwrap_or_else(PoisonError::into_inner);
             me.driver.confirm(name);
             let name = me.name;
             for ins in instructions {
