@@ -17,7 +17,7 @@
 /// use spirit::{Empty, Spirit};
 /// use spirit::prelude::*;
 /// use spirit::validation::Action;
-/// # fn create_something<T>(_cfg: T) -> Result<Empty, failure::Error> { Ok(Empty {}) }
+/// # fn create_something<T>(_cfg: T) -> Result<Empty, spirit::AnyError> { Ok(Empty {}) }
 /// # fn install_something(_empty: Empty) {}
 /// # let _ =
 /// Spirit::<Empty, Empty>::new()
@@ -30,15 +30,15 @@
 /// Or, if you want to only check the configuration:
 ///
 /// ```rust
-/// use failure::ensure;
 /// use spirit::{Empty, Spirit};
 /// use spirit::prelude::*;
 /// use spirit::validation::Action;
-/// # fn looks_good<T>(_cfg: T) -> bool { true }
+///
+/// # fn looks_good<T>(_cfg: T) -> Result<(), spirit::AnyError> { Ok(()) }
 /// # let _ =
 /// Spirit::<Empty, Empty>::new()
 ///     .config_validator(|_old_cfg, new_cfg, _opts| {
-///         ensure!(looks_good(new_cfg), "Configuration is broken");
+///         looks_good(new_cfg)?;
 ///         Ok(Action::new())
 ///     });
 /// ```

@@ -12,10 +12,10 @@ use std::marker::PhantomData;
 use std::mem;
 
 use either::Either;
-use failure::Error;
 use log::{trace, warn};
 
 use super::{Fragment, Transformation};
+use crate::AnyError;
 
 // XXX: Logging and tests
 
@@ -197,7 +197,7 @@ pub trait Driver<F: Fragment> {
         fragment: &F,
         transform: &mut T,
         name: &'static str,
-    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<Error>>
+    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<AnyError>>
     where
         T: Transformation<<Self::SubFragment as Fragment>::Resource, I, Self::SubFragment>;
 
@@ -251,7 +251,7 @@ impl<F: Fragment> Driver<F> for Trivial {
         fragment: &F,
         transform: &mut T,
         name: &'static str,
-    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<Error>>
+    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<AnyError>>
     where
         T: Transformation<F::Resource, I, F>,
     {
@@ -374,7 +374,7 @@ where
         fragment: &F,
         transform: &mut T,
         name: &'static str,
-    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<Error>>
+    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<AnyError>>
     where
         T: Transformation<F::Resource, I, F>,
     {
@@ -477,7 +477,7 @@ where
         fragment: &F,
         transform: &mut T,
         name: &'static str,
-    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<Error>>
+    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<AnyError>>
     where
         T: Transformation<F::Resource, I, F>,
     {
@@ -656,7 +656,7 @@ where
         fragment: &F,
         transform: &mut T,
         name: &'static str,
-    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<Error>>
+    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<AnyError>>
     where
         T: Transformation<<Self::SubFragment as Fragment>::Resource, Ins, Self::SubFragment>,
     {
@@ -795,7 +795,7 @@ where
         fragment: &F,
         transform: &mut T,
         name: &'static str,
-    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<Error>>
+    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<AnyError>>
     where
         T: Transformation<<Self::SubFragment as Fragment>::Resource, I, Self::SubFragment>,
     {
@@ -860,7 +860,7 @@ impl<'a, F: Fragment, Inner: Driver<F>> Driver<&'a F> for RefDriver<Inner> {
         fragment: &&F,
         transform: &mut T,
         name: &'static str,
-    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<Error>>
+    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<AnyError>>
     where
         T: Transformation<<Self::SubFragment as Fragment>::Resource, I, Self::SubFragment>,
     {

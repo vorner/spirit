@@ -4,6 +4,7 @@ version = "0.2.1"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Spirit helpers and config fragments to daemonize"
 documentation = "https://docs.rs/spirit-daemonize"
+edition = "2018"
 repository = "https://github.com/vorner/spirit"
 readme = "README.md"
 categories = ["config", "os::unix-apis"]
@@ -24,12 +25,11 @@ default = ["cfg-help"]
 cfg-help = ["spirit/cfg-help", "structdoc"]
 
 [dependencies]
-failure = "~0.1"
+err-context = "~0.1"
 log = "~0.4"
 nix = "~0.15"
 privdrop = "~0.3"
-serde = "~1"
-serde_derive = "~1"
+serde = { version = "~1", features = ["derive"] }
 spirit = { version = "~0.3", path = "..", default-features = false }
 # TODO: Proper versions, feature flag
 structdoc = { version = "~0.1", optional = true }

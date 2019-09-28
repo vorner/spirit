@@ -26,13 +26,12 @@ maintenance = { status = "actively-developed" }
 
 [dependencies]
 either = { version = "~1", optional = true }
-failure = "~0.1"
+err-context = "~0.1"
 futures = "~0.1"
 humantime = "~1"
 log = "~0.4"
 net2 = "~0.2"
-serde = "~1"
-serde_derive = "~1"
+serde = { version = "~1", features = ["derive"] }
 serde-humantime = "~0.1"
 spirit = { version = "~0.3.6", path = "..", default-features = false }
 structdoc = { version = "~0.1", optional = true }

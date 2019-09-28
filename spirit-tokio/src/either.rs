@@ -2,7 +2,6 @@
 
 use std::io::{BufRead, Error as IoError, Read, Seek, SeekFrom, Write};
 
-use failure::Error;
 use futures::future::Either as FutEither;
 use futures::{Async, Future, Poll, Sink, StartSend, Stream};
 use serde::de::DeserializeOwned;
@@ -10,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use spirit::extension::Extensible;
 use spirit::fragment::driver::{Comparable, Comparison, Driver, Instruction};
 use spirit::fragment::{Fragment, Installer, Stackable, Transformation};
+use spirit::AnyError;
 #[cfg(feature = "cfg-help")]
 use structdoc::StructDoc;
 use structopt::StructOpt;
@@ -77,18 +77,10 @@ use crate::net::IntoIncoming;
 /// # Examples
 ///
 /// ```rust
-/// extern crate failure;
-/// extern crate serde;
-/// #[macro_use]
-/// extern crate serde_derive;
-/// extern crate spirit;
-/// extern crate spirit_tokio;
-/// extern crate tokio;
-///
 /// use std::sync::Arc;
 ///
-/// use failure::Error;
-/// use spirit::{Empty, Pipeline, Spirit};
+/// use serde::Deserialize;
+/// use spirit::{AnyError, Empty, Pipeline, Spirit};
 /// use spirit::prelude::*;
 /// #[cfg(unix)]
 /// use spirit_tokio::either::Either;
@@ -122,10 +114,10 @@ use crate::net::IntoIncoming;
 ///     }
 /// }
 ///
-/// fn connection<C: AsyncRead + AsyncWrite>(conn: C) -> impl Future<Item = (), Error = Error> {
+/// fn connection<C: AsyncRead + AsyncWrite>(conn: C) -> impl Future<Item = (), Error = AnyError> {
 ///     tokio::io::write_all(conn, "Hello\n")
 ///         .map(|_| ())
-///         .map_err(Error::from)
+///         .map_err(AnyError::from)
 /// }
 ///
 /// fn main() {
@@ -370,7 +362,7 @@ where
     type Installer = EitherInstaller<A::Installer, B::Installer>;
     type Seed = Either<A::Seed, B::Seed>;
     type Resource = Either<A::Resource, B::Resource>;
-    fn make_seed(&self, name: &'static str) -> Result<Self::Seed, Error> {
+    fn make_seed(&self, name: &'static str) -> Result<Self::Seed, AnyError> {
         match self {
             Either::A(a) => Ok(Either::A(a.make_seed(name)?)),
             Either::B(b) => Ok(Either::B(b.make_seed(name)?)),
@@ -380,7 +372,7 @@ where
         &self,
         seed: &mut Self::Seed,
         name: &'static str,
-    ) -> Result<Self::Resource, Error> {
+    ) -> Result<Self::Resource, AnyError> {
         match (self, seed) {
             (Either::A(a), Either::A(sa)) => Ok(Either::A(a.make_resource(sa, name)?)),
             (Either::B(b), Either::B(sb)) => Ok(Either::B(b.make_resource(sb, name)?)),
@@ -417,7 +409,7 @@ where
         &mut self,
         builder: E,
         name: &'static str,
-    ) -> Result<E, Error>
+    ) -> Result<E, AnyError>
     where
         E::Config: DeserializeOwned + Send + Sync + 'static,
         E::Opts: StructOpt + Send + Sync + 'static,
@@ -474,7 +466,7 @@ where
         fragment: &Either<A, B>,
         transform: &mut T,
         name: &'static str,
-    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<Error>>
+    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<AnyError>>
     where
         T: Transformation<<Self::SubFragment as Fragment>::Resource, I, Self::SubFragment>,
     {
@@ -509,7 +501,7 @@ where
                 resource: Fi::Resource,
                 _fragment: &Fi,
                 name: &'static str,
-            ) -> Result<Self::OutputResource, Error> {
+            ) -> Result<Self::OutputResource, AnyError> {
                 self.0.transform((self.2)(resource), self.1, name)
             }
         }

@@ -15,7 +15,7 @@ use std::io::Error as IoError;
 use std::net::{IpAddr, TcpListener as StdTcpListener, UdpSocket as StdUdpSocket};
 use std::time::Duration;
 
-use failure::{Error, ResultExt};
+use err_context::prelude::*;
 use futures::{Async, Poll, Stream};
 use log::warn;
 #[cfg(unix)]
@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 use serde_humantime;
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};
+use spirit::AnyError;
 use spirit::Empty;
 #[cfg(feature = "cfg-help")]
 use structdoc::StructDoc;
@@ -180,7 +181,7 @@ impl Listen {
     /// Creates a TCP socket described by the loaded configuration.
     ///
     /// This is the synchronous socket from standard library. See [`TcpListener::from_std`].
-    pub fn create_tcp(&self) -> Result<StdTcpListener, Error> {
+    pub fn create_tcp(&self) -> Result<StdTcpListener, AnyError> {
         let builder = match self.host {
             IpAddr::V4(_) => TcpBuilder::new_v4(),
             IpAddr::V6(_) => TcpBuilder::new_v6(),
@@ -208,7 +209,7 @@ impl Listen {
     /// Creates a UDP socket described by the loaded configuration.
     ///
     /// This is the synchronous socket from standard library. See [`UdpSocket::from_std`].
-    pub fn create_udp(&self) -> Result<StdUdpSocket, Error> {
+    pub fn create_udp(&self) -> Result<StdUdpSocket, AnyError> {
         let builder = match self.host {
             IpAddr::V4(_) => UdpBuilder::new_v4(),
             IpAddr::V6(_) => UdpBuilder::new_v6(),
@@ -545,19 +546,19 @@ where
     type Installer = ();
     type Seed = StdTcpListener;
     type Resource = ConfiguredStreamListener<TcpListener, TcpConfig>;
-    fn make_seed(&self, name: &str) -> Result<StdTcpListener, Error> {
+    fn make_seed(&self, name: &str) -> Result<StdTcpListener, AnyError> {
         self.listen
             .create_tcp()
             .with_context(|_| format!("Failed to create STD socket {}/{:?}", name, self))
-            .map_err(Error::from)
+            .map_err(AnyError::from)
     }
-    fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<Self::Resource, Error> {
+    fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<Self::Resource, AnyError> {
         let config = self.tcp_config.clone();
         seed.try_clone() // Another copy of the listener
             // std → tokio socket conversion
             .and_then(|listener| TcpListener::from_std(listener, &Handle::default()))
             .with_context(|_| format!("Failed to make socket {}/{:?} asynchronous", name, self))
-            .map_err(Error::from)
+            .map_err(AnyError::from)
             .map(|listener| ConfiguredStreamListener::new(listener, config))
     }
 }
@@ -623,18 +624,18 @@ where
     type Installer = ();
     type Seed = StdUdpSocket;
     type Resource = UdpSocket;
-    fn make_seed(&self, name: &str) -> Result<Self::Seed, Error> {
+    fn make_seed(&self, name: &str) -> Result<Self::Seed, AnyError> {
         self.listen
             .create_udp()
             .with_context(|_| format!("Failed to create STD socket {}/{:?}", name, self))
-            .map_err(Error::from)
+            .map_err(AnyError::from)
     }
-    fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<UdpSocket, Error> {
+    fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<UdpSocket, AnyError> {
         seed.try_clone() // Another copy of the socket
             // std → tokio socket conversion
             .and_then(|socket| UdpSocket::from_std(socket, &Handle::default()))
             .with_context(|_| format!("Failed to make socket {}/{:?} async", name, self))
-            .map_err(Error::from)
+            .map_err(AnyError::from)
     }
 }
 

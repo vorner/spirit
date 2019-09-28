@@ -43,6 +43,40 @@
 //!   without spirit (though the crates come with few little utilities or tiny workarounds for
 //!   problems you would face if you started to glue the things together).
 //!
+//! # Error handling conventions
+//!
+//! In the area of interest of this library, quite a lot of things can go wrong. Some of these
+//! errors may come from the library, others from user-provided code in callbacks, extensions, etc.
+//! To make interaction possible, the library passes boxed errors around (see [`AnyError`]).
+//!
+//! It is expected that most of these errors can't be automatically handled by the application,
+//! therefore distinguishing types of the errors isn't really a concern most of the time, though it
+//! is possible to get away with downcasting. In practice, most of the errors will end up somewhere
+//! in logs or other places where users can read them.
+//!
+//! To make the errors more informative, the library constructs layered errors (or error chains).
+//! The outer layer is the high level problem, while the inner ones describe the causes of the
+//! problem. It is expected all the layers are presented to the user. When the errors are handled
+//! by the library (either in termination error or with unsuccessful configuration reload), the
+//! library prints all the layers. To replicate similar behaviour in user code, it is possible to
+//! use the [`log_error`] macro or [`log_error`][fn@crate::error::log_error] function.
+//!
+//! Internally, the library uses the [`err-context`] crate to construct such errors. In addition to
+//! constructing such errors, the crate also allows some limited examination of error chains.
+//! However, users are not forced to use that crate as the chains constructed are based directly on
+//! the [`std::error::Error`] trait and are therefore compatible with errors constructed in any
+//! other way.
+//!
+//! ## Porting from older spirit
+//!
+//! Previously, `spirit` used the [`failure`] crate for error handling. The
+//! [`failure::Error`](https://docs.rs/failure/0.1.5/failure/struct.Error.html) has
+//! the [`compat`](https://docs.rs/failure/0.1.5/failure/struct.Error.html#method.compat) method.
+//! However, that one *doesn't* preserve the inner chain of causes, only the top-level one.
+//!
+//! It should be, however, possible to port to the combination of [`err-context`] and
+//! [`err-derive`] with minimal code changes.
+//!
 //! # Choose your amount of magic
 //!
 //! Sometimes, you need tight control over what happens and when. Sometimes, you just want all the
@@ -64,9 +98,8 @@
 //! This basic configuration loading lives in the [`cfg_loader`][crate::cfg_loader] module.
 //!
 //! ```rust
-//! use failure::Error;
 //! use serde::Deserialize;
-//! use spirit::{ConfigBuilder, Empty};
+//! use spirit::{AnyError, ConfigBuilder, Empty};
 //! use spirit::cfg_loader::Builder;
 //!
 //! #[derive(Debug, Default, Deserialize)]
@@ -78,7 +111,7 @@
 //! message = "hello"
 //! "#;
 //!
-//! fn main() -> Result<(), Error> {
+//! fn main() -> Result<(), AnyError> {
 //!     // Don't care about command line options - there are none in addition to specifying the
 //!     // configuration. If we wanted some more config options, we would use a StructOpt
 //!     // structure instead of Empty.
@@ -131,9 +164,9 @@
 //! You can create your own fragments and, if it's something others could use, share them.
 //!
 //! ```rust
-//! use failure::Error;
 //! use log::info;
 //! use serde::Deserialize;
+//! use spirit::AnyError;
 //! use spirit::cfg_loader::{Builder, ConfigBuilder};
 //! use spirit::fragment::Fragment;
 //! use spirit_log::{Cfg as LogCfg, CfgAndOpts as Logging, Opts as LogOpts};
@@ -158,7 +191,7 @@
 //! message = "hello"
 //! "#;
 //!
-//! fn main() -> Result<(), Error> {
+//! fn main() -> Result<(), AnyError> {
 //!     // Here we added
 //!     let (opts, mut loader): (Opts, _) = Builder::new()
 //!         .config_defaults(DEFAULT_CFG)
@@ -408,6 +441,8 @@
 //!
 //! [`Spirit`]: crate::Spirit
 //! [`Builder`]: crate::Builder
+//! [`AnyError`]: crate::AnyError
+//! [`log_error`]: macro@crate::log_error
 //! [`serde`]: https://crates.io/crates/serde
 //! [`Deserialize`]: https://docs.rs/serde/*/serde/trait.Deserialize.html
 //! [`config`]: https://crates.io/crates/config
@@ -422,11 +457,16 @@
 //! [reqwest-client]: https://docs.rs/reqwest/~0.9.5/reqwest/struct.Client.html
 //! [repository]: https://github.com/vorner/spirit
 //! [tutorial]: https://vorner.github.io/2018/12/09/Spirit-Tutorial.html
+//! [`err-context`]: https://crates.io/crates/err-context
+//! [`failure`]: https://crates.io/crates/failure
+//! [`err-context`]: https://crates.io/crates/err-context
+//! [`err-derive`]: https://crates.io/crates/err-derive
 
 pub mod app;
 pub mod bodies;
 pub mod cfg_loader;
 mod empty;
+pub mod error;
 pub mod extension;
 pub mod fragment;
 #[doc(hidden)]
@@ -437,6 +477,7 @@ pub mod validation;
 
 pub use crate::cfg_loader::ConfigBuilder;
 pub use crate::empty::Empty;
+pub use crate::error::AnyError;
 pub use crate::extension::Extensible;
 pub use crate::fragment::pipeline::Pipeline;
 pub use crate::fragment::Fragment;

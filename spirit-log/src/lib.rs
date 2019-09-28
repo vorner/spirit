@@ -83,10 +83,11 @@
 //! ## Manual single use installation
 //!
 //! ```rust
+//! use spirit::AnyError;
 //! use spirit::prelude::*;
 //! use spirit_log::Cfg;
 //!
-//! # fn main() -> Result<(), failure::Error> {
+//! # fn main() -> Result<(), AnyError> {
 //! // Well, you'd get it somewhere from configuration, but…
 //! let cfg = Cfg::default();
 //! let logger = cfg.create("logger")?;
@@ -97,10 +98,11 @@
 //! ## Manual multiple-use installation
 //!
 //! ```rust
+//! use spirit::AnyError;
 //! use spirit::prelude::*;
 //! use spirit_log::Cfg;
 //!
-//! # fn main() -> Result<(), failure::Error> {
+//! # fn main() -> Result<(), AnyError> {
 //! spirit_log::init();
 //! // This part can be done multiple times.
 //! let cfg = Cfg::default();
@@ -183,7 +185,6 @@ use std::thread;
 
 use chrono::format::{DelayedFormat, StrftimeItems};
 use chrono::{Local, Utc};
-use failure::Error;
 use fern::Dispatch;
 use itertools::Itertools;
 use log::{debug, trace, LevelFilter, Log, STATIC_MAX_LEVEL};
@@ -193,6 +194,7 @@ use serde::{Deserialize, Serialize};
 use spirit::extension::{Extensible, Extension};
 use spirit::fragment::driver::Trivial as TrivialDriver;
 use spirit::fragment::{Fragment, Installer};
+use spirit::AnyError;
 #[cfg(feature = "cfg-help")]
 use structdoc::StructDoc;
 use structopt::StructOpt;
@@ -335,10 +337,19 @@ impl structdoc::StructDoc for LevelFilterSerde {
 }
 
 /// This error can be returned when initialization of logging to syslog fails.
-#[derive(Debug, failure::Fail)]
-#[fail(display = "{}", _0)]
+#[derive(Clone, Debug)]
 #[cfg(feature = "to-syslog")]
 pub struct SyslogError(String);
+
+#[cfg(feature = "to-syslog")]
+impl std::fmt::Display for SyslogError {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        self.0.fmt(fmt)
+    }
+}
+
+#[cfg(feature = "to-syslog")]
+impl std::error::Error for SyslogError {}
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
@@ -471,7 +482,7 @@ struct Logger {
 }
 
 impl Logger {
-    fn create(&self) -> Result<Dispatch, Error> {
+    fn create(&self) -> Result<Dispatch, AnyError> {
         trace!("Creating logger for {:?}", self);
         let mut logger = Dispatch::new().level(self.level.0);
         logger = self
@@ -652,7 +663,7 @@ impl Default for Logger {
     }
 }
 
-fn create<'a, I>(logging: I) -> Result<Dispatch, Error>
+fn create<'a, I>(logging: I) -> Result<Dispatch, AnyError>
 where
     I: IntoIterator<Item = &'a Logger>,
 {
@@ -661,7 +672,7 @@ where
         .into_iter()
         .map(Logger::create)
         .fold_results(Dispatch::new(), Dispatch::chain)
-        .map_err(Error::from)
+        .map_err(AnyError::from)
 }
 
 /// A configuration fragment to set up logging.
@@ -807,10 +818,10 @@ impl Fragment for Cfg {
     type Seed = ();
     type Resource = Dispatch;
     type Installer = LogInstaller;
-    fn make_seed(&self, _name: &str) -> Result<(), Error> {
+    fn make_seed(&self, _name: &str) -> Result<(), AnyError> {
         Ok(())
     }
-    fn make_resource(&self, _: &mut (), _name: &str) -> Result<Dispatch, Error> {
+    fn make_resource(&self, _: &mut (), _name: &str) -> Result<Dispatch, AnyError> {
         create(&self.0)
     }
 }
@@ -849,10 +860,10 @@ impl Fragment for CfgAndOpts {
     type Resource = Dispatch;
     type Installer = LogInstaller;
     const RUN_BEFORE_CONFIG: bool = true;
-    fn make_seed(&self, _name: &str) -> Result<(), Error> {
+    fn make_seed(&self, _name: &str) -> Result<(), AnyError> {
         Ok(())
     }
-    fn make_resource(&self, _: &mut (), _name: &str) -> Result<Dispatch, Error> {
+    fn make_resource(&self, _: &mut (), _name: &str) -> Result<Dispatch, AnyError> {
         let mut cmd = self.opts.logger_cfg();
         // No logging at all ‒ log errors to stderr
         if self.cfg.0.is_empty() && cmd.is_none() {
@@ -887,7 +898,7 @@ impl<O, C> Installer<Dispatch, O, C> for LogInstaller {
     fn install(&mut self, logger: Dispatch, _: &str) {
         install(logger);
     }
-    fn init<B: Extensible<Ok = B>>(&mut self, builder: B, _name: &str) -> Result<B, Error> {
+    fn init<B: Extensible<Ok = B>>(&mut self, builder: B, _name: &str) -> Result<B, AnyError> {
         builder.with(Cfg::init_extension())
     }
 }
@@ -897,7 +908,7 @@ impl<O, C> Installer<(LevelFilter, Box<dyn Log>), O, C> for LogInstaller {
     fn install(&mut self, (level, logger): (LevelFilter, Box<dyn Log>), _: &str) {
         install_parts(level, logger);
     }
-    fn init<B: Extensible<Ok = B>>(&mut self, builder: B, _name: &str) -> Result<B, Error> {
+    fn init<B: Extensible<Ok = B>>(&mut self, builder: B, _name: &str) -> Result<B, AnyError> {
         builder.with(Cfg::init_extension())
     }
 }

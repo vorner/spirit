@@ -64,7 +64,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arc_swap::ArcSwapOption;
-use failure::{Error, ResultExt};
+use err_context::prelude::*;
 use log::{debug, trace};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{
@@ -78,6 +78,7 @@ use serde_humantime::De;
 use spirit::fragment::driver::CacheEq;
 use spirit::fragment::Installer;
 use spirit::utils::Hidden;
+use spirit::AnyError;
 use url_serde::SerdeUrl;
 
 fn default_timeout() -> Option<Duration> {
@@ -96,7 +97,7 @@ fn default_referer() -> bool {
     true
 }
 
-fn load_cert(path: &Path) -> Result<Certificate, Error> {
+fn load_cert(path: &Path) -> Result<Certificate, AnyError> {
     let mut input = File::open(path)?;
     let mut cert = Vec::new();
     input.read_to_end(&mut cert)?;
@@ -112,7 +113,7 @@ fn load_cert(path: &Path) -> Result<Certificate, Error> {
     Ok(result)
 }
 
-fn load_identity(path: &Path, passwd: &str) -> Result<Identity, Error> {
+fn load_identity(path: &Path, passwd: &str) -> Result<Identity, AnyError> {
     let mut input = File::open(path)?;
     let mut identity = Vec::new();
     input.read_to_end(&mut identity)?;
@@ -348,7 +349,7 @@ impl ReqwestClient {
     /// Unless there's a need to tweak the configuration, the [`create`] is more comfortable.
     ///
     /// [`create_client`]: ReqwestClient::create
-    pub fn builder(&self) -> Result<ClientBuilder, Error> {
+    pub fn builder(&self) -> Result<ClientBuilder, AnyError> {
         debug!("Creating Reqwest client from {:?}", self);
         let mut headers = HeaderMap::new();
         for (key, val) in &self.default_headers {
@@ -419,11 +420,11 @@ impl ReqwestClient {
     ///
     /// This is for manually creating the client. It is also possible to pair with an
     /// [`AtomicClient`] to form a [`CfgHelper`].
-    pub fn create_client(&self) -> Result<Client, Error> {
+    pub fn create_client(&self) -> Result<Client, AnyError> {
         self.builder()?
             .build()
             .context("Failed to finish creating Reqwest HTTP client")
-            .map_err(Error::from)
+            .map_err(AnyError::from)
     }
 }
 
@@ -583,7 +584,7 @@ spirit::simple_fragment! {
         type Driver = CacheEq<ReqwestClient>;
         type Resource = Client;
         type Installer = ();
-        fn create(&self, _: &'static str) -> Result<Client, Error> {
+        fn create(&self, _: &'static str) -> Result<Client, AnyError> {
             self.create_client()
         }
     }

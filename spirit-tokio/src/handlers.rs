@@ -15,10 +15,11 @@
 use std::fmt::Debug;
 use std::io::Error as IoError;
 
-use failure::{Error, Fail};
+use err_context::prelude::*;
 use futures::{try_ready, Async, Future, IntoFuture, Poll, Stream};
 use log::{trace, warn};
 use spirit::fragment::Transformation;
+use spirit::AnyError;
 
 use crate::installer::FutureInstaller;
 use crate::net::IntoIncoming;
@@ -42,7 +43,7 @@ pub struct HandleSocket<F>(pub F);
 impl<Socket, InputInstaller, SubFragment, F, R> Transformation<Socket, InputInstaller, SubFragment>
     for HandleSocket<F>
 where
-    F: FnMut(Socket, &SubFragment) -> Result<R, Error>,
+    F: FnMut(Socket, &SubFragment) -> Result<R, AnyError>,
     R: IntoFuture<Item = (), Error = ()> + 'static,
     SubFragment: Debug,
 {
@@ -52,7 +53,7 @@ where
         trace!("Creating future installer for {}", name);
         FutureInstaller::default()
     }
-    fn transform(&mut self, sock: Socket, cfg: &SubFragment, name: &str) -> Result<R, Error> {
+    fn transform(&mut self, sock: Socket, cfg: &SubFragment, name: &str) -> Result<R, AnyError> {
         trace!("Creating a future out of socket {} on {:?}", name, cfg);
         (self.0)(sock, cfg)
     }
@@ -103,7 +104,8 @@ where
     Handler::Output: IntoFuture<Item = ()>,
     <<Handler as ConnectionHandler<Incoming::Item, Ctx>>::Output as IntoFuture>::Future:
         Send + 'static,
-    <<Handler as ConnectionHandler<Incoming::Item, Ctx>>::Output as IntoFuture>::Error: Into<Error>,
+    <<Handler as ConnectionHandler<Incoming::Item, Ctx>>::Output as IntoFuture>::Error:
+        Into<AnyError>,
 {
     type Item = ();
     type Error = ();
@@ -150,10 +152,10 @@ impl<Listener, InputInstaller, SubFragment, I, Ctx, F, Fut>
     Transformation<Listener, InputInstaller, SubFragment> for HandleListenerInit<I, F>
 where
     Listener: IntoIncoming,
-    I: FnMut(&mut Listener, &SubFragment) -> Result<Ctx, Error>,
+    I: FnMut(&mut Listener, &SubFragment) -> Result<Ctx, AnyError>,
     F: Fn(Listener::Connection, &mut Ctx) -> Fut + Clone + 'static,
     Fut: IntoFuture<Item = ()>,
-    Fut::Error: Into<Error>,
+    Fut::Error: Into<AnyError>,
     SubFragment: Debug,
     Ctx: 'static,
 {
@@ -168,7 +170,7 @@ where
         mut listener: Listener,
         cfg: &SubFragment,
         name: &'static str,
-    ) -> Result<Self::OutputResource, Error> {
+    ) -> Result<Self::OutputResource, AnyError> {
         trace!("Creating acceptor for {} on {:?}", name, cfg);
         let ctx = (self.0)(&mut listener, cfg)?;
         let incoming = listener.into_incoming();
@@ -204,7 +206,7 @@ where
     Listener: IntoIncoming,
     F: Fn(Listener::Connection, &SubFragment) -> Fut + Clone + 'static,
     Fut: IntoFuture<Item = ()>,
-    Fut::Error: Into<Error>,
+    Fut::Error: Into<AnyError>,
     SubFragment: Clone + Debug + 'static,
 {
     type OutputResource = Acceptor<Listener::Incoming, SubFragment, ConfigAdaptor<F>>;
@@ -218,7 +220,7 @@ where
         listener: Listener,
         cfg: &SubFragment,
         name: &'static str,
-    ) -> Result<Self::OutputResource, Error> {
+    ) -> Result<Self::OutputResource, AnyError> {
         trace!("Creating acceptor for {} on {:?}", name, cfg);
         let cfg = cfg.clone();
         let incoming = listener.into_incoming();

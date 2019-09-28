@@ -25,11 +25,11 @@ use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender};
 use either::Either;
-use failure::Error;
 use fern::Dispatch;
 use log::{Level, LevelFilter, Log, Metadata, Record};
 use spirit::extension::{Autojoin, Extensible, Extension};
 use spirit::fragment::Transformation;
+use spirit::AnyError;
 
 thread_local! {
     // The thread name injected by the background logging.
@@ -446,7 +446,7 @@ impl<I, F> Transformation<Dispatch, I, F> for Background {
         dispatch: Dispatch,
         _fragment: &F,
         _name: &'static str,
-    ) -> Result<(LevelFilter, Box<dyn Log>), Error> {
+    ) -> Result<(LevelFilter, Box<dyn Log>), AnyError> {
         let (level, sync_logger) = dispatch.into_log();
         let bg = AsyncLogger::new(sync_logger, self.buffer, self.mode);
         Ok((level, Box::new(bg)))
@@ -505,7 +505,7 @@ impl<E> Extension<E> for FlushGuard
 where
     E: Extensible<Ok = E>,
 {
-    fn apply(self, builder: E) -> Result<E, Error> {
+    fn apply(self, builder: E) -> Result<E, AnyError> {
         let builder = builder
             .autojoin_bg_thread(Autojoin::TerminateAndJoin)
             .keep_guard(self);

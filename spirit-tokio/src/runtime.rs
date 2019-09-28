@@ -4,13 +4,13 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
 
-use failure::Error;
 use futures::future::{self, Future};
 use log::{trace, warn};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use spirit::bodies::InnerBody;
 use spirit::extension::{Extensible, Extension};
+use spirit::AnyError;
 use spirit::{Builder, Spirit};
 use structdoc::StructDoc;
 use structopt::StructOpt;
@@ -20,7 +20,7 @@ use tokio::runtime;
 ///
 /// When specifying custom tokio runtime through the [`Runtime`](enum.Runtime.html) extension, this
 /// is the future to be run inside the runtime.
-pub type TokioBody = Box<dyn Future<Item = (), Error = Error> + Send>;
+pub type TokioBody = Box<dyn Future<Item = (), Error = AnyError> + Send>;
 
 /// An extension to initialize a tokio runtime as part of spirit.
 ///
@@ -54,18 +54,10 @@ pub type TokioBody = Box<dyn Future<Item = (), Error = Error> + Send>;
 /// # Examples
 ///
 /// ```
-/// extern crate failure;
-/// extern crate serde;
-/// #[macro_use]
-/// extern crate serde_derive;
-/// extern crate spirit;
-/// extern crate spirit_tokio;
-/// extern crate tokio;
-///
 /// use std::sync::Arc;
 ///
-/// use failure::Error;
-/// use spirit::{Empty, Pipeline, Spirit};
+/// use serde::Deserialize;
+/// use spirit::{AnyError, Empty, Pipeline, Spirit};
 /// use spirit::prelude::*;
 /// use spirit_tokio::{HandleListener, TcpListen};
 /// use spirit_tokio::runtime::Runtime;
@@ -83,7 +75,7 @@ pub type TokioBody = Box<dyn Future<Item = (), Error = Error> + Send>;
 ///     }
 /// }
 ///
-/// fn connection() -> impl Future<Item = (), Error = Error> {
+/// fn connection() -> impl Future<Item = (), Error = AnyError> {
 ///     future::ok(()) // Just a dummy implementation
 /// }
 ///
@@ -133,7 +125,7 @@ pub enum Runtime {
     ///
     /// This allows combining arbitrary runtimes that are not directly supported by either tokio or
     /// spirit.
-    Custom(Box<dyn FnMut(TokioBody) -> Result<(), Error> + Send>),
+    Custom(Box<dyn FnMut(TokioBody) -> Result<(), AnyError> + Send>),
 
     #[doc(hidden)]
     __NonExhaustive__,
@@ -148,7 +140,7 @@ impl Default for Runtime {
 }
 
 impl Runtime {
-    fn execute<O, C>(self, spirit: &Arc<Spirit<O, C>>, inner: InnerBody) -> Result<(), Error>
+    fn execute<O, C>(self, spirit: &Arc<Spirit<O, C>>, inner: InnerBody) -> Result<(), AnyError>
     where
         C: DeserializeOwned + Send + Sync + 'static,
         O: StructOpt + Send + Sync + 'static,
@@ -173,7 +165,7 @@ impl Runtime {
                 mod_builder(&mut builder);
                 let mut runtime = builder.build()?;
                 runtime.block_on(fut)?;
-                runtime.run().map_err(Error::from)
+                runtime.run().map_err(AnyError::from)
             }
             Runtime::Custom(mut callback) => callback(Box::new(fut)),
             Runtime::__NonExhaustive__ => unreachable!(),
@@ -187,7 +179,7 @@ where
     E::Config: DeserializeOwned + Send + Sync + 'static,
     E::Opts: StructOpt + Send + Sync + 'static,
 {
-    fn apply(self, ext: E) -> Result<E, Error> {
+    fn apply(self, ext: E) -> Result<E, AnyError> {
         trace!("Wrapping in tokio runtime");
         ext.run_around(|spirit, inner| self.execute(spirit, inner))
     }

@@ -14,16 +14,11 @@
 //! # Examples
 //!
 //! ```rust
-//! extern crate spirit;
-//! extern crate spirit_daemonize;
-//! #[macro_use]
-//! extern crate serde_derive;
-//! #[macro_use]
-//! extern crate structopt;
-//!
+//! use serde::Deserialize;
 //! use spirit::Spirit;
 //! use spirit::prelude::*;
 //! use spirit_daemonize::{Daemon, Opts as DaemonOpts};
+//! use structopt::StructOpt;
 //!
 //! // From config files
 //! #[derive(Default, Deserialize)]
@@ -77,23 +72,6 @@
 //! need to start any threads, they should be plugged in after the daemonization callback. However,
 //! the safer option is to start them inside the `run` method.
 
-extern crate failure;
-#[macro_use]
-extern crate log;
-extern crate nix;
-extern crate privdrop;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate spirit;
-#[cfg(feature = "cfg-help")]
-#[macro_use]
-extern crate structdoc;
-// For some reason, this produces a warning about unused on nightly… but it is needed on stable
-#[allow(unused_imports)]
-#[macro_use]
-extern crate structopt;
-
 use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -103,11 +81,16 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::Arc;
 
-use failure::{Error, ResultExt};
+use err_context::prelude::*;
+use log::{debug, trace, warn};
 use nix::sys::stat::{self, Mode};
 use nix::unistd::{self, ForkResult, Gid, Uid};
+use serde::{Deserialize, Serialize};
 use spirit::extension::{Extensible, Extension};
 use spirit::validation::Action;
+use spirit::AnyError;
+use structdoc::StructDoc;
+#[cfg(feature = "cfg-help")]
 use structopt::StructOpt;
 
 /// Configuration of either user or a group.
@@ -208,7 +191,7 @@ impl Daemon {
     /// Goes into background according to the configuration.
     ///
     /// This does the actual work of daemonization. This can be used manually.
-    pub fn daemonize(&self) -> Result<(), Error> {
+    pub fn daemonize(&self) -> Result<(), AnyError> {
         // TODO: Tests for this
         debug!("Preparing to daemonize with {:?}", self);
         stat::umask(Mode::empty()); // No restrictions on write modes
@@ -275,7 +258,7 @@ impl Daemon {
     {
         let mut previous_daemon = None;
         let validator_hook =
-            move |_: &_, cfg: &Arc<E::Config>, opts: &_| -> Result<Action, Error> {
+            move |_: &_, cfg: &Arc<E::Config>, opts: &_| -> Result<Action, AnyError> {
                 let daemon = extractor(cfg, opts);
                 if let Some(previous) = previous_daemon.as_ref() {
                     if previous != &daemon {

@@ -13,10 +13,11 @@ use std::fmt::Debug;
 use std::os::unix::net::{UnixDatagram as StdUnixDatagram, UnixListener as StdUnixListener};
 use std::path::PathBuf;
 
-use failure::{Error, ResultExt};
+use err_context::prelude::*;
 use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};
+use spirit::AnyError;
 use spirit::Empty;
 use tokio::net::unix::{Incoming, UnixDatagram, UnixListener, UnixStream};
 use tokio::reactor::Handle;
@@ -56,15 +57,15 @@ impl Listen {
     /// Creates a unix listener.
     ///
     /// This is a low-level function, returning the *blocking* (std) listener.
-    pub fn create_listener(&self) -> Result<StdUnixListener, Error> {
-        StdUnixListener::bind(&self.path).map_err(Error::from)
+    pub fn create_listener(&self) -> Result<StdUnixListener, AnyError> {
+        StdUnixListener::bind(&self.path).map_err(AnyError::from)
     }
 
     /// Creates a unix datagram socket.
     ///
     /// This is a low-level function, returning the *blocking* (std) socket.
-    pub fn create_datagram(&self) -> Result<StdUnixDatagram, Error> {
-        StdUnixDatagram::bind(&self.path).map_err(Error::from)
+    pub fn create_datagram(&self) -> Result<StdUnixDatagram, AnyError> {
+        StdUnixDatagram::bind(&self.path).map_err(AnyError::from)
     }
 }
 
@@ -136,13 +137,13 @@ where
     type Installer = ();
     type Seed = StdUnixListener;
     type Resource = ConfiguredStreamListener<UnixListener, UnixStreamConfig>;
-    fn make_seed(&self, name: &str) -> Result<StdUnixListener, Error> {
+    fn make_seed(&self, name: &str) -> Result<StdUnixListener, AnyError> {
         self.listen
             .create_listener()
             .with_context(|_| format!("Failed to create a unix stream socket {}/{:?}", name, self))
-            .map_err(Error::from)
+            .map_err(AnyError::from)
     }
-    fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<Self::Resource, Error> {
+    fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<Self::Resource, AnyError> {
         let config = self.unix_config.clone();
         seed.try_clone() // Another copy of the listener
             // std → tokio socket conversion
@@ -153,7 +154,7 @@ where
                     name, self
                 )
             })
-            .map_err(Error::from)
+            .map_err(AnyError::from)
             .map(|listener| ConfiguredStreamListener::new(listener, config))
     }
 }
@@ -210,13 +211,13 @@ where
     type Installer = ();
     type Seed = StdUnixDatagram;
     type Resource = UnixDatagram;
-    fn make_seed(&self, name: &str) -> Result<Self::Seed, Error> {
+    fn make_seed(&self, name: &str) -> Result<Self::Seed, AnyError> {
         self.listen
             .create_datagram()
             .with_context(|_| format!("Failed to create unix datagram socket {}/{:?}", name, self))
-            .map_err(Error::from)
+            .map_err(AnyError::from)
     }
-    fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<UnixDatagram, Error> {
+    fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<UnixDatagram, AnyError> {
         seed.try_clone() // Another copy of the socket
             // std → tokio socket conversion
             .and_then(|socket| UnixDatagram::from_std(socket, &Handle::default()))
@@ -226,6 +227,6 @@ where
                     name, self
                 )
             })
-            .map_err(Error::from)
+            .map_err(AnyError::from)
     }
 }

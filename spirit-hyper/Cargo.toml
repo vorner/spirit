@@ -25,12 +25,11 @@ default = ["cfg-help"]
 cfg-help = ["spirit/cfg-help", "spirit-tokio/cfg-help", "structdoc"]
 
 [dependencies]
-failure = "~0.1"
+err-context = "~0.1"
 futures = "~0.1"
 hyper = "~0.12.17"
 log = "~0.4"
 serde = { version = "~1", features = ["derive"] }
-serde_derive = "~1"
 spirit = { path = "..", version = "~0.3.3", default-features = false }
 spirit-tokio = { path = "../spirit-tokio", version = "~0.5", default-features = false }
 structdoc = { version = "~0.1", optional = true }

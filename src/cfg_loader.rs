@@ -23,9 +23,8 @@
 //! # Examples
 //!
 //! ```rust
-//! use failure::Error;
 //! use serde::Deserialize;
-//! use spirit::Empty;
+//! use spirit::{AnyError, Empty};
 //! use spirit::cfg_loader::Builder;
 //!
 //! #[derive(Default, Deserialize)]
@@ -34,7 +33,7 @@
 //!     message: String,
 //! }
 //!
-//! fn main() -> Result<(), Error> {
+//! fn main() -> Result<(), AnyError> {
 //!     let (Empty {}, mut loader) = Builder::new()
 //!         .build();
 //!     let cfg: Cfg = loader.load()?;
@@ -44,11 +43,13 @@
 //! ```
 
 use std::collections::{HashMap, HashSet};
+use std::error::Error;
 use std::ffi::OsString;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::path::{Path, PathBuf};
 
 use config::{Config, Environment, File, FileFormat};
-use failure::{bail, Error, Fail, ResultExt};
+use err_context::prelude::*;
 use fallible_iterator::FallibleIterator;
 use log::{debug, trace, warn};
 use serde::de::DeserializeOwned;
@@ -56,6 +57,8 @@ use serde::Serialize;
 use structopt::clap::App;
 use structopt::StructOpt;
 use toml::Value;
+
+use crate::AnyError;
 
 #[derive(Default, StructOpt)]
 struct CommonOpts {
@@ -97,14 +100,36 @@ impl<O: StructOpt> StructOpt for OptWrapper<O> {
 
 /// An error returned whenever the user passes something not a file nor a directory as
 /// configuration.
-#[derive(Debug, Fail)]
-#[fail(display = "Configuration path {:?} is not a file nor a directory", _0)]
+#[derive(Clone, Debug)]
 pub struct InvalidFileType(PathBuf);
 
+impl Display for InvalidFileType {
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
+        write!(
+            fmt,
+            "Configuration path {} is not a file nor a directory",
+            self.0.display()
+        )
+    }
+}
+
+impl Error for InvalidFileType {}
+
 /// Returned if configuration path is missing.
-#[derive(Debug, Fail)]
-#[fail(display = "Configuration path {:?} does not exist", _0)]
+#[derive(Clone, Debug)]
 pub struct MissingFile(PathBuf);
+
+impl Display for MissingFile {
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
+        write!(
+            fmt,
+            "Configuration path {} does not exist",
+            self.0.display()
+        )
+    }
+}
+
+impl Error for MissingFile {}
 
 /// Interface for configuring configuration loading options.
 ///
@@ -112,7 +137,7 @@ pub struct MissingFile(PathBuf);
 /// `Builder`][crate::Builder] for configuring how and where from should configuration be loaded.
 /// The methods are available on both and do the same thing.
 ///
-/// The interface is also implemented on `Result<ConfigBuilder, Error>`. This is both for
+/// The interface is also implemented on `Result<ConfigBuilder, AnyError>`. This is both for
 /// convenience and for gathering errors to be handled within
 /// [`SpiritBuilder::run`][crate::SpiritBuilder::run] in uniform way.
 pub trait ConfigBuilder: Sized {
@@ -161,8 +186,8 @@ pub trait ConfigBuilder: Sized {
     /// # Examples
     ///
     /// ```rust
-    /// use failure::Error;
     /// use serde::{Deserialize, Serialize};
+    /// use spirit::AnyError;
     /// use spirit::cfg_loader::{Builder, ConfigBuilder};
     ///
     /// #[derive(Default, Deserialize, Serialize)]
@@ -171,7 +196,7 @@ pub trait ConfigBuilder: Sized {
     ///     message: String,
     /// }
     ///
-    /// fn main() -> Result<(), Error> {
+    /// fn main() -> Result<(), AnyError> {
     ///     let mut loader = Builder::new()
     ///         .config_defaults_typed(&Cfg {
     ///             message: "hello".to_owned()
@@ -186,7 +211,7 @@ pub trait ConfigBuilder: Sized {
     /// ```
     ///
     /// [`config_defaults`]: ConfigBuilder::config_defaults
-    fn config_defaults_typed<C: Serialize>(self, config: &C) -> Result<Self, Error> {
+    fn config_defaults_typed<C: Serialize>(self, config: &C) -> Result<Self, AnyError> {
         // We internally delegate into serializing to toml and just calling the other method. This
         // is mostly to avoid implementation complexity:
         // * We don't want two different parts of code doing about the same.
@@ -214,10 +239,9 @@ pub trait ConfigBuilder: Sized {
     /// # Examples
     ///
     /// ```rust
-    /// use failure::Error;
     /// use serde::Deserialize;
+    /// use spirit::{AnyError, Empty};
     /// use spirit::cfg_loader::{Builder, ConfigBuilder};
-    /// use spirit::Empty;
     ///
     /// #[derive(Default, Deserialize)]
     /// struct Cfg {
@@ -228,7 +252,7 @@ pub trait ConfigBuilder: Sized {
     /// message = "Hello"
     /// "#;
     ///
-    /// fn main() -> Result<(), Error> {
+    /// fn main() -> Result<(), AnyError> {
     ///     let (_, mut loader) = Builder::new()
     ///         .config_defaults(DEFAULT_CFG)
     ///         .config_env("HELLO")
@@ -425,7 +449,7 @@ impl Builder {
     ///
     /// Note that the 0th argument is considered to be the name of the application and is not
     /// parsed as an option.
-    pub fn build_explicit_opts<O, I>(self, args: I) -> Result<(O, Loader), Error>
+    pub fn build_explicit_opts<O, I>(self, args: I) -> Result<(O, Loader), AnyError>
     where
         O: StructOpt,
         I: IntoIterator,
@@ -500,7 +524,7 @@ impl Loader {
     /// the [`Loader`]. Each time all the sources are loaded from scratch (even new files in
     /// directories are discovered), so this can be used to reflect configuration changes at
     /// runtime.
-    pub fn load<C: DeserializeOwned>(&mut self) -> Result<C, Error> {
+    pub fn load<C: DeserializeOwned>(&mut self) -> Result<C, AnyError> {
         debug!("Loading configuration");
         let mut config = Config::new();
         // To avoid problems with trying to parse without any configuration present (it would
@@ -545,9 +569,9 @@ impl Loader {
                         .with_context(|_| format!("Failed to load config file {:?}", file))?;
                 }
             } else if path.exists() {
-                bail!(InvalidFileType(path.to_owned()));
+                return Err(InvalidFileType(path.to_owned()).into());
             } else {
-                bail!(MissingFile(path.to_owned()));
+                return Err(MissingFile(path.to_owned()).into());
             }
         }
         if let Some(env_prefix) = self.env.as_ref() {

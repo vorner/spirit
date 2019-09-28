@@ -6,6 +6,7 @@ Log:
   the name.
 
 Root:
+* Abandoning failure, using boxed standard errors (with chaining).
 * Removing dependencies and making a lot of things optional, to cut down on the
   dependency graph size.
 * Pruning of the prelude ‒ it now contains only traits, not types.

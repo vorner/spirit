@@ -11,19 +11,31 @@
 //! application.
 
 use std::collections::HashSet;
+use std::error::Error;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc;
 use std::thread;
 
 use arc_swap::ArcSwap;
-use failure::{ensure, Error};
 use log::{debug, error, info, warn};
 use once_cell::sync::Lazy;
 use serde::Deserialize;
-use spirit::extension;
 use spirit::prelude::*;
+use spirit::{extension, AnyError};
 use spirit::{Empty, Spirit};
+
+#[derive(Copy, Clone, Debug)]
+struct NoPorts;
+
+impl Display for NoPorts {
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
+        write!(fmt, "No ports to listen on")
+    }
+}
+
+impl Error for NoPorts {}
 
 // In this part, we define how our configuration looks like. Just like with the `config` crate
 // (which is actually used internally), the configuration is loaded using the serde's Deserialize.
@@ -93,9 +105,11 @@ fn handle_conn(mut conn: TcpStream) {
 }
 
 /// Start all the threads, one for each listening socket.
-fn start_threads() -> Result<(), Error> {
+fn start_threads() -> Result<(), AnyError> {
     let config = CONFIG.load();
-    ensure!(!config.listen.is_empty(), "No ports to listen on");
+    if config.listen.is_empty() {
+        return Err(NoPorts.into());
+    }
     for listen in &config.listen {
         info!("Starting thread on {}:{}", listen.host, listen.port);
         let listener = TcpListener::bind((&listen.host as &str, listen.port))?;
@@ -111,7 +125,7 @@ fn start_threads() -> Result<(), Error> {
     Ok(())
 }
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), AnyError> {
     let (term_send, term_recv) = mpsc::channel();
     let _spirit = Spirit::<Empty, Config>::new()
         // Keep the current config accessible through a global variable

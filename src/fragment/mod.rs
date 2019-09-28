@@ -97,13 +97,13 @@
 use std::collections::{BTreeSet, BinaryHeap, HashSet, LinkedList};
 use std::hash::{BuildHasher, Hash};
 
-use failure::Error;
 use log::trace;
 use serde::de::DeserializeOwned;
 use structopt::StructOpt;
 
 use self::driver::{Driver, RefDriver, SeqDriver};
 use crate::extension::Extensible;
+use crate::AnyError;
 
 pub mod driver;
 pub mod pipeline;
@@ -161,7 +161,7 @@ pub trait Installer<Resource, O, C> {
         &mut self,
         builder: B,
         _name: &'static str,
-    ) -> Result<B, Error>
+    ) -> Result<B, AnyError>
     where
         B::Config: DeserializeOwned + Send + Sync + 'static,
         B::Opts: StructOpt + Send + Sync + 'static,
@@ -197,7 +197,7 @@ where
         &mut self,
         builder: B,
         name: &'static str,
-    ) -> Result<B, Error>
+    ) -> Result<B, AnyError>
     where
         B::Config: DeserializeOwned + Send + Sync + 'static,
         B::Opts: StructOpt + Send + Sync + 'static,
@@ -291,7 +291,7 @@ pub trait Fragment: Sized {
     /// This method should be provided by an implementation, but wouldn't usually be called
     /// directly by the user. This is used either by the [`Pipeline`][pipeline::Pipeline] or
     /// internally by the higher-level [`create`][Fragment::create] method.
-    fn make_seed(&self, name: &'static str) -> Result<Self::Seed, Error>;
+    fn make_seed(&self, name: &'static str) -> Result<Self::Seed, AnyError>;
 
     /// Runs the second stage of creation.
     ///
@@ -305,7 +305,7 @@ pub trait Fragment: Sized {
         &self,
         seed: &mut Self::Seed,
         name: &'static str,
-    ) -> Result<Self::Resource, Error>;
+    ) -> Result<Self::Resource, AnyError>;
 
     /// Runs both stages of creation at once.
     ///
@@ -315,7 +315,7 @@ pub trait Fragment: Sized {
     ///
     /// This is meant to be used by the user if the user wishes to use the fragment directly,
     /// without the support of [`Pipeline`][pipeline::Pipeline].
-    fn create(&self, name: &'static str) -> Result<Self::Resource, Error> {
+    fn create(&self, name: &'static str) -> Result<Self::Resource, AnyError> {
         trace!("End to end creation of {}", name);
         let mut seed = self.make_seed(name)?;
         self.make_resource(&mut seed, name)
@@ -329,7 +329,7 @@ pub trait Fragment: Sized {
     ///
     /// The implementation may leave it at the default (empty) implementation in case no special
     /// setup is needed.
-    fn init<B: Extensible<Ok = B>>(builder: B, _: &'static str) -> Result<B, Error>
+    fn init<B: Extensible<Ok = B>>(builder: B, _: &'static str) -> Result<B, AnyError>
     where
         B::Config: DeserializeOwned + Send + Sync + 'static,
         B::Opts: StructOpt + Send + Sync + 'static,
@@ -347,17 +347,17 @@ where
     type Seed = F::Seed;
     type Resource = F::Resource;
     const RUN_BEFORE_CONFIG: bool = F::RUN_BEFORE_CONFIG;
-    fn make_seed(&self, name: &'static str) -> Result<Self::Seed, Error> {
+    fn make_seed(&self, name: &'static str) -> Result<Self::Seed, AnyError> {
         F::make_seed(*self, name)
     }
     fn make_resource(
         &self,
         seed: &mut Self::Seed,
         name: &'static str,
-    ) -> Result<Self::Resource, Error> {
+    ) -> Result<Self::Resource, AnyError> {
         F::make_resource(*self, seed, name)
     }
-    fn init<B: Extensible<Ok = B>>(builder: B, name: &'static str) -> Result<B, Error>
+    fn init<B: Extensible<Ok = B>>(builder: B, name: &'static str) -> Result<B, AnyError>
     where
         B::Config: DeserializeOwned + Send + Sync + 'static,
         B::Opts: StructOpt + Send + Sync + 'static,
@@ -382,18 +382,18 @@ macro_rules! fragment_for_seq {
             type Seed = Vec<$base::Seed>;
             type Resource = Vec<$base::Resource>;
             const RUN_BEFORE_CONFIG: bool = $base::RUN_BEFORE_CONFIG;
-            fn make_seed(&self, name: &'static str) -> Result<Self::Seed, Error> {
+            fn make_seed(&self, name: &'static str) -> Result<Self::Seed, AnyError> {
                 self.iter().map(|i| i.make_seed(name)).collect()
             }
             fn make_resource(&self, seed: &mut Self::Seed, name: &'static str)
-                -> Result<Self::Resource, Error>
+                -> Result<Self::Resource, AnyError>
             {
                 self.iter()
                     .zip(seed)
                     .map(|(i, s)| i.make_resource(s, name))
                     .collect()
             }
-            fn init<B: Extensible<Ok = B>>(builder: B, name: &'static str) -> Result<B, Error>
+            fn init<B: Extensible<Ok = B>>(builder: B, name: &'static str) -> Result<B, AnyError>
             where
                 B::Config: DeserializeOwned + Send + Sync + 'static,
                 B::Opts: StructOpt + Send + Sync + 'static,
@@ -421,7 +421,7 @@ fragment_for_seq!(Optional => Option<T>);
 /// # Examples
 ///
 /// ```rust
-/// use failure::Error;
+/// use spirit::AnyError;
 /// use spirit::simple_fragment;
 /// use spirit::fragment::Installer;
 ///
@@ -449,7 +449,7 @@ fragment_for_seq!(Optional => Option<T>);
 ///     impl Fragment for MessageCfg {
 ///         type Resource = Message;
 ///         type Installer = MessageInstaller;
-///         fn create(&self, _name: &'static str) -> Result<Message, Error> {
+///         fn create(&self, _name: &'static str) -> Result<Message, AnyError> {
 ///             Ok(Message(self.msg.clone()))
 ///         }
 ///     }
@@ -489,7 +489,7 @@ macro_rules! simple_fragment {
             type Resource = $resource;
             type Installer = $installer;
             type Seed = ();
-            fn make_seed(&self, _: &'static str) -> Result<(), Error> {
+            fn make_seed(&self, _: &'static str) -> Result<(), AnyError> {
                 Ok(())
             }
             fn make_resource(&$self, _: &mut (), $name: &'static str) -> $result $block
@@ -612,5 +612,5 @@ pub trait Transformation<InputResource, InputInstaller, SubFragment> {
         resource: InputResource,
         fragment: &SubFragment,
         name: &'static str,
-    ) -> Result<Self::OutputResource, Error>;
+    ) -> Result<Self::OutputResource, AnyError>;
 }

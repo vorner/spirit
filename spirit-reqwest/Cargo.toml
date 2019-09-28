@@ -26,7 +26,7 @@ cfg-help = ["spirit/cfg-help", "structdoc"]
 
 [dependencies]
 arc-swap = "~0.4"
-failure = "~0.1"
+err-context = "~0.1"
 humantime = "~1"
 log = "~0.4"
 reqwest = "~0.9.12"

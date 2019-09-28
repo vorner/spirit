@@ -5,16 +5,14 @@
 
 use std::sync::Arc;
 
-use failure::Error;
-
-use crate::spirit::Spirit;
+use crate::{AnyError, Spirit};
 
 pub(crate) trait Body<Param>: Send {
-    fn run(&mut self, param: Param) -> Result<(), Error>;
+    fn run(&mut self, param: Param) -> Result<(), AnyError>;
 }
 
-impl<F: FnOnce(Param) -> Result<(), Error> + Send, Param> Body<Param> for Option<F> {
-    fn run(&mut self, param: Param) -> Result<(), Error> {
+impl<F: FnOnce(Param) -> Result<(), AnyError> + Send, Param> Body<Param> for Option<F> {
+    fn run(&mut self, param: Param) -> Result<(), AnyError> {
         (self.take().expect("Body called multiple times"))(param)
     }
 }
@@ -30,7 +28,7 @@ pub struct InnerBody(pub(crate) Box<dyn Body<()>>);
 
 impl InnerBody {
     /// Run the body.
-    pub fn run(mut self) -> Result<(), Error> {
+    pub fn run(mut self) -> Result<(), AnyError> {
         self.0.run(())
     }
 }
@@ -40,7 +38,7 @@ pub(crate) struct WrapBody(pub(crate) Box<dyn Body<InnerBody>>);
 
 impl WrapBody {
     /// Call the closure inside.
-    pub(crate) fn run(mut self, inner: InnerBody) -> Result<(), Error> {
+    pub(crate) fn run(mut self, inner: InnerBody) -> Result<(), AnyError> {
         self.0.run(inner)
     }
 }

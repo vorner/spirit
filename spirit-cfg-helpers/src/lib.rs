@@ -25,13 +25,13 @@
 //! * `cfg-help` enables the printing of configuration help.
 
 use std::borrow::Borrow;
-use std::fmt::Debug;
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::process;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use failure::Fail;
 use log::{log, Level};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -89,9 +89,16 @@ where
     }
 }
 
-#[derive(Debug, Fail)]
-#[fail(display = "Invalid config format {}", _0)]
+#[derive(Debug)]
 struct DumpFormatParseError(String);
+
+impl Display for DumpFormatParseError {
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
+        write!(fmt, "Invalid config format {}", self.0)
+    }
+}
+
+impl Error for DumpFormatParseError {}
 
 #[derive(Copy, Clone, Debug)]
 enum DumpFormat {

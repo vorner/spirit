@@ -21,12 +21,11 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
-use failure::Error;
 use log::warn;
 
 use crate::bodies::InnerBody;
-use crate::spirit::Spirit;
 use crate::validation::Action;
+use crate::{AnyError, Spirit};
 
 /// An internal trait to make working uniformly with the [`Builder`] and `Result<Builder, Error>`
 /// possible.
@@ -39,17 +38,17 @@ use crate::validation::Action;
 /// [`Builder`]: crate::Builder
 pub trait IntoResult<T>: Sized {
     /// Turns self into the result.
-    fn into_result(self) -> Result<T, Error>;
+    fn into_result(self) -> Result<T, AnyError>;
 }
 
-impl<T> IntoResult<T> for Result<T, Error> {
-    fn into_result(self) -> Result<T, Error> {
+impl<T> IntoResult<T> for Result<T, AnyError> {
+    fn into_result(self) -> Result<T, AnyError> {
         self
     }
 }
 
 impl<T> IntoResult<T> for T {
-    fn into_result(self) -> Result<T, Error> {
+    fn into_result(self) -> Result<T, AnyError> {
         Ok(self)
     }
 }
@@ -87,8 +86,8 @@ pub enum Autojoin {
 /// methods, sometimes there are subtle differences ‒ specifically, it is not possible to do some
 /// things when the application already started).
 ///
-/// In addition, this is also implemented on `Result<Extensible, Error>`. This allows the caller to
-/// postpone all error handling for later or even leave it up to the
+/// In addition, this is also implemented on `Result<Extensible, AnyError>`. This allows the caller
+/// to postpone all error handling for later or even leave it up to the
 /// [`Builder::run`][crate::SpiritBuilder::run`] to handle them.
 ///
 /// # Deadlocks
@@ -106,15 +105,16 @@ pub enum Autojoin {
 ///
 /// // This creates a Builder
 /// Spirit::<Empty, Empty>::new()
-///     // This returns Result<Builder, Error>. But we don't handle the error here, it propagates
+///     // This returns Result<Builder, AnyError>. But we don't handle the error here, it propagates
 ///     // further in the call chain.
 ///     .run_before(|_spirit| Ok(()))
-///     // This run_before is on the Result<Builder, Error>. If the first one returned an error,
+///     // This run_before is on the Result<Builder, AnyError>. If the first one returned an error,
 ///     // nothing would happen and the error would thread on. So, this works like implicit .and_then,
 ///     // but without the inconvenience.
 ///     //
-///     // (This also returns Result<Builder, Error>, not Result<Result<Builder, Error>, Error>).
-///     .run_before(|_spirit| Ok(()))
+///     // (This also returns Result<Builder, AnyError>, not Result<Result<Builder, AnyError>,
+///     // AnyError>).  .run_before(|_spirit| Ok(()))
+///     //
 ///     // This .run can handle both the errors from above and from inside, logging them and
 ///     // terminating if they happen.
 ///     .run(|spirit| {
@@ -146,9 +146,9 @@ pub trait Extensible: Sized {
 
     /// The Ok variant used when returning a result.
     ///
-    /// Part of the trick to treat both `Extensible` and `Result<Extensible, Error>` in an uniform
-    /// way. This specifies what the OK variant of a result is ‒ it is either the Ok variant of
-    /// `Self` if we are `Result`, or `Self` if we are the `Extensible` proper.
+    /// Part of the trick to treat both `Extensible` and `Result<Extensible, AnyError>` in an
+    /// uniform way. This specifies what the OK variant of a result is ‒ it is either the Ok
+    /// variant of `Self` if we are `Result`, or `Self` if we are the `Extensible` proper.
     type Ok;
 
     /// Has the application already started?
@@ -169,9 +169,9 @@ pub trait Extensible: Sized {
     /// case, the callback is dropped.
     ///
     /// [`Spirit`]: crate::Spirit
-    fn before_config<F>(self, cback: F) -> Result<Self::Ok, Error>
+    fn before_config<F>(self, cback: F) -> Result<Self::Ok, AnyError>
     where
-        F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), Error> + Send + 'static;
+        F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), AnyError> + Send + 'static;
 
     /// Adds another config validator to the chain.
     ///
@@ -216,9 +216,9 @@ pub trait Extensible: Sized {
     /// # Examples
     ///
     /// TODO
-    fn config_validator<F>(self, f: F) -> Result<Self::Ok, Error>
+    fn config_validator<F>(self, f: F) -> Result<Self::Ok, AnyError>
     where
-        F: FnMut(&Arc<Self::Config>, &Arc<Self::Config>, &Self::Opts) -> Result<Action, Error>
+        F: FnMut(&Arc<Self::Config>, &Arc<Self::Config>, &Self::Opts) -> Result<Action, AnyError>
             + Send
             + 'static;
 
@@ -265,7 +265,7 @@ pub trait Extensible: Sized {
     /// [`SpiritBuilder::build`][crate::SpiritBuilder::build].
     ///
     /// TODO: Threads, deadlocks
-    fn on_signal<F>(self, signal: libc::c_int, hook: F) -> Result<Self::Ok, Error>
+    fn on_signal<F>(self, signal: libc::c_int, hook: F) -> Result<Self::Ok, AnyError>
     where
         F: FnMut() + Send + 'static;
 
@@ -315,9 +315,9 @@ pub trait Extensible: Sized {
     ///         Ok(())
     ///     });
     /// ```
-    fn run_before<B>(self, body: B) -> Result<Self::Ok, Error>
+    fn run_before<B>(self, body: B) -> Result<Self::Ok, AnyError>
     where
-        B: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>) -> Result<(), Error> + Send + 'static;
+        B: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>) -> Result<(), AnyError> + Send + 'static;
 
     /// Wrap the body run by the [`run`][crate::SpiritBuilder::run] into this closure.
     ///
@@ -356,16 +356,16 @@ pub trait Extensible: Sized {
     ///         Ok(())
     ///     });
     /// ```
-    fn run_around<W>(self, wrapper: W) -> Result<Self::Ok, Error>
+    fn run_around<W>(self, wrapper: W) -> Result<Self::Ok, AnyError>
     where
-        W: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>, InnerBody) -> Result<(), Error>
+        W: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>, InnerBody) -> Result<(), AnyError>
             + Send
             + 'static;
 
     /// Apply an [`Extension`].
     ///
     /// An extension is allowed to register arbitrary amount of callbacks.
-    fn with<E>(self, ext: E) -> Result<Self::Ok, Error>
+    fn with<E>(self, ext: E) -> Result<Self::Ok, AnyError>
     where
         E: Extension<Self::Ok>;
 
@@ -410,7 +410,7 @@ pub trait Extensible: Sized {
     /// feature ‒ many other extensions need some environment to run in (like `tokio` runtime). The
     /// extensions try to apply a default configuration, but the user can apply a specific
     /// configuration first.
-    fn with_singleton<T>(self, singleton: T) -> Result<Self::Ok, Error>
+    fn with_singleton<T>(self, singleton: T) -> Result<Self::Ok, AnyError>
     where
         T: Extension<Self::Ok> + 'static;
 
@@ -441,7 +441,7 @@ pub trait Extensible: Sized {
     fn autojoin_bg_thread(self, autojoin: Autojoin) -> Self;
 }
 
-impl<C> Extensible for Result<C, Error>
+impl<C> Extensible for Result<C, AnyError>
 where
     C: Extensible<Ok = C>,
 {
@@ -450,9 +450,9 @@ where
     type Ok = C;
     const STARTED: bool = C::STARTED;
 
-    fn before_config<F>(self, cback: F) -> Result<<Self as Extensible>::Ok, Error>
+    fn before_config<F>(self, cback: F) -> Result<<Self as Extensible>::Ok, AnyError>
     where
-        F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), Error> + Send + 'static,
+        F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), AnyError> + Send + 'static,
     {
         self.and_then(|c| c.before_config(cback))
     }
@@ -464,9 +464,9 @@ where
         self.map(|c| c.config_mutator(f))
     }
 
-    fn config_validator<F>(self, f: F) -> Result<<Self as Extensible>::Ok, Error>
+    fn config_validator<F>(self, f: F) -> Result<<Self as Extensible>::Ok, AnyError>
     where
-        F: FnMut(&Arc<Self::Config>, &Arc<Self::Config>, &Self::Opts) -> Result<Action, Error>
+        F: FnMut(&Arc<Self::Config>, &Arc<Self::Config>, &Self::Opts) -> Result<Action, AnyError>
             + Send
             + 'static,
     {
@@ -480,7 +480,11 @@ where
         self.map(|c| c.on_config(hook))
     }
 
-    fn on_signal<F>(self, signal: libc::c_int, hook: F) -> Result<<Self as Extensible>::Ok, Error>
+    fn on_signal<F>(
+        self,
+        signal: libc::c_int,
+        hook: F,
+    ) -> Result<<Self as Extensible>::Ok, AnyError>
     where
         F: FnMut() + Send + 'static,
     {
@@ -494,23 +498,23 @@ where
         self.map(|c| c.on_terminate(hook))
     }
 
-    fn run_before<B>(self, body: B) -> Result<<Self as Extensible>::Ok, Error>
+    fn run_before<B>(self, body: B) -> Result<<Self as Extensible>::Ok, AnyError>
     where
-        B: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>) -> Result<(), Error> + Send + 'static,
+        B: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>) -> Result<(), AnyError> + Send + 'static,
     {
         self.and_then(|c| c.run_before(body))
     }
 
-    fn run_around<W>(self, wrapper: W) -> Result<<Self as Extensible>::Ok, Error>
+    fn run_around<W>(self, wrapper: W) -> Result<<Self as Extensible>::Ok, AnyError>
     where
-        W: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>, InnerBody) -> Result<(), Error>
+        W: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>, InnerBody) -> Result<(), AnyError>
             + Send
             + 'static,
     {
         self.and_then(|c| c.run_around(wrapper))
     }
 
-    fn with<E>(self, ext: E) -> Result<<Self as Extensible>::Ok, Error>
+    fn with<E>(self, ext: E) -> Result<<Self as Extensible>::Ok, AnyError>
     where
         E: Extension<<Self as Extensible>::Ok>,
     {
@@ -525,7 +529,7 @@ where
             .unwrap_or_default()
     }
 
-    fn with_singleton<T>(self, singleton: T) -> Result<<Self as Extensible>::Ok, Error>
+    fn with_singleton<T>(self, singleton: T) -> Result<<Self as Extensible>::Ok, AnyError>
     where
         T: Extension<<Self as Extensible>::Ok> + 'static,
     {
@@ -550,7 +554,7 @@ where
 /// [`with`][Extensible::with] or [`with_singleton`][Extensible::with_singleton] method than
 /// directly.
 ///
-/// There's an implementation of `Extension` for `FnOnce(Extensible) -> Result<Extensible, Error>`,
+/// There's an implementation of `Extension` for `FnOnce(Extensible) -> Result<Extensible, AnyError>`,
 /// so extensions can be either custom types or just closures (which are often more convenient than
 /// defining an empty type and the implementation).
 ///
@@ -562,15 +566,14 @@ where
 /// # Examples
 ///
 /// ```rust
-/// use failure::Error;
-/// use spirit::{Empty, Spirit};
+/// use spirit::{AnyError ,Empty, Spirit};
 /// use spirit::extension::{Extension, Extensible};
 /// use spirit::prelude::*;
 ///
 /// struct CfgPrint;
 ///
 /// impl<E: Extensible<Ok = E>> Extension<E> for CfgPrint {
-///     fn apply(self, ext: E) -> Result<E, Error> {
+///     fn apply(self, ext: E) -> Result<E, AnyError> {
 ///         Ok(ext.on_config(|_opts, _config| println!("Config changed")))
 ///     }
 /// }
@@ -604,7 +607,7 @@ pub trait Extension<B> {
     /// And yes, it is possible to do multiple primitive transformations inside one extension (this
     /// is what makes extensions useful for 3rd party crates, they can integrate with just one call
     /// of [`with`][Extensible::with]).
-    fn apply(self, builder: B) -> Result<B, Error>;
+    fn apply(self, builder: B) -> Result<B, AnyError>;
 }
 
 impl<B, F, R> Extension<B> for F
@@ -612,7 +615,7 @@ where
     F: FnOnce(B) -> R,
     R: IntoResult<B>,
 {
-    fn apply(self, builder: B) -> Result<B, Error> {
+    fn apply(self, builder: B) -> Result<B, AnyError> {
         self(builder).into_result()
     }
 }

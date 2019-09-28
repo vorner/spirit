@@ -12,22 +12,13 @@
 //! case of TCP, the action is handling one incoming connection) and a name (which is used in
 //! logs).
 
-extern crate env_logger;
-extern crate failure;
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate serde_derive;
-extern crate spirit;
-extern crate spirit_tokio;
-extern crate tokio;
-
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use failure::Error;
+use log::{debug, warn};
+use serde::Deserialize;
 use spirit::prelude::*;
-use spirit::{Empty, Pipeline, Spirit};
+use spirit::{AnyError, Empty, Pipeline, Spirit};
 use spirit_tokio::net::limits::LimitedConn;
 use spirit_tokio::runtime::ThreadPoolConfig;
 use spirit_tokio::{HandleListener, TcpListenWithLimits};
@@ -87,7 +78,7 @@ msg = "Hello world"
 fn handle_connection(
     spirit: &Arc<Spirit<Empty, Config>>,
     conn: LimitedConn<TcpStream>,
-) -> impl Future<Item = (), Error = Error> {
+) -> impl Future<Item = (), Error = AnyError> {
     let addr = conn
         .peer_addr()
         .map(|addr| addr.to_string())

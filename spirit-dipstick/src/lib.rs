@@ -70,11 +70,12 @@ use dipstick::{
     MetricName, MetricValue, MultiOutput, NameParts, Observe, ObserveWhen, Prefixed, Prometheus,
     Result as DipResult, ScheduleFlush, ScoreType, Statsd, Stream,
 };
-use failure::{Error, ResultExt};
+use err_context::prelude::*;
 use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::CacheEq;
 use spirit::fragment::{Fragment, Installer, Optional};
+use spirit::AnyError;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
@@ -90,28 +91,27 @@ enum Backend {
 }
 
 impl Backend {
-    fn add_to(&self, out: &MultiOutput) -> Result<MultiOutput, Error> {
+    fn add_to(&self, out: &MultiOutput) -> Result<MultiOutput, AnyError> {
         match self {
             Backend::Stdout => Ok(out.add_target(Stream::to_stdout())),
             Backend::Stderr => Ok(out.add_target(Stream::to_stderr())),
             Backend::File { filename } => Stream::to_file(filename)
                 .map(|s| out.add_target(s))
-                .map_err(Error::from_boxed_compat)
-                .with_context(|_| format!("Failed to create metrics file {}", filename.display())),
+                .with_context(|_| format!("Failed to create metrics file {}", filename.display()))
+                .map_err(Box::from),
             Backend::Graphite { host, port } => Graphite::send_to((host as &str, *port))
                 .map(|g| out.add_target(g))
-                .map_err(Error::from_boxed_compat)
-                .with_context(|_| format!("Error sending to graphite {}:{}", host, port)),
+                .with_context(|_| format!("Error sending to graphite {}:{}", host, port))
+                .map_err(Box::from),
             Backend::Prometheus { url } => Prometheus::push_to(url as &str)
                 .map(|p| out.add_target(p))
-                .map_err(Error::from_boxed_compat)
-                .with_context(|_| format!("Error sending to prometheus {}", url)),
+                .with_context(|_| format!("Error sending to prometheus {}", url))
+                .map_err(Box::from),
             Backend::Statsd { host, port } => Statsd::send_to((host as &str, *port))
                 .map(|s| out.add_target(s))
-                .map_err(Error::from_boxed_compat)
-                .with_context(|_| format!("Error sending to statsd {}:{}", host, port)),
+                .with_context(|_| format!("Error sending to statsd {}:{}", host, port))
+                .map_err(Box::from),
         }
-        .map_err(Error::from)
     }
 }
 
@@ -195,7 +195,7 @@ pub struct Config {
 }
 
 impl Config {
-    fn outputs(&self) -> Result<MultiOutput, Error> {
+    fn outputs(&self) -> Result<MultiOutput, AnyError> {
         self.backends
             .iter()
             .try_fold(MultiOutput::new(), |mo, backend| backend.add_to(&mo))
@@ -220,10 +220,10 @@ impl Fragment for Config {
     type Installer = ();
     type Seed = ();
     type Resource = Backends;
-    fn make_seed(&self, _name: &str) -> Result<(), Error> {
+    fn make_seed(&self, _name: &str) -> Result<(), AnyError> {
         Ok(())
     }
-    fn make_resource(&self, _seed: &mut (), name: &str) -> Result<Backends, Error> {
+    fn make_resource(&self, _seed: &mut (), name: &str) -> Result<Backends, AnyError> {
         let outputs = self.outputs()?;
         debug!(
             "Prepared {} metrics outputs for {}",

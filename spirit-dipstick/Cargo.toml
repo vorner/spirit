@@ -25,8 +25,8 @@ default = ["cfg-help"]
 cfg-help = ["spirit/cfg-help", "structdoc"]
 
 [dependencies]
-dipstick = "~0.7.9"
-failure = "~0.1"
+dipstick = { version = "~0.7.9", default-features = false }
+err-context = "~0.1"
 log = "~0.4"
 serde = { version = "~1", features = ["derive"] }
 serde-humantime = "~0.1"

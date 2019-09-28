@@ -10,11 +10,12 @@
 //!
 //! [`Pipeline`]: crate::fragment::pipeline::Pipeline
 use std::collections::HashMap;
+use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::marker::PhantomData;
+use std::ops::Deref;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use failure::{Backtrace, Error, Fail};
 use log::{debug, trace};
 use serde::de::DeserializeOwned;
 use structopt::StructOpt;
@@ -23,6 +24,7 @@ use super::driver::{CacheId, Driver, Instruction};
 use super::{Extractor, Fragment, Installer, Transformation};
 use crate::extension::{Extensible, Extension};
 use crate::validation::Action;
+use crate::AnyError;
 
 /// An error caused by multiple other errors.
 ///
@@ -32,7 +34,7 @@ use crate::validation::Action;
 #[derive(Debug)]
 pub struct MultiError {
     /// All the errors that happened.
-    pub errors: Vec<Error>,
+    pub errors: Vec<AnyError>,
 
     /// The pipeline this error comes from.
     pub pipeline: &'static str,
@@ -49,7 +51,7 @@ impl MultiError {
     ///
     /// If the `errs` passed is empty (eg. then there are no errors, so it logically makes no sense
     /// to call it an error).
-    pub fn wrap(mut errs: Vec<Error>, pipeline: &'static str) -> Error {
+    pub fn wrap(mut errs: Vec<AnyError>, pipeline: &'static str) -> AnyError {
         match errs.len() {
             0 => panic!("No errors in multi-error"),
             1 => errs.pop().unwrap(),
@@ -73,15 +75,11 @@ impl Display for MultiError {
     }
 }
 
-impl Fail for MultiError {
+impl Error for MultiError {
     // There may actually be multiple causes. But we just stick with the first one for lack of
     // better way to pick.
-    fn cause(&self) -> Option<&dyn Fail> {
-        self.errors.get(0).map(Error::as_fail)
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.errors.get(0).map(Error::backtrace)
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.errors.get(0).map(|e| e.deref() as &dyn Error)
     }
 }
 
@@ -143,7 +141,7 @@ impl<R: 'static, I, S> Transformation<R, I, S> for NopTransformation {
     fn installer(&mut self, installer: I, _: &str) -> I {
         installer
     }
-    fn transform(&mut self, resource: R, _: &S, _: &str) -> Result<Self::OutputResource, Error> {
+    fn transform(&mut self, resource: R, _: &S, _: &str) -> Result<Self::OutputResource, AnyError> {
         Ok(resource)
     }
 }
@@ -170,7 +168,7 @@ where
         resource: R,
         fragment: &S,
         name: &'static str,
-    ) -> Result<Self::OutputResource, Error> {
+    ) -> Result<Self::OutputResource, AnyError> {
         let resource = self.0.transform(resource, fragment, name)?;
         self.1.transform(resource, fragment, name)
     }
@@ -197,7 +195,7 @@ where
         resource: R,
         fragment: &S,
         name: &'static str,
-    ) -> Result<Self::OutputResource, Error> {
+    ) -> Result<Self::OutputResource, AnyError> {
         self.0.transform(resource, fragment, name)
     }
 }
@@ -226,7 +224,7 @@ where
         resource: Rin,
         fragment: &S,
         name: &'static str,
-    ) -> Result<Rout, Error> {
+    ) -> Result<Rout, AnyError> {
         let r = self.0.transform(resource, fragment, name)?;
         trace!("Mapping resource {}", name);
         Ok((self.1)(r))
@@ -535,7 +533,7 @@ impl<O, C, T, I, D, E, R, H> CompiledPipeline<O, C, T, I, D, E, R, H> {
 /// is quite useless and is public only through the trait bounds.
 pub trait BoundedCompiledPipeline<'a, O, C> {
     /// Performs one iteration of the lifetime.
-    fn run(me: &Arc<Mutex<Self>>, opts: &'a O, config: &'a C) -> Result<Action, Vec<Error>>;
+    fn run(me: &Arc<Mutex<Self>>, opts: &'a O, config: &'a C) -> Result<Action, Vec<AnyError>>;
 }
 
 impl<'a, O, C, T, I, D, E> BoundedCompiledPipeline<'a, O, C>
@@ -553,7 +551,7 @@ where
     T::OutputResource: 'static,
     I: Installer<T::OutputResource, O, C> + Send + 'static,
 {
-    fn run(me: &Arc<Mutex<Self>>, opts: &'a O, config: &'a C) -> Result<Action, Vec<Error>> {
+    fn run(me: &Arc<Mutex<Self>>, opts: &'a O, config: &'a C) -> Result<Action, Vec<AnyError>> {
         let mut me_lock = me.lock().unwrap_or_else(PoisonError::into_inner);
         let fragment = me_lock.extractor.extract(opts, config);
         let (name, transform, driver) = me_lock.explode();
@@ -612,7 +610,7 @@ where
     // TODO: Extract parts & make it possible to run independently?
     // TODO: There seems to be a lot of mutexes that are not really necessary here.
     // TODO: This would use some tests
-    fn apply(self, mut builder: B) -> Result<B, Error> {
+    fn apply(self, mut builder: B) -> Result<B, AnyError> {
         trace!("Inserting pipeline {}", self.name);
         let mut transformation = self.transformation;
         let mut installer = transformation.installer(Default::default(), self.name);

@@ -1,5 +1,7 @@
 use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
+use std::error::Error;
+use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::marker::PhantomData;
 use std::mem;
 use std::panic::{self, AssertUnwindSafe};
@@ -11,7 +13,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
-use failure::{Error, Fail, ResultExt};
+use err_context::prelude::*;
 use log::{debug, error, info, trace};
 use serde::de::DeserializeOwned;
 use signal_hook::iterator::Signals;
@@ -21,23 +23,32 @@ use crate::app::App;
 use crate::bodies::{InnerBody, SpiritBody, WrapBody, Wrapper};
 use crate::cfg_loader::{Builder as CfgBuilder, ConfigBuilder, Loader as CfgLoader};
 use crate::empty::Empty;
+use crate::error;
 use crate::extension::{Autojoin, Extensible, Extension};
 use crate::fragment::pipeline::MultiError;
-use crate::utils;
 use crate::validation::Action;
+use crate::AnyError;
 
-#[derive(Debug, Fail)]
-#[fail(
-    display = "Config validation failed with {} errors from {} validators",
-    _0, _1
-)]
+#[derive(Copy, Clone, Debug)]
 pub struct ValidationError(usize, usize);
+
+impl Display for ValidationError {
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
+        write!(
+            fmt,
+            "Config validation failed with {} errors from {} validators",
+            self.0, self.1
+        )
+    }
+}
+
+impl Error for ValidationError {}
 
 struct Hooks<O, C> {
     config: Vec<Box<dyn FnMut(&O, &Arc<C>) + Send>>,
     config_loader: CfgLoader,
     config_mutators: Vec<Box<dyn FnMut(&mut C) + Send>>,
-    config_validators: Vec<Box<dyn FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, Error> + Send>>,
+    config_validators: Vec<Box<dyn FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, AnyError> + Send>>,
     sigs: HashMap<libc::c_int, Vec<Box<dyn FnMut() + Send>>>,
     singletons: HashSet<TypeId>,
     terminate: Vec<Box<dyn FnMut() + Send>>,
@@ -221,7 +232,7 @@ where
     /// reasoning about configuration transitions and such easier (and to make sure the callbacks
     /// don't have to by `Sync`). That, however, means that you can't call `config_reload` or
     /// [`terminate`][Spirit::terminate] from any callback as that would lead to a deadlock.
-    pub fn config_reload(&self) -> Result<(), Error> {
+    pub fn config_reload(&self) -> Result<(), AnyError> {
         let mut new = self.load_config().context("Failed to load configuration")?;
         // The lock here is across the whole processing, to avoid potential races in logic
         // processing. This makes writing the hooks correctly easier.
@@ -370,7 +381,7 @@ where
             debug!("Received signal {}", signal);
             let term = match signal {
                 libc::SIGHUP => {
-                    let _ = utils::log_errors(module_path!(), || self.config_reload());
+                    let _ = error::log_errors(module_path!(), || self.config_reload());
                     false
                 }
                 libc::SIGTERM | libc::SIGINT | libc::SIGQUIT => {
@@ -396,7 +407,7 @@ where
         debug!("Terminating the background thread");
     }
 
-    fn load_config(&self) -> Result<C, Error> {
+    fn load_config(&self) -> Result<C, AnyError> {
         self.hooks
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -451,18 +462,18 @@ where
     type Ok = Self;
     const STARTED: bool = true;
 
-    fn before_config<F>(self, cback: F) -> Result<Self, Error>
+    fn before_config<F>(self, cback: F) -> Result<Self, AnyError>
     where
-        F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), Error> + Send + 'static,
+        F: FnOnce(&Self::Config, &Self::Opts) -> Result<(), AnyError> + Send + 'static,
     {
         trace!("Running just added before_config");
         cback(&self.config(), self.cmd_opts())?;
         Ok(self)
     }
 
-    fn config_validator<F>(self, mut f: F) -> Result<Self, Error>
+    fn config_validator<F>(self, mut f: F) -> Result<Self, AnyError>
     where
-        F: FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, Error> + Send + 'static,
+        F: FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, AnyError> + Send + 'static,
     {
         trace!("Adding config validator at runtime");
         let mut hooks = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
@@ -496,7 +507,7 @@ where
         self
     }
 
-    fn on_signal<F>(self, signal: libc::c_int, hook: F) -> Result<Self, Error>
+    fn on_signal<F>(self, signal: libc::c_int, hook: F) -> Result<Self, AnyError>
     where
         F: FnMut() + Send + 'static,
     {
@@ -531,7 +542,7 @@ where
         self
     }
 
-    fn with<E>(self, ext: E) -> Result<Self::Ok, Error>
+    fn with<E>(self, ext: E) -> Result<Self::Ok, AnyError>
     where
         E: Extension<Self>,
     {
@@ -546,23 +557,23 @@ where
             .insert(TypeId::of::<T>())
     }
 
-    fn run_before<B>(self, body: B) -> Result<Self, Error>
+    fn run_before<B>(self, body: B) -> Result<Self, AnyError>
     where
-        B: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>) -> Result<(), Error> + Send + 'static,
+        B: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>) -> Result<(), AnyError> + Send + 'static,
     {
         body(self).map(|()| self)
     }
 
-    fn run_around<W>(self, _wrapper: W) -> Result<Self, Error>
+    fn run_around<W>(self, _wrapper: W) -> Result<Self, AnyError>
     where
-        W: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>, InnerBody) -> Result<(), Error>
+        W: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>, InnerBody) -> Result<(), AnyError>
             + Send
             + 'static,
     {
         panic!("Wrapping body while already running is not possible, move this to the builder (see https://docs.rs/spirit/*/extension/trait.Extensible.html#method.run_around");
     }
 
-    fn with_singleton<T>(mut self, singleton: T) -> Result<Self, Error>
+    fn with_singleton<T>(mut self, singleton: T) -> Result<Self, AnyError>
     where
         T: Extension<Self::Ok> + 'static,
     {
@@ -610,13 +621,13 @@ where
 pub struct Builder<O = Empty, C = Empty> {
     autojoin_bg_thread: Autojoin,
     before_bodies: Vec<SpiritBody<O, C>>,
-    before_config: Vec<Box<dyn FnMut(&C, &O) -> Result<(), Error> + Send>>,
+    before_config: Vec<Box<dyn FnMut(&C, &O) -> Result<(), AnyError> + Send>>,
     body_wrappers: Vec<Wrapper<O, C>>,
     config: C,
     config_loader: CfgBuilder,
     config_hooks: Vec<Box<dyn FnMut(&O, &Arc<C>) + Send>>,
     config_mutators: Vec<Box<dyn FnMut(&mut C) + Send>>,
-    config_validators: Vec<Box<dyn FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, Error> + Send>>,
+    config_validators: Vec<Box<dyn FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, AnyError> + Send>>,
     opts: PhantomData<O>,
     sig_hooks: HashMap<libc::c_int, Vec<Box<dyn FnMut() + Send>>>,
     singletons: HashSet<TypeId>,
@@ -688,9 +699,9 @@ impl<O, C> Extensible for Builder<O, C> {
     type Ok = Self;
     const STARTED: bool = false;
 
-    fn before_config<F>(mut self, cback: F) -> Result<Self, Error>
+    fn before_config<F>(mut self, cback: F) -> Result<Self, AnyError>
     where
-        F: FnOnce(&C, &O) -> Result<(), Error> + Send + 'static,
+        F: FnOnce(&C, &O) -> Result<(), AnyError> + Send + 'static,
     {
         let mut cback = Some(cback);
         let cback = move |conf: &C, opts: &O| (cback.take().unwrap())(conf, opts);
@@ -698,9 +709,9 @@ impl<O, C> Extensible for Builder<O, C> {
         Ok(self)
     }
 
-    fn config_validator<F>(self, f: F) -> Result<Self, Error>
+    fn config_validator<F>(self, f: F) -> Result<Self, AnyError>
     where
-        F: FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, Error> + Send + 'static,
+        F: FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, AnyError> + Send + 'static,
     {
         let mut validators = self.config_validators;
         validators.push(Box::new(f));
@@ -731,7 +742,7 @@ impl<O, C> Extensible for Builder<O, C> {
         }
     }
 
-    fn on_signal<F>(self, signal: libc::c_int, hook: F) -> Result<Self, Error>
+    fn on_signal<F>(self, signal: libc::c_int, hook: F) -> Result<Self, AnyError>
     where
         F: FnMut() + Send + 'static,
     {
@@ -758,7 +769,7 @@ impl<O, C> Extensible for Builder<O, C> {
         }
     }
 
-    fn with<E>(self, ext: E) -> Result<Self::Ok, Error>
+    fn with<E>(self, ext: E) -> Result<Self::Ok, AnyError>
     where
         E: Extension<Self>,
     {
@@ -769,24 +780,24 @@ impl<O, C> Extensible for Builder<O, C> {
         self.singletons.insert(TypeId::of::<T>())
     }
 
-    fn run_before<B>(mut self, body: B) -> Result<Self, Error>
+    fn run_before<B>(mut self, body: B) -> Result<Self, AnyError>
     where
-        B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), Error> + Send + 'static,
+        B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), AnyError> + Send + 'static,
     {
         self.before_bodies.push(Box::new(Some(body)));
         Ok(self)
     }
 
-    fn run_around<W>(mut self, wrapper: W) -> Result<Self, Error>
+    fn run_around<W>(mut self, wrapper: W) -> Result<Self, AnyError>
     where
-        W: FnOnce(&Arc<Spirit<O, C>>, InnerBody) -> Result<(), Error> + Send + 'static,
+        W: FnOnce(&Arc<Spirit<O, C>>, InnerBody) -> Result<(), AnyError> + Send + 'static,
     {
         let wrapper = move |(spirit, inner): (&_, _)| wrapper(spirit, inner);
         self.body_wrappers.push(Box::new(Some(wrapper)));
         Ok(self)
     }
 
-    fn with_singleton<T>(mut self, singleton: T) -> Result<Self, Error>
+    fn with_singleton<T>(mut self, singleton: T) -> Result<Self, AnyError>
     where
         T: Extension<Self::Ok> + 'static,
     {
@@ -821,7 +832,7 @@ impl<O, C> Extensible for Builder<O, C> {
 /// to handle errors by logging them and then terminating the application with a non-zero exit
 /// code. It is convenient to include even the setup errors in this logging.
 ///
-/// Therefore, the trait is implemented both on [`Builder`] and `Result<Builder, Error>` (and the
+/// Therefore, the trait is implemented both on [`Builder`] and `Result<Builder, AnyError>` (and the
 /// other traits on [`Builder`] also support this trick). That way all the errors can be just
 /// transparently gathered and handled uniformly, without any error handling on the user side.
 ///
@@ -833,10 +844,10 @@ impl<O, C> Extensible for Builder<O, C> {
 ///
 /// // This returns Builder
 /// Spirit::<Empty, Empty>::new()
-///     // This method returns Result<Builder, Error>, but we don't handle the possible error with
+///     // This method returns Result<Builder, AnyError>, but we don't handle the possible error with
 ///     // ?.
 ///     .run_before(|_| Ok(()))
-///     // The run lives both on Builder and Result<Builder, Error>. Here we call the latter.
+///     // The run lives both on Builder and Result<Builder, AnyError>. Here we call the latter.
 ///     // If we get an error from above, the body here isn't run at all, but the error is handled
 ///     // similarly as any errors from within the body.
 ///     .run(|_| Ok(()))
@@ -869,7 +880,7 @@ pub trait SpiritBuilder: ConfigBuilder + Extensible {
     ///
     /// This will panic if `background_thread` is set to `false` and there are registered signals.
     // TODO: The new return value
-    fn build(self, background_thread: bool) -> Result<App<Self::Opts, Self::Config>, Error>;
+    fn build(self, background_thread: bool) -> Result<App<Self::Opts, Self::Config>, AnyError>;
 
     /// Build the spirit and run the application, handling all relevant errors.
     ///
@@ -901,7 +912,7 @@ pub trait SpiritBuilder: ConfigBuilder + Extensible {
     /// ```
     fn run<B>(self, body: B)
     where
-        B: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>) -> Result<(), Error> + Send + 'static;
+        B: FnOnce(&Arc<Spirit<Self::Opts, Self::Config>>) -> Result<(), AnyError> + Send + 'static;
 }
 
 impl<O, C> SpiritBuilder for Builder<O, C>
@@ -909,7 +920,7 @@ where
     Self::Config: DeserializeOwned + Send + Sync + 'static,
     Self::Opts: StructOpt + Sync + Send + 'static,
 {
-    fn build(mut self, background_thread: bool) -> Result<App<O, C>, Error> {
+    fn build(mut self, background_thread: bool) -> Result<App<O, C>, AnyError> {
         debug!("Building the spirit");
         let (opts, loader) = self.config_loader.build::<Self::Opts>();
         for before_config in &mut self.before_config {
@@ -1007,21 +1018,21 @@ where
         Ok(App::new(spirit, inner, wrapped))
     }
 
-    fn run<B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), Error> + Send + 'static>(self, body: B) {
+    fn run<B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), AnyError> + Send + 'static>(self, body: B) {
         Ok(self).run(body);
     }
 }
 
-impl<O, C> SpiritBuilder for Result<Builder<O, C>, Error>
+impl<O, C> SpiritBuilder for Result<Builder<O, C>, AnyError>
 where
     Self::Config: DeserializeOwned + Send + Sync + 'static,
     Self::Opts: StructOpt + Sync + Send + 'static,
 {
-    fn build(self, background_thread: bool) -> Result<App<O, C>, Error> {
+    fn build(self, background_thread: bool) -> Result<App<O, C>, AnyError> {
         self.and_then(|b| b.build(background_thread))
     }
-    fn run<B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), Error> + Send + 'static>(self, body: B) {
-        let result = utils::log_errors("top-level", || {
+    fn run<B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), AnyError> + Send + 'static>(self, body: B) {
+        let result = error::log_errors("top-level", || {
             let me = self?;
             let app = me.build(true)?;
             let spirit = Arc::clone(app.spirit());

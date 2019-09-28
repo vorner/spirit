@@ -18,17 +18,10 @@
 //! # Examples
 //!
 //! ```rust
-//! extern crate hyper;
-//! extern crate serde;
-//! #[macro_use]
-//! extern crate serde_derive;
-//! extern crate spirit;
-//! extern crate spirit_hyper;
-//! extern crate spirit_tokio;
-//!
 //! use hyper::{Body, Request, Response};
 //! use hyper::server::Builder;
 //! use hyper::service::service_fn_ok;
+//! use serde::Deserialize;
 //! use spirit::{Empty, Pipeline, Spirit};
 //! use spirit::prelude::*;
 //! use spirit_hyper::{BuildServer, HttpServer};
@@ -80,11 +73,11 @@
 //! [Spirit]: https://crates.io/crates/spirit.
 //! [`spirit-tokio`]: spirit_tokio
 
-use std::error::Error as EError;
+use std::error::Error;
 use std::fmt::Debug;
 use std::io::Error as IoError;
 
-use failure::{Error, Fail};
+use err_context::prelude::*;
 use futures::sync::oneshot::{self, Receiver, Sender};
 use futures::{Async, Future, Poll, Stream};
 use hyper::body::Payload;
@@ -95,6 +88,7 @@ use log::debug;
 use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable, Transformation};
+use spirit::AnyError;
 use spirit::Empty;
 use spirit_tokio::installer::FutureInstaller;
 use spirit_tokio::net::limits::WithLimits;
@@ -227,14 +221,14 @@ where
     type Installer = ();
     type Seed = Transport::Seed;
     type Resource = Builder<<<Transport as Fragment>::Resource as IntoIncoming>::Incoming>;
-    fn make_seed(&self, name: &'static str) -> Result<Self::Seed, Error> {
+    fn make_seed(&self, name: &'static str) -> Result<Self::Seed, AnyError> {
         self.transport.make_seed(name)
     }
     fn make_resource(
         &self,
         seed: &mut Self::Seed,
         name: &'static str,
-    ) -> Result<Self::Resource, Error> {
+    ) -> Result<Self::Resource, AnyError> {
         debug!("Creating HTTP server {}", name);
         let (h1_only, h2_only) = match self.inner.http_mode {
             HttpMode::Both => (false, false),
@@ -286,9 +280,9 @@ where
     Transport: Stream<Error = IoError> + Send + Sync + 'static,
     Transport::Item: AsyncRead + AsyncWrite + Send + Sync,
     MS: MakeServiceRef<Transport::Item, ReqBody = Body, ResBody = B> + Send + 'static,
-    MS::Error: Into<Box<dyn EError + Send + Sync>>,
+    MS::Error: Into<Box<dyn Error + Send + Sync>>,
     MS::Future: Send + 'static,
-    <MS::Future as Future>::Error: EError + Send + Sync,
+    <MS::Future as Future>::Error: Error + Send + Sync,
     MS::Service: Send + 'static,
     <MS::Service as Service>::Future: Send,
     B: Payload,
@@ -345,7 +339,7 @@ where
         builder: Builder<Incoming>,
         cfg: &HyperServer<Transport>,
         name: &'static str,
-    ) -> Result<Self::OutputResource, Error> {
+    ) -> Result<Self::OutputResource, AnyError> {
         let (sender, receiver) = oneshot::channel();
         let server = self.0(builder, cfg, name);
         Ok(Activate {

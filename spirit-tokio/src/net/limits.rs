@@ -20,7 +20,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use failure::Error;
 use futures::task::AtomicTask;
 use futures::{Async, Poll, Stream};
 use serde::de::DeserializeOwned;
@@ -29,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use spirit::extension::Extensible;
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};
+use spirit::AnyError;
 #[cfg(feature = "cfg-help")]
 use structdoc::StructDoc;
 use structopt::StructOpt;
@@ -107,14 +107,14 @@ where
     type Seed = Listener::Seed;
     type Resource = LimitedListener<Listener::Resource>;
     const RUN_BEFORE_CONFIG: bool = Listener::RUN_BEFORE_CONFIG;
-    fn make_seed(&self, name: &'static str) -> Result<Self::Seed, Error> {
+    fn make_seed(&self, name: &'static str) -> Result<Self::Seed, AnyError> {
         self.listener.make_seed(name)
     }
     fn make_resource(
         &self,
         seed: &mut Self::Seed,
         name: &'static str,
-    ) -> Result<Self::Resource, Error> {
+    ) -> Result<Self::Resource, AnyError> {
         let inner = self.listener.make_resource(seed, name)?;
         Ok(LimitedListener {
             inner,
@@ -122,7 +122,7 @@ where
             max_conn: self.limits.max_conn(),
         })
     }
-    fn init<B: Extensible<Ok = B>>(builder: B, name: &'static str) -> Result<B, Error>
+    fn init<B: Extensible<Ok = B>>(builder: B, name: &'static str) -> Result<B, AnyError>
     where
         B::Config: DeserializeOwned + Send + Sync + 'static,
         B::Opts: StructOpt + Send + Sync + 'static,

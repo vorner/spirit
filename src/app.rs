@@ -8,14 +8,14 @@
 use std::process;
 use std::sync::Arc;
 
-use failure::Error;
 use log::debug;
 use serde::de::DeserializeOwned;
 use structopt::StructOpt;
 
 use crate::bodies::{InnerBody, WrapBody};
+use crate::error;
 use crate::spirit::Spirit;
-use crate::utils;
+use crate::AnyError;
 
 /// The running application part.
 ///
@@ -34,10 +34,10 @@ use crate::utils;
 /// # Examples
 ///
 /// ```rust
-/// use spirit::{Empty, Spirit};
+/// use spirit::{AnyError, Empty, Spirit};
 /// use spirit::prelude::*;
 ///
-/// # fn main() -> Result<(), failure::Error> {
+/// # fn main() -> Result<(), AnyError> {
 /// Spirit::<Empty, Empty>::new()
 ///     .build(true)?
 ///     .run_term(|| {
@@ -93,9 +93,9 @@ where
     /// application itself.
     ///
     /// Any errors are simply returned and it is up to the caller to handle them somehow.
-    pub fn run<B>(self, body: B) -> Result<(), Error>
+    pub fn run<B>(self, body: B) -> Result<(), AnyError>
     where
-        B: FnOnce() -> Result<(), Error> + Send + 'static,
+        B: FnOnce() -> Result<(), AnyError> + Send + 'static,
     {
         debug!("Running bodies");
         let inner = self.inner;
@@ -114,9 +114,9 @@ where
     /// application terminates with non-zero exit code.
     pub fn run_term<B>(self, body: B)
     where
-        B: FnOnce() -> Result<(), Error> + Send + 'static,
+        B: FnOnce() -> Result<(), AnyError> + Send + 'static,
     {
-        if utils::log_errors("top-level", || self.run(body)).is_err() {
+        if error::log_errors("top-level", || self.run(body)).is_err() {
             process::exit(1);
         }
     }

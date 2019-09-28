@@ -1,17 +1,10 @@
-extern crate env_logger;
-extern crate hyper;
-#[macro_use]
-extern crate serde_derive;
-extern crate spirit;
-extern crate spirit_hyper;
-extern crate spirit_tokio;
-
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use hyper::server::Builder;
 use hyper::service::service_fn_ok;
 use hyper::{Body, Request, Response};
+use serde::Deserialize;
 use spirit::prelude::*;
 use spirit::{Empty, Pipeline, Spirit};
 use spirit_hyper::{BuildServer, HttpServer};

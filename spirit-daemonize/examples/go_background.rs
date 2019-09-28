@@ -1,17 +1,11 @@
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate spirit;
-extern crate spirit_daemonize;
-#[macro_use]
-extern crate structopt;
-
 use std::thread;
 use std::time::Duration;
 
+use serde::Deserialize;
 use spirit::prelude::*;
 use spirit::Spirit;
 use spirit_daemonize::{Daemon, Opts as DaemonOpts};
+use structopt::StructOpt;
 
 #[derive(Clone, Debug, StructOpt)]
 struct Opts {

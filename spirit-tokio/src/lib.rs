@@ -51,9 +51,8 @@
 //! ```rust
 //! use std::sync::Arc;
 //!
-//! use failure::Error;
 //! use serde::Deserialize;
-//! use spirit::{Empty, Pipeline, Spirit};
+//! use spirit::{AnyError, Empty, Pipeline, Spirit};
 //! use spirit::prelude::*;
 //! use spirit_tokio::{HandleListener, TcpListenWithLimits};
 //! use tokio::prelude::*;
@@ -76,10 +75,10 @@
 //!     }
 //! }
 //!
-//! fn connection<C: AsyncRead + AsyncWrite>(conn: C) -> impl Future<Item = (), Error = Error> {
+//! fn connection<C: AsyncRead + AsyncWrite>(conn: C) -> impl Future<Item = (), Error = AnyError> {
 //!     tokio::io::write_all(conn, "Hello\n")
 //!         .map(|_| ())
-//!         .map_err(Error::from)
+//!         .map_err(AnyError::from)
 //! }
 //!
 //! fn main() {
