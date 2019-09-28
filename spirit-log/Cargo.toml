@@ -35,7 +35,7 @@ failure = "~0.1"
 fern = { version = "~0.5.7", default-features = false }
 itertools = "~0.8"
 log = "~0.4"
-log-panics = "~2"
+log-panics = { version = "~2", default-features = false }
 log-reroute = "~0.1.2"
 serde = { version = "~1", features = ["derive"] }
 serde_json = "~1"
