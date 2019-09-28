@@ -10,6 +10,7 @@ use std::thread;
 use std::time::Duration;
 
 use spirit::prelude::*;
+use spirit::Spirit;
 use spirit_daemonize::{Daemon, Opts as DaemonOpts};
 
 #[derive(Clone, Debug, StructOpt)]

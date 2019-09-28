@@ -16,6 +16,7 @@
 //! ```rust
 //! use dipstick::{stats_all, InputScope};
 //! use serde::Deserialize;
+//! use spirit::{Empty, Pipeline, Spirit};
 //! use spirit::prelude::*;
 //! use spirit_dipstick::{Config as MetricsConfig, Monitor};
 //!

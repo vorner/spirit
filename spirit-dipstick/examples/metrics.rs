@@ -5,6 +5,7 @@ use dipstick::{stats_all, InputScope};
 use log::debug;
 use serde::Deserialize;
 use spirit::prelude::*;
+use spirit::{Empty, Pipeline, Spirit};
 use spirit_dipstick::{Config as MetricsConfig, Monitor};
 
 #[derive(Debug, Default, Deserialize)]

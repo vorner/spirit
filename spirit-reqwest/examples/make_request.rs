@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use spirit::prelude::*;
+use spirit::{Empty, Pipeline, Spirit};
 use spirit_reqwest::{AtomicClient, ReqwestClient};
 
 #[derive(Debug, Default, Deserialize)]

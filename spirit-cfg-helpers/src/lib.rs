@@ -58,6 +58,7 @@ use structopt::StructOpt;
 ///
 /// ```rust
 /// use log::Level;
+/// use spirit::{Empty, Spirit};
 /// use spirit::prelude::*;
 ///
 /// fn main() {
@@ -164,6 +165,7 @@ impl FromStr for DumpFormat {
 ///
 /// ```rust
 /// use serde_derive::{Deserialize, Serialize};
+/// use spirit::Spirit;
 /// use spirit::prelude::*;
 /// use spirit_cfg_helpers::CfgDump;
 /// use structopt::StructOpt;
@@ -286,6 +288,7 @@ mod cfg_help {
     ///
     /// ```rust
     /// use serde_derive::Deserialize;
+    /// use spirit::Spirit;
     /// use spirit::prelude::*;
     /// use spirit_cfg_helpers::CfgHelp;
     /// use structdoc::StructDoc;
@@ -447,6 +450,7 @@ pub use crate::cfg_help::{CfgHelp, Opts};
 /// ```rust
 /// use arc_swap::ArcSwap;
 /// use once_cell::sync::Lazy;
+/// use spirit::{Empty, Spirit};
 /// use spirit::prelude::*;
 ///
 /// static CFG: Lazy<ArcSwap<Empty>> = Lazy::new(Default::default);

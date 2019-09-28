@@ -14,6 +14,7 @@
 /// # Examples
 ///
 /// ```rust
+/// use spirit::{Empty, Spirit};
 /// use spirit::prelude::*;
 /// use spirit::validation::Action;
 /// # fn create_something<T>(_cfg: T) -> Result<Empty, failure::Error> { Ok(Empty {}) }
@@ -30,6 +31,7 @@
 ///
 /// ```rust
 /// use failure::ensure;
+/// use spirit::{Empty, Spirit};
 /// use spirit::prelude::*;
 /// use spirit::validation::Action;
 /// # fn looks_good<T>(_cfg: T) -> bool { true }

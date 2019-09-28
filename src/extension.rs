@@ -101,6 +101,7 @@ pub enum Autojoin {
 /// # Examples
 ///
 /// ```rust
+/// use spirit::{Empty, Spirit};
 /// use spirit::prelude::*;
 ///
 /// // This creates a Builder
@@ -303,6 +304,7 @@ pub trait Extensible: Sized {
     /// # Examples
     ///
     /// ```
+    /// # use spirit::{Empty, Spirit};
     /// # use spirit::prelude::*;
     /// Spirit::<Empty, Empty>::new()
     ///     .run_before(|_spirit| {
@@ -341,6 +343,7 @@ pub trait Extensible: Sized {
     /// # Examples
     ///
     /// ```rust
+    /// # use spirit::{Empty, Spirit};
     /// # use spirit::prelude::*;
     /// Spirit::<Empty, Empty>::new()
     ///     .run_around(|_spirit, inner| {
@@ -383,6 +386,7 @@ pub trait Extensible: Sized {
     /// # Examples
     ///
     /// ```rust
+    /// use spirit::{Empty, Spirit};
     /// use spirit::prelude::*;
     ///
     /// let mut builder = Spirit::<Empty, Empty>::new();
@@ -559,7 +563,8 @@ where
 ///
 /// ```rust
 /// use failure::Error;
-/// use spirit::extension::Extension;
+/// use spirit::{Empty, Spirit};
+/// use spirit::extension::{Extension, Extensible};
 /// use spirit::prelude::*;
 ///
 /// struct CfgPrint;
@@ -579,6 +584,7 @@ where
 /// ```
 ///
 /// ```rust
+/// use spirit::{Empty, Extensible, Spirit};
 /// use spirit::prelude::*;
 ///
 /// fn cfg_print<E: Extensible<Ok = E>>(ext: E) -> E {
@@ -631,6 +637,7 @@ where
 ///
 /// ```
 /// use serde::Deserialize;
+/// use spirit::{Empty, Spirit};
 /// use spirit::prelude::*;
 /// use spirit::extension;
 ///
@@ -690,6 +697,7 @@ where
 ///
 /// ```
 /// use serde::Deserialize;
+/// use spirit::{Empty, Spirit};
 /// use spirit::prelude::*;
 /// use spirit::extension;
 ///

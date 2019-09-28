@@ -389,7 +389,7 @@ mod tests {
     // tests
     use corona::coroutine::CleanupStrategy;
     use corona::prelude::*;
-    use spirit::prelude::*;
+    use spirit::Empty;
     use tokio::clock;
     use tokio::net::TcpStream;
     use tokio::prelude::FutureExt;

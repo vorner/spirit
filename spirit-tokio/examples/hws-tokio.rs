@@ -27,6 +27,7 @@ use std::sync::Arc;
 
 use failure::Error;
 use spirit::prelude::*;
+use spirit::{Empty, Pipeline, Spirit};
 use spirit_tokio::net::limits::LimitedConn;
 use spirit_tokio::runtime::ThreadPoolConfig;
 use spirit_tokio::{HandleListener, TcpListenWithLimits};

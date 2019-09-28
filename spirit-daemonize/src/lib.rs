@@ -21,6 +21,7 @@
 //! #[macro_use]
 //! extern crate structopt;
 //!
+//! use spirit::Spirit;
 //! use spirit::prelude::*;
 //! use spirit_daemonize::{Daemon, Opts as DaemonOpts};
 //!

@@ -214,6 +214,7 @@
 //!
 //! use log::{debug, info};
 //! use serde::Deserialize;
+//! use spirit::Spirit;
 //! use spirit::prelude::*;
 //! use spirit::validation::Action;
 //! use spirit_log::{Cfg as LogCfg, CfgAndOpts as Logging, Opts as LogOpts};
@@ -303,6 +304,7 @@
 //!
 //! use log::{debug, info};
 //! use serde::{Serialize, Deserialize};
+//! use spirit::{Pipeline, Spirit};
 //! use spirit::prelude::*;
 //! use spirit_cfg_helpers::Opts as CfgOpts;
 //! use spirit_daemonize::{Daemon, Opts as DaemonOpts};
@@ -442,11 +444,12 @@ pub use crate::spirit::{Builder, Spirit, SpiritBuilder};
 
 /// The prelude.
 ///
-/// To use the spirit libraries effectively, a lot of traits and types need to be imported. Instead
+/// To use the spirit libraries effectively, a lot of traits need to be imported. Instead
 /// of importing them one by one manually, the [`prelude`][crate::prelude] contains the most
-/// commonly used imports that are used around application runtime management.
+/// commonly used imports that are used around application runtime management. This imports only
+/// traits and only in anonymous mode (eg. `pub use spirit::SpiritBuilder as _`).
 ///
 /// This can be imported as `use spirit::prelude::*`.
 pub mod prelude {
-    pub use super::{ConfigBuilder, Empty, Extensible, Fragment, Pipeline, Spirit, SpiritBuilder};
+    pub use super::{ConfigBuilder as _, Extensible as _, Fragment as _, SpiritBuilder as _};
 }

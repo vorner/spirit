@@ -114,6 +114,7 @@
 //! ```rust
 //! use log::info;
 //! use serde::Deserialize;
+//! use spirit::{Pipeline, Spirit};
 //! use spirit::prelude::*;
 //! use spirit_log::{Cfg as LogCfg, CfgAndOpts as LogBoth, Opts as LogOpts};
 //! use structopt::StructOpt;

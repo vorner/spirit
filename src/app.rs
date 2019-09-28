@@ -34,6 +34,7 @@ use crate::utils;
 /// # Examples
 ///
 /// ```rust
+/// use spirit::{Empty, Spirit};
 /// use spirit::prelude::*;
 ///
 /// # fn main() -> Result<(), failure::Error> {

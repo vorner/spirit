@@ -12,6 +12,7 @@ mod everything {
     use log::info;
     use serde::Deserialize;
     use spirit::prelude::*;
+    use spirit::{Pipeline, Spirit};
     use spirit_log::{
         Background, Cfg as LogCfg, CfgAndOpts as LogBoth, FlushGuard, Opts as LogOpts, OverflowMode,
     };

@@ -95,6 +95,7 @@ impl<O, C> Default for Hooks<O, C> {
 /// # Examples
 ///
 /// ```rust
+/// use spirit::{Empty, Spirit};
 /// use spirit::prelude::*;
 ///
 /// Spirit::<Empty, Empty>::new()
@@ -174,6 +175,7 @@ where
     /// # Examples
     ///
     /// ```rust
+    /// use spirit::{Empty, Spirit};
     /// use spirit::prelude::*;
     ///
     /// let app = Spirit::<Empty, Empty>::new()
@@ -296,6 +298,7 @@ where
     /// use std::thread;
     /// use std::time::Duration;
     ///
+    /// use spirit::{Empty, Spirit};
     /// use spirit::prelude::*;
     ///
     /// let app = Spirit::<Empty, Empty>::new()
@@ -825,7 +828,9 @@ impl<O, C> Extensible for Builder<O, C> {
 /// # Examples
 ///
 /// ```rust
+/// use spirit::{Empty, Spirit};
 /// use spirit::prelude::*;
+///
 /// // This returns Builder
 /// Spirit::<Empty, Empty>::new()
 ///     // This method returns Result<Builder, Error>, but we don't handle the possible error with
@@ -880,6 +885,7 @@ pub trait SpiritBuilder: ConfigBuilder + Extensible {
     /// use std::thread;
     /// use std::time::Duration;
     ///
+    /// use spirit::{Empty, Spirit};
     /// use spirit::prelude::*;
     ///
     /// Spirit::<Empty, Empty>::new()

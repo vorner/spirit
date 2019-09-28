@@ -35,6 +35,7 @@
 //! In such case, the runtime needs to be plugged in manually as part of the setup, like this:
 //!
 //! ```rust
+//! # use spirit::{Empty, Spirit};
 //! # use spirit::prelude::*;
 //! # use spirit_tokio::runtime::Runtime;
 //! Spirit::<Empty, Empty>::new()
@@ -52,6 +53,7 @@
 //!
 //! use failure::Error;
 //! use serde::Deserialize;
+//! use spirit::{Empty, Pipeline, Spirit};
 //! use spirit::prelude::*;
 //! use spirit_tokio::{HandleListener, TcpListenWithLimits};
 //! use tokio::prelude::*;

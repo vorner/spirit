@@ -23,6 +23,7 @@ use once_cell::sync::Lazy;
 use serde::Deserialize;
 use spirit::extension;
 use spirit::prelude::*;
+use spirit::{Empty, Spirit};
 
 // In this part, we define how our configuration looks like. Just like with the `config` crate
 // (which is actually used internally), the configuration is loaded using the serde's Deserialize.
@@ -112,7 +113,7 @@ fn start_threads() -> Result<(), Error> {
 
 fn main() -> Result<(), Error> {
     let (term_send, term_recv) = mpsc::channel();
-    let _spirit = Spirit::<spirit::Empty, Config>::new()
+    let _spirit = Spirit::<Empty, Config>::new()
         // Keep the current config accessible through a global variable
         .with(spirit_cfg_helpers::cfg_store(&*CONFIG))
         // Set the default config values. This is very similar to passing the first file on command

@@ -19,6 +19,7 @@
 //!
 //! ```rust
 //! use serde::Deserialize;
+//! use spirit::{Empty, Pipeline, Spirit};
 //! use spirit::prelude::*;
 //! use spirit_reqwest::{AtomicClient, ReqwestClient};
 //!

@@ -29,6 +29,7 @@
 //! use hyper::{Body, Request, Response};
 //! use hyper::server::Builder;
 //! use hyper::service::service_fn_ok;
+//! use spirit::{Empty, Pipeline, Spirit};
 //! use spirit::prelude::*;
 //! use spirit_hyper::{BuildServer, HttpServer};
 //!

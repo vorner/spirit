@@ -380,6 +380,7 @@ impl Drop for AsyncLogger {
 /// ```rust
 /// use log::info;
 /// use serde::Deserialize;
+/// use spirit::{Empty, Pipeline, Spirit};
 /// use spirit::prelude::*;
 /// use spirit_log::{Background, Cfg as LogCfg, FlushGuard, OverflowMode};
 ///
@@ -467,6 +468,7 @@ impl<I, F> Transformation<Dispatch, I, F> for Background {
 ///
 /// ```rust
 /// # use log::info;
+/// # use spirit::{Empty, Spirit};
 /// # use spirit::prelude::*;
 /// # use spirit_log::FlushGuard;
 /// Spirit::<Empty, Empty>::new()

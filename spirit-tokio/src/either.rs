@@ -88,6 +88,7 @@ use crate::net::IntoIncoming;
 /// use std::sync::Arc;
 ///
 /// use failure::Error;
+/// use spirit::{Empty, Pipeline, Spirit};
 /// use spirit::prelude::*;
 /// #[cfg(unix)]
 /// use spirit_tokio::either::Either;

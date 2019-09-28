@@ -65,6 +65,7 @@ pub type TokioBody = Box<dyn Future<Item = (), Error = Error> + Send>;
 /// use std::sync::Arc;
 ///
 /// use failure::Error;
+/// use spirit::{Empty, Pipeline, Spirit};
 /// use spirit::prelude::*;
 /// use spirit_tokio::{HandleListener, TcpListen};
 /// use spirit_tokio::runtime::Runtime;
@@ -207,6 +208,7 @@ where
 ///
 /// ```rust
 /// use serde::Deserialize;
+/// use spirit::{Empty, Spirit};
 /// use spirit::prelude::*;
 /// use spirit_tokio::runtime::ThreadPoolConfig;
 ///

@@ -17,6 +17,7 @@ use hyper::{Body, Request, Response};
 use log::{debug, trace};
 use serde::{Deserialize, Serialize};
 use spirit::prelude::*;
+use spirit::{Pipeline, Spirit};
 use spirit_cfg_helpers::Opts as CfgOpts;
 use spirit_daemonize::{Daemon, Opts as DaemonOpts};
 use spirit_hyper::{BuildServer, HyperServer};
