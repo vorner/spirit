@@ -784,7 +784,7 @@ impl<O, C> Extensible for Builder<O, C> {
     where
         B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), AnyError> + Send + 'static,
     {
-        self.before_bodies.push(Box::new(Some(body)));
+        self.before_bodies.push(Box::new(body));
         Ok(self)
     }
 
@@ -792,8 +792,7 @@ impl<O, C> Extensible for Builder<O, C> {
     where
         W: FnOnce(&Arc<Spirit<O, C>>, InnerBody) -> Result<(), AnyError> + Send + 'static,
     {
-        let wrapper = move |(spirit, inner): (&_, _)| wrapper(spirit, inner);
-        self.body_wrappers.push(Box::new(Some(wrapper)));
+        self.body_wrappers.push(Box::new(wrapper));
         Ok(self)
     }
 
@@ -999,21 +998,21 @@ where
         );
         let spirit_body = Arc::clone(&spirit);
         let bodies = self.before_bodies;
-        let inner = move |()| {
-            for mut body in bodies {
-                body.run(&spirit_body)?;
+        let inner = move || {
+            for body in bodies {
+                body(&spirit_body)?;
             }
             Ok(())
         };
         let body_wrappers = self.body_wrappers;
-        let inner = InnerBody(Box::new(Some(inner)));
+        let inner = Box::new(inner);
         let spirit_body = Arc::clone(&spirit);
-        let mut wrapped = WrapBody(Box::new(Some(InnerBody::run)));
-        for mut wrapper in body_wrappers.into_iter().rev() {
+        let mut wrapped = Box::new(|inner: InnerBody| inner()) as WrapBody;
+        for wrapper in body_wrappers.into_iter().rev() {
             // TODO: Can we get rid of this clone?
             let spirit = Arc::clone(&spirit_body);
-            let applied = move |inner: InnerBody| wrapper.run((&spirit, inner));
-            wrapped = WrapBody(Box::new(Some(applied)));
+            let applied = move |inner: InnerBody| wrapper(&spirit, inner);
+            wrapped = Box::new(applied) as WrapBody;
         }
         Ok(App::new(spirit, inner, wrapped))
     }

@@ -8,7 +8,6 @@ use futures::future::{self, Future};
 use log::{trace, warn};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use spirit::bodies::InnerBody;
 use spirit::extension::{Extensible, Extension};
 use spirit::AnyError;
 use spirit::{Builder, Spirit};
@@ -139,6 +138,8 @@ impl Default for Runtime {
     }
 }
 
+type InnerBody = Box<dyn FnOnce() -> Result<(), AnyError> + Send>;
+
 impl Runtime {
     fn execute<O, C>(self, spirit: &Arc<Spirit<O, C>>, inner: InnerBody) -> Result<(), AnyError>
     where
@@ -147,7 +148,7 @@ impl Runtime {
     {
         let spirit = Arc::clone(spirit);
         let fut = future::lazy(move || {
-            inner.run().map_err(move |e| {
+            inner().map_err(move |e| {
                 spirit.terminate();
                 e
             })

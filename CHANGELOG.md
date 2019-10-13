@@ -1,11 +1,12 @@
 
 Log:
 * Make the syslog support non-default feature.
-* Flatten inside, not outside ‒ the caller needs #[serde(default,
-  skip_serializing_if)] instead of #[serde(flatten)]. But the caller can choose
-  the name.
+* Flatten inside, not outside ‒ the caller needs `#[serde(default,
+  skip_serializing_if)]` instead of `#[serde(flatten)]`. But the caller can
+  choose the name.
 
 Root:
+* Get rid of the `Body` hack, `Box<dyn FnOnce()>` now works.
 * Abandoning failure, using boxed standard errors (with chaining).
 * Removing dependencies and making a lot of things optional, to cut down on the
   dependency graph size.

@@ -463,7 +463,7 @@
 //! [`err-derive`]: https://crates.io/crates/err-derive
 
 pub mod app;
-pub mod bodies;
+mod bodies;
 pub mod cfg_loader;
 mod empty;
 pub mod error;

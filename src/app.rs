@@ -99,8 +99,8 @@ where
     {
         debug!("Running bodies");
         let inner = self.inner;
-        let inner = move || inner.run().and_then(|()| body());
-        let result = self.wrapper.run(InnerBody(Box::new(Some(|()| inner()))));
+        let inner = move || inner().and_then(|()| body());
+        let result = (self.wrapper)(Box::new(inner));
         if result.is_err() {
             self.spirit.terminate();
         }

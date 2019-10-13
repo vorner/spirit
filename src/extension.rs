@@ -321,9 +321,6 @@ pub trait Extensible: Sized {
 
     /// Wrap the body run by the [`run`][crate::SpiritBuilder::run] into this closure.
     ///
-    /// The inner body is passed as an object with a [`run`][crate::bodies::InnerBody]
-    /// method, not as a closure, due to a limitation around boxed `FnOnce`.
-    ///
     /// It is expected the wrapper executes the inner body as part of itself and propagates any
     /// returned error.
     ///
@@ -348,7 +345,7 @@ pub trait Extensible: Sized {
     /// Spirit::<Empty, Empty>::new()
     ///     .run_around(|_spirit, inner| {
     ///         println!("Run first");
-    ///         inner.run()?;
+    ///         inner()?;
     ///         println!("Run third");
     ///         Ok(())
     ///     }).run(|_spirit| {
