@@ -1,6 +1,6 @@
 [package]
 name = "spirit"
-version = "0.3.8"
+version = "0.4.0"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Helper to create well behaved daemons with runtime-reconfiguration support"
 documentation = "https://docs.rs/spirit"
@@ -34,17 +34,17 @@ maintenance = { status = "actively-developed" }
 
 [features]
 default = ["cfg-help", "json", "yaml", "suggestions", "color"]
-ini = ["config/ini"]
-json = ["config/json"]
-hjson = ["config/hjson"]
-yaml = ["config/yaml"]
+ini = ["config-spirit-fork/ini"]
+json = ["config-spirit-fork/json"]
+hjson = ["config-spirit-fork/hjson"]
+yaml = ["config-spirit-fork/yaml"]
 cfg-help = ["structdoc"]
 suggestions = ["structopt/suggestions"]
 color = ["structopt/color"]
 
 [dependencies]
 arc-swap = "~0.4"
-config = { version = "~0.9", default-features = false, features = ["toml"], git = "https://github.com/vorner/config-rs", branch = "spirit" }
+config-spirit-fork = { version = "~0.1", default-features = false, features = ["toml"] }
 either = "~1"
 err-context = "~0.1"
 fallible-iterator = "~0.2"
@@ -64,11 +64,11 @@ hyper = "~0.12"
 once_cell = "~1"
 maplit = "~1"
 serde-humantime = "~0.1"
-spirit-cfg-helpers = { version = "~0.2", path = "spirit-cfg-helpers" }
-spirit-daemonize = { version = "~0.2", path = "spirit-daemonize" }
-spirit-hyper = { version = "~0.5", path = "spirit-hyper" }
-spirit-log = { version = "~0.2", path = "spirit-log" }
-spirit-tokio = { version = "~0.5", path = "spirit-tokio" }
+spirit-cfg-helpers = { version = "~0.3", path = "spirit-cfg-helpers" }
+spirit-daemonize = { version = "~0.3", path = "spirit-daemonize" }
+spirit-hyper = { version = "~0.6", path = "spirit-hyper" }
+spirit-log = { version = "~0.3", path = "spirit-log" }
+spirit-tokio = { version = "~0.6", path = "spirit-tokio" }
 structdoc = "~0.1.3"
 version-sync = "~0.8"
 

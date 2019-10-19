@@ -1,12 +1,14 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-cfg-helpers/0.2.0/spirit_cfg_helpers/",
+    html_root_url = "https://docs.rs/spirit-cfg-helpers/0.3.0/spirit_cfg_helpers/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
-// Because of https://github.com/TeXitoi/structopt/issues/262
-// TODO: Remove once structopt 0.3.3 is out.
-#![allow(unknown_lints, clippy::let_and_return)]
+#![allow(
+    unknown_lints,
+    clippy::unknown_clippy_lints,
+    clippy::needless_doctest_main
+)]
 
 //! Spirit configuration helpers
 //!

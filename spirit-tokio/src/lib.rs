@@ -1,9 +1,14 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-tokio/0.5.2/spirit_tokio/",
+    html_root_url = "https://docs.rs/spirit-tokio/0.6.0/spirit_tokio/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+#![allow(
+    unknown_lints,
+    clippy::unknown_clippy_lints,
+    clippy::needless_doctest_main
+)]
 
 //! A collection of [`Fragment`]s and [`Extension`]s integrating tokio primitives into [spirit].
 //!

@@ -1,3 +1,5 @@
+# 0.4.0
+# + Bump of everything else
 
 Log:
 * Make the syslog support non-default feature.

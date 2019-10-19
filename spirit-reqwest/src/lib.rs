@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-reqwest/0.2.2/spirit_reqwest/",
+    html_root_url = "https://docs.rs/spirit-reqwest/0.3.0/spirit_reqwest/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]

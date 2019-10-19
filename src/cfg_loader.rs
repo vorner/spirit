@@ -48,7 +48,7 @@ use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::path::{Path, PathBuf};
 
-use config::{Config, Environment, File, FileFormat};
+use config_spirit_fork::{Config, Environment, File, FileFormat};
 use err_context::prelude::*;
 use fallible_iterator::FallibleIterator;
 use log::{debug, trace, warn};

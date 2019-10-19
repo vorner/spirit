@@ -1,8 +1,13 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit/0.3.8/spirit/",
+    html_root_url = "https://docs.rs/spirit/0.4.0/spirit/",
     test(attr(deny(warnings)))
 )]
-#![allow(clippy::type_complexity)]
+#![allow(
+    unknown_lints,
+    clippy::unknown_clippy_lints,
+    clippy::type_complexity,
+    clippy::needless_doctest_main
+)]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
