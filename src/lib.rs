@@ -82,6 +82,9 @@
 //! It should be, however, possible to port to the combination of [`err-context`] and
 //! [`err-derive`] with minimal code changes.
 //!
+//! For further details about migration steps needed, have a look at the
+//! [blog post](https://vorner.github.io/2019/10/19/migrate-spirit-to-0-4.html).
+//!
 //! # Choose your amount of magic
 //!
 //! Sometimes, you need tight control over what happens and when. Sometimes, you just want all the
