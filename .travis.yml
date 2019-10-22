@@ -9,18 +9,42 @@ os:
     - osx
 
 before_script:
+    - set -e
+    - export PATH="~/.cargo/bin:$PATH"
     - |
       (travis_wait rustup component add rustfmt-preview || true) &&
       (travis_wait rustup component add clippy-preview || true)
+      # install mdbook for the user guide
+    - command -v mdbook || cargo install --debug mdbook
 
 script:
-    - |
-      export PATH="$PATH":~/.cargo/bin &&
-      export RUST_BACKTRACE=1 &&
-      cargo build &&
-      cargo test --all &&
-      cargo test --release --all --all-features &&
-      cargo doc --no-deps --all &&
-      (test "$TRAVIS_RUST_VERSION" != nightly || cargo test --release --benches --all) &&
-      (test "$TRAVIS_RUST_VERSION" == nightly || cargo clippy --all -- --deny clippy::all) &&
-      (test "$TRAVIS_RUST_VERSION" == nightly || cargo fmt --all -- --check)
+    - export PATH="$PATH":~/.cargo/bin
+    - export RUST_BACKTRACE=1
+    - cargo build
+    - cargo test --all
+    - cargo test --release --all --all-features
+    # FIXME: enable docs on all channels after https://github.com/rust-lang/rust/issues/65840
+    - (test "$TRAVIS_RUST_VERSION" == nightly || cargo doc --all)
+    # Benchmarks can only be run on nightly
+    - (test "$TRAVIS_RUST_VERSION" != nightly || cargo test --release --benches --all)
+    - (test "$TRAVIS_RUST_VERSION" == nightly || cargo clippy --all -- --deny clippy::all)
+    - (test "$TRAVIS_RUST_VERSION" == nightly || cargo fmt --all -- --check)
+
+before_deploy:
+    - mdbook build user-guide
+    - mkdir public
+    - cp -r target/doc public/doc
+    - cp -r target/user-guide public/user-guide
+    - echo '<head><meta http-equiv="refresh" content="0; URL=user-guide/index.html"/></head>' > public/index.html
+
+deploy:
+  - provider: pages
+    skip-cleanup: true
+    github-token: "$GITHUB_TOKEN"
+    keep-history: false
+    local-dir: public
+    on:
+      branch: master
+      rust: stable
+      os: linux
+
