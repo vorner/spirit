@@ -4,7 +4,12 @@
 
 (**[API Docs for master][docs]/[User Guide][user-guide]**)
 
-A helper to make creating and configuring unix daemons easier.
+Spirit aims to help with combining configuration and command line parsing,
+reloading it at runtime and provides various ready-made helpers for common parts
+of configuration like logging.
+
+In other words, it cuts down on glue code between many different libraries and
+makes writing unix daemons easier.
 
 ## License
 

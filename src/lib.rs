@@ -23,6 +23,8 @@
 //! the aim is to provide reusable building blocks to get the boring stuff done as fast as minimal
 //! fuss as possible.
 //!
+//! There's also [user guide](https://vorner.github.io/spirit/user-guide/overview.html).
+//!
 //! # Foreword
 //!
 //! Before using this crate (or, family of crates), you should know few things:
