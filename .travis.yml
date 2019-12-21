@@ -23,8 +23,7 @@ script:
     - cargo build
     - cargo test --all
     - cargo test --release --all --all-features
-    # FIXME: enable docs on all channels after https://github.com/rust-lang/rust/issues/65840
-    - (test "$TRAVIS_RUST_VERSION" == nightly || cargo doc --all)
+    - cargo doc --all
     # Benchmarks can only be run on nightly
     - (test "$TRAVIS_RUST_VERSION" != nightly || cargo test --release --benches --all)
     - (test "$TRAVIS_RUST_VERSION" == nightly || cargo clippy --all -- --deny clippy::all)
@@ -45,6 +44,6 @@ deploy:
     local-dir: public
     on:
       branch: master
-      rust: stable
+      rust: nightly
       os: linux
 
