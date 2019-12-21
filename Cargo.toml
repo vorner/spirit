@@ -34,17 +34,17 @@ maintenance = { status = "actively-developed" }
 
 [features]
 default = ["cfg-help", "json", "yaml", "suggestions", "color"]
-ini = ["config-spirit-fork/ini"]
-json = ["config-spirit-fork/json"]
-hjson = ["config-spirit-fork/hjson"]
-yaml = ["config-spirit-fork/yaml"]
+ini = ["config/ini"]
+json = ["config/json"]
+hjson = ["config/hjson"]
+yaml = ["config/yaml"]
 cfg-help = ["structdoc"]
 suggestions = ["structopt/suggestions"]
 color = ["structopt/color"]
 
 [dependencies]
 arc-swap = "~0.4"
-config-spirit-fork = { version = "~0.1", default-features = false, features = ["toml"] }
+config = { version = "~0.10.1", default-features = false, features = ["toml"] }
 either = "~1"
 err-context = "~0.1"
 fallible-iterator = "~0.2"
