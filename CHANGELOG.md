@@ -1,3 +1,9 @@
+# 0.4.1
+
+Root:
+* Start the work on the guide level documentation.
+* Go back to depending on vanilla `config` instead of private fork.
+
 # 0.4.0
 # + Bump of everything else
 
