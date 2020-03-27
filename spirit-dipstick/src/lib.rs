@@ -136,7 +136,7 @@ pub struct Backends {
 
 fn app_name() -> String {
     std::env::args_os()
-        .nth(0)
+        .next()
         .and_then(|p| {
             Path::new(&p)
                 .file_name()

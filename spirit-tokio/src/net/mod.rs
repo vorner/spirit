@@ -24,7 +24,6 @@ use net2::{TcpBuilder, UdpBuilder};
 use serde::de::{Deserializer, Error as DeError, Unexpected};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
-use serde_humantime;
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};
 use spirit::AnyError;

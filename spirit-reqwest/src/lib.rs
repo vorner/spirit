@@ -56,8 +56,7 @@
 //! [`Spirit`]: spirit::Spirit
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Read;
+use std::fs;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -98,9 +97,7 @@ fn default_referer() -> bool {
 }
 
 fn load_cert(path: &Path) -> Result<Certificate, AnyError> {
-    let mut input = File::open(path)?;
-    let mut cert = Vec::new();
-    input.read_to_end(&mut cert)?;
+    let cert = fs::read(path)?;
     const BEGIN_CERT: &[u8] = b"-----BEGIN CERTIFICATE-----";
     let contains_begin_cert = cert.windows(BEGIN_CERT.len()).any(|w| w == BEGIN_CERT);
     let result = if contains_begin_cert {
@@ -114,9 +111,7 @@ fn load_cert(path: &Path) -> Result<Certificate, AnyError> {
 }
 
 fn load_identity(path: &Path, passwd: &str) -> Result<Identity, AnyError> {
-    let mut input = File::open(path)?;
-    let mut identity = Vec::new();
-    input.read_to_end(&mut identity)?;
+    let identity = fs::read(path)?;
     Ok(Identity::from_pkcs12_der(&identity, passwd)?)
 }
 
