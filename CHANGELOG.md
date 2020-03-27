@@ -1,3 +1,7 @@
+# 0.4.2
+
+* Fix build against newer versions of structopt.
+
 # 0.4.1
 
 Root:

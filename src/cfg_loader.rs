@@ -55,7 +55,7 @@ use log::{debug, trace, warn};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use structopt::clap::App;
-use structopt::StructOpt;
+use structopt::{StructOpt, StructOptInternal};
 use toml::Value;
 
 use crate::AnyError;

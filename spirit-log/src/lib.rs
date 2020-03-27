@@ -494,7 +494,8 @@ impl Logger {
         let clock = self.clock;
         let time_format = self.time_format.clone();
         let format = self.format;
-        #[allow(clippy::match_single_binding)] // Clippy gets angry when the to-syslog is disabled
+        // Clippy gets angry when the to-syslog is disabled
+        #[allow(clippy::unknown_clippy_lints, clippy::match_single_binding)]
         match self.destination {
             // We don't want to format syslog
             #[cfg(feature = "to-syslog")]
