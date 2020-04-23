@@ -1,3 +1,7 @@
+# 0.4.3
+
+* Note in readme about looking for contributors.
+
 # 0.4.2
 
 * Fix build against newer versions of structopt.

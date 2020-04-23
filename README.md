@@ -1,5 +1,18 @@
 # Spirit
 
+## Looking for contributors and maintainers
+
+This library is too big project for me do in my spare time and I don't have a
+direct use case for it now. See [this blog post](https://vorner.github.io/2020/03/01/spring-cleanup.html).
+
+If you want this library to thrive, roll up your sleeves and help. Send PRs,
+help reviewing, etc. I'll still be willing fixing serious bugs, doing reviews
+and consulting.
+
+Alternatively, I may accept payment to do some development on it.
+
+## The library
+
 [![Travis Build Status](https://api.travis-ci.org/vorner/spirit.png?branch=master)](https://travis-ci.org/vorner/spirit)
 
 (**[API Docs for master][docs]/[User Guide][user-guide]**)
