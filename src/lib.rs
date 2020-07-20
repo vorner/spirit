@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit/0.4.3/spirit/",
+    html_root_url = "https://docs.rs/spirit/0.4.4/spirit/",
     test(attr(deny(warnings)))
 )]
 #![allow(

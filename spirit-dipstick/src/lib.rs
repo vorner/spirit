@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-dipstick/0.2.0/spirit_dipstick/",
+    html_root_url = "https://docs.rs/spirit-dipstick/0.3.0/spirit_dipstick/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]

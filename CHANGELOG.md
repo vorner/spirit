@@ -1,3 +1,22 @@
+# spirit-log-0.3.1
+
+* `to-syslog` feature renamed to just `syslog`
+* Dependency updates
+
+# spirit-daemonize-0.3.1
+# spirit-dipstick-0.3.0
+# spirit-reqwest-0.3.1
+# spirit-tokio-0.6.1
+# 0.4.4
+
+* Dependency updates.
+  - Get rid of serde-humantime (outdated, unmaintained).
+  - Structopt ‒ allow more versions.
+  - Dipstick on 0.9
+  - Many others
+  - Tokio/futures related deps are still outdated :-(
+* Use proper `#[exhaustive]` where appropriate instead of hidden workarounds.
+
 # 0.4.3
 
 * Note in readme about looking for contributors.
