@@ -1,3 +1,8 @@
+# spirit-log-0.4.0
+
+* Releasing the previous as a breaking version; exposed different version of
+  fern as part of public API.
+
 # spirit-log-0.3.1
 
 * `to-syslog` feature renamed to just `syslog`
