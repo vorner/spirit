@@ -25,14 +25,13 @@ background = ["crossbeam-channel", "either"]
 default = ["with-backtrace", "cfg-help"]
 with-backtrace = ["log-panics/with-backtrace"]
 cfg-help = ["spirit/cfg-help", "structdoc"]
-to-syslog = ["syslog", "fern/syslog-4"]
 
 [dependencies]
-crossbeam-channel = { version = "~0.3", optional = true }
+crossbeam-channel = { version = "~0.4", optional = true }
 chrono = "~0.4"
 either = { version = "~1", optional = true }
-fern = { version = "~0.5.7", default-features = false }
-itertools = "~0.8"
+fern = { version = "~0.6", default-features = false }
+itertools = "~0.9"
 log = "~0.4"
 log-panics = { version = "~2", default-features = false }
 log-reroute = "~0.1.2"
@@ -41,10 +40,10 @@ serde_json = "~1"
 spirit = { version = "~0.4.0", path = "..", default-features = false }
 structdoc = { version = "~0.1", optional = true }
 structopt = { version = "~0.3", default-features = false }
-syslog = { version = "~4", optional = true }
+syslog = { version = "~5", optional = true }
 
 [dev-dependencies]
-version-sync = "~0.8"
+version-sync = "~0.9"
 
 [package.metadata.docs.rs]
 all-features = true

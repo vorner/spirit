@@ -23,7 +23,7 @@
 //!   in a background thread and allows the rest of the application to not block on IO.
 //! * `cfg-help`: Support for configuration options help at runtime. On by default.
 //! * `with-backtrace`: The [`log_panics`] logs with backtraces. On by default.
-//! * `to-syslog`: Adds the support for logging into syslog.
+//! * `syslog`: Adds the support for logging into syslog.
 //!
 //! # Startup
 //!
@@ -269,7 +269,7 @@ enum LogDestination {
     /// Sends the logs to local syslog.
     ///
     /// Note that syslog ignores formatting options.
-    #[cfg(feature = "to-syslog")]
+    #[cfg(feature = "syslog")]
     Syslog {
         /// Overrides the host value in the log messages.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -338,17 +338,17 @@ impl structdoc::StructDoc for LevelFilterSerde {
 
 /// This error can be returned when initialization of logging to syslog fails.
 #[derive(Clone, Debug)]
-#[cfg(feature = "to-syslog")]
+#[cfg(feature = "syslog")]
 pub struct SyslogError(String);
 
-#[cfg(feature = "to-syslog")]
+#[cfg(feature = "syslog")]
 impl std::fmt::Display for SyslogError {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         self.0.fmt(fmt)
     }
 }
 
-#[cfg(feature = "to-syslog")]
+#[cfg(feature = "syslog")]
 impl std::error::Error for SyslogError {}
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -494,11 +494,11 @@ impl Logger {
         let clock = self.clock;
         let time_format = self.time_format.clone();
         let format = self.format;
-        // Clippy gets angry when the to-syslog is disabled
+        // Clippy gets angry when the syslog is disabled
         #[allow(clippy::unknown_clippy_lints, clippy::match_single_binding)]
         match self.destination {
             // We don't want to format syslog
-            #[cfg(feature = "to-syslog")]
+            #[cfg(feature = "syslog")]
             LogDestination::Syslog { .. } => (),
             // We do with the other things
             _ => {
@@ -628,7 +628,7 @@ impl Logger {
         }
         match self.destination {
             LogDestination::File { ref filename } => Ok(logger.chain(fern::log_file(filename)?)),
-            #[cfg(feature = "to-syslog")]
+            #[cfg(feature = "syslog")]
             LogDestination::Syslog { ref host } => {
                 let formatter = syslog::Formatter3164 {
                     facility: syslog::Facility::LOG_USER,
@@ -637,9 +637,11 @@ impl Logger {
                     process: env!("CARGO_PKG_NAME").to_owned(),
                     pid: 0,
                 };
+                let sys_logger =
+                    syslog::unix(formatter).map_err(|e| SyslogError(format!("{}", e)))?;
+                let sys_logger: Box<dyn Log> = Box::new(syslog::BasicLogger::new(sys_logger));
                 // TODO: Other destinations than just unix
-                Ok(logger
-                    .chain(syslog::unix(formatter).map_err(|e| SyslogError(format!("{}", e)))?))
+                Ok(logger.chain(sys_logger))
             }
             LogDestination::Network { ref host, port } => {
                 // TODO: Reconnection support

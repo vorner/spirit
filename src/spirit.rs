@@ -594,11 +594,6 @@ where
     }
 
     fn autojoin_bg_thread(self, autojoin: Autojoin) -> Self {
-        assert_ne!(
-            autojoin,
-            Autojoin::__NonExhaustive__,
-            "__NonExhaustive__ not meant to be used"
-        );
         self.autojoin_bg_thread
             .store(autojoin as usize, Ordering::Relaxed);
         self
@@ -813,11 +808,6 @@ impl<O, C> Extensible for Builder<O, C> {
     }
 
     fn autojoin_bg_thread(self, autojoin: Autojoin) -> Self {
-        assert_ne!(
-            autojoin,
-            Autojoin::__NonExhaustive__,
-            "__NonExhaustive__ not meant to be used"
-        );
         Self {
             autojoin_bg_thread: autojoin,
             ..self

@@ -198,6 +198,7 @@ impl Recv {
 /// This enum is non-exhaustive. Adding more variants in the future will not be considered a
 /// breaking change.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum OverflowMode {
     /// Blocks until there's enough space to push the message.
     Block,
@@ -225,10 +226,6 @@ pub enum OverflowMode {
         /// The level at which the less severe messages start being dropped.
         fill_limit: usize,
     },
-
-    #[doc(hidden)]
-    #[allow(non_camel_case_types)]
-    __NON_EXHAUSTIVE__,
 }
 
 /// A logger that postpones the logging into a background thread.

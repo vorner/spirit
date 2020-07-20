@@ -27,7 +27,7 @@ cfg-help = ["spirit/cfg-help", "structdoc"]
 [dependencies]
 arc-swap = "~0.4"
 err-context = "~0.1"
-humantime = "~1"
+humantime = "~2"
 log = "~0.4"
 reqwest = "~0.9.12"
 serde = { version = "~1", features = ["derive"] }
@@ -38,5 +38,5 @@ url = "~1.7"
 url_serde = "~0.2"
 
 [dev-dependencies]
-version-sync = "~0.8"
+version-sync = "~0.9"
 env_logger = "~0.7"

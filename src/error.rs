@@ -16,6 +16,7 @@ pub type AnyError = Box<dyn Error + Send + Sync>;
 /// The enum is non-exhaustive ‒ more variants may be added in the future and it won't be
 /// considered an API breaking change.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[non_exhaustive]
 pub enum ErrorLogFormat {
     /// Multi-cause error will span multiple log messages.
     MultiLine,
@@ -24,11 +25,6 @@ pub enum ErrorLogFormat {
     ///
     /// The causes are separated by semicolons.
     SingleLine,
-
-    // Prevent users from accidentally matching against this enum without a catch-all branch.
-    #[doc(hidden)]
-    #[allow(non_camel_case_types)]
-    _NON_EXHAUSTIVE,
 }
 
 /// Log one error on given log level.
@@ -48,7 +44,6 @@ pub fn log_error(level: Level, target: &str, e: &AnyError, format: ErrorLogForma
         ErrorLogFormat::SingleLine => {
             log!(target: target, level, "{}", e.display("; "));
         }
-        _ => unreachable!("Non-exhaustive sentinel should not be used"),
     }
 }
 

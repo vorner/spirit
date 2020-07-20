@@ -59,6 +59,7 @@
 //!}
 //! ```
 
+use std::io::Result as IoResult;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -67,8 +68,8 @@ use std::time::{Duration, Instant};
 
 use dipstick::{
     AtomicBucket, Cancel, CancelHandle, Flush, Graphite, InputKind, InputMetric, InputScope,
-    MetricName, MetricValue, MultiOutput, NameParts, Observe, ObserveWhen, Prefixed, Prometheus,
-    Result as DipResult, ScheduleFlush, ScoreType, Statsd, Stream,
+    MetricName, MetricValue, MultiInput, NameParts, Observe, ObserveWhen, Prefixed, Prometheus,
+    ScheduleFlush, ScoreType, Statsd, Stream,
 };
 use err_context::prelude::*;
 use log::{debug, error};
@@ -91,11 +92,11 @@ enum Backend {
 }
 
 impl Backend {
-    fn add_to(&self, out: &MultiOutput) -> Result<MultiOutput, AnyError> {
+    fn add_to(&self, out: &MultiInput) -> Result<MultiInput, AnyError> {
         match self {
-            Backend::Stdout => Ok(out.add_target(Stream::to_stdout())),
-            Backend::Stderr => Ok(out.add_target(Stream::to_stderr())),
-            Backend::File { filename } => Stream::to_file(filename)
+            Backend::Stdout => Ok(out.add_target(Stream::write_to_stdout())),
+            Backend::Stderr => Ok(out.add_target(Stream::write_to_stderr())),
+            Backend::File { filename } => Stream::write_to_file(filename)
                 .map(|s| out.add_target(s))
                 .with_context(|_| format!("Failed to create metrics file {}", filename.display()))
                 .map_err(Box::from),
@@ -118,20 +119,19 @@ impl Backend {
 /// An intermediate resource produced by [`Config`].
 ///
 /// This contains all the parts ready to be used.
+#[non_exhaustive]
 pub struct Backends {
     /// A composed output for the metrics.
     ///
     /// This can be manually installed into an [`AtomicBucket`], or automatically used through a
     /// pipeline and installed into the [`Monitor`].
-    pub outputs: MultiOutput,
+    pub outputs: MultiInput,
 
     /// The configured prefix at the root of the metrics tree.
     pub prefix: String,
 
     /// How often should the metrics be sent.
     pub flush_period: Duration,
-
-    _sentinel: (),
 }
 
 fn app_name() -> String {
@@ -195,10 +195,10 @@ pub struct Config {
 }
 
 impl Config {
-    fn outputs(&self) -> Result<MultiOutput, AnyError> {
+    fn outputs(&self) -> Result<MultiInput, AnyError> {
         self.backends
             .iter()
-            .try_fold(MultiOutput::new(), |mo, backend| backend.add_to(&mo))
+            .try_fold(MultiInput::new(), |mo, backend| backend.add_to(&mo))
     }
 }
 
@@ -234,7 +234,6 @@ impl Fragment for Config {
             prefix: self.prefix.to_owned(),
             flush_period: self.flush_period,
             outputs,
-            _sentinel: (),
         })
     }
 }
@@ -348,7 +347,7 @@ impl InputScope for Monitor {
 }
 
 impl Flush for Monitor {
-    fn flush(&self) -> DipResult<()> {
+    fn flush(&self) -> IoResult<()> {
         self.0.flush()
     }
 }

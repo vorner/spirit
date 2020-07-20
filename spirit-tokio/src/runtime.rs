@@ -102,6 +102,7 @@ pub type TokioBody = Box<dyn Future<Item = (), Error = AnyError> + Send>;
 /// [`Fragment`]: spirit::Fragment
 /// [`run`]: spirit::SpiritBuilder::run
 /// [`with_singleton`]: spirit::extension::Extension::with_singleton
+#[non_exhaustive]
 pub enum Runtime {
     /// Use the threadpool runtime.
     ///
@@ -125,9 +126,6 @@ pub enum Runtime {
     /// This allows combining arbitrary runtimes that are not directly supported by either tokio or
     /// spirit.
     Custom(Box<dyn FnMut(TokioBody) -> Result<(), AnyError> + Send>),
-
-    #[doc(hidden)]
-    __NonExhaustive__,
     // TODO: Support loading this from configuration? But it won't be possible to modify at
     // runtime, will it?
 }
@@ -169,7 +167,6 @@ impl Runtime {
                 runtime.run().map_err(AnyError::from)
             }
             Runtime::Custom(mut callback) => callback(Box::new(fut)),
-            Runtime::__NonExhaustive__ => unreachable!(),
         }
     }
 }
@@ -230,6 +227,7 @@ where
     Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize, StructDoc, Ord, PartialOrd, Hash,
 )]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub struct ThreadPoolConfig {
     /// Maximum number of asynchronous worker threads.
     ///
@@ -263,8 +261,6 @@ pub struct ThreadPoolConfig {
     ///
     /// Accepts human-parsable times, like „3days“ or „5s“.
     pub keep_alive: Option<Duration>,
-    #[serde(skip)]
-    _sentinel: (),
 }
 
 impl ThreadPoolConfig {

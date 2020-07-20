@@ -25,7 +25,7 @@ default = ["cfg-help"]
 cfg-help = ["spirit/cfg-help", "structdoc"]
 
 [dependencies]
-dipstick = { version = "~0.7.9", default-features = false }
+dipstick = { version = "~0.9", default-features = false }
 err-context = "~0.1"
 log = "~0.4"
 serde = { version = "~1", features = ["derive"] }
@@ -34,5 +34,5 @@ spirit = { version = "~0.4.0", path = "..", default-features = false }
 structdoc = { version = "~0.1", optional = true }
 
 [dev-dependencies]
-version-sync = "~0.8"
+version-sync = "~0.9"
 env_logger = "~0.7"

@@ -60,6 +60,7 @@ impl<T> IntoResult<T> for T {
 ///
 /// [`run`]: crate::app::App::run
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[non_exhaustive]
 pub enum Autojoin {
     /// Terminate the application and join the background thread.
     TerminateAndJoin,
@@ -74,8 +75,6 @@ pub enum Autojoin {
     /// shutdown is OK. In particular, if the thread is left running on application termination,
     /// the [guards](trait.Extension.html#fn.keep_guard) need not to be dropped.
     Abandon,
-    #[doc(hidden)]
-    __NonExhaustive__,
 }
 
 /// An interface allowing to extend something with callbacks.
