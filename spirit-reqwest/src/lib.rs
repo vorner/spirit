@@ -70,10 +70,7 @@ use reqwest::{
     Certificate, Client, ClientBuilder, Identity, IntoUrl, Method, Proxy, RedirectPolicy,
     RequestBuilder,
 };
-use serde::de::Deserializer;
-use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
-use serde_humantime::De;
 use spirit::fragment::driver::CacheEq;
 use spirit::fragment::Installer;
 use spirit::utils::Hidden;
@@ -118,17 +115,6 @@ fn load_identity(path: &Path, passwd: &str) -> Result<Identity, AnyError> {
 #[allow(clippy::trivially_copy_pass_by_ref)]
 fn is_false(b: &bool) -> bool {
     !*b
-}
-
-fn serialize_opt_dur<S: Serializer>(opt: &Option<Duration>, s: S) -> Result<S::Ok, S::Error> {
-    opt.as_ref()
-        .map(|d| humantime::format_duration(*d).to_string())
-        .serialize(s)
-}
-
-fn deserialize_opt_dur<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Duration>, D::Error> {
-    let dur = De::<Option<Duration>>::deserialize(d)?;
-    Ok(dur.into_inner())
 }
 
 /// A configuration fragment to configure the reqwest [`Client`]
@@ -244,9 +230,9 @@ pub struct ReqwestClient {
     ///
     /// The default is `30s`. Can be turned off by setting to `nil`.
     #[serde(
-        deserialize_with = "deserialize_opt_dur",
+        deserialize_with = "spirit::utils::deserialize_opt_duration",
         default = "default_timeout",
-        serialize_with = "serialize_opt_dur"
+        serialize_with = "spirit::utils::serialize_opt_duration"
     )]
     timeout: Option<Duration>,
 
@@ -254,9 +240,9 @@ pub struct ReqwestClient {
     ///
     /// The default is no connection timeout.
     #[serde(
-        deserialize_with = "deserialize_opt_dur",
+        deserialize_with = "spirit::utils::deserialize_opt_duration",
         default,
-        serialize_with = "serialize_opt_dur"
+        serialize_with = "spirit::utils::serialize_opt_duration"
     )]
     connect_timeout: Option<Duration>,
 

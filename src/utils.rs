@@ -179,8 +179,8 @@ impl<T> Serialize for Hidden<T> {
 
 /// Serialize a duration.
 ///
-/// This can be used in configuration structures containing durations. The deserialization can be
-/// done with serde-humantime.
+/// This can be used in configuration structures containing durations. See [`deserialize_duration`]
+/// for the counterpart.
 ///
 /// The default serialization produces human unreadable values, this is more suitable for dumping
 /// configuration users will read.
@@ -196,13 +196,38 @@ impl<T> Serialize for Hidden<T> {
 /// struct Cfg {
 ///     #[serde(
 ///         serialize_with = "spirit::utils::serialize_duration",
-///         deserialize_with = "serde_humantime::deserialize",
+///         deserialize_with = "spirit::utils::deserialize_duration",
 ///     )]
 ///     how_long: Duration,
 /// }
 /// ```
 pub fn serialize_duration<S: Serializer>(dur: &Duration, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_str(&humantime::format_duration(*dur).to_string())
+}
+
+/// Deserialize a human-readable duration.
+///
+/// # Examples
+///
+/// ```rust
+/// use std::time::Duration;
+///
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+/// struct Cfg {
+///     #[serde(
+///         serialize_with = "spirit::utils::serialize_duration",
+///         deserialize_with = "spirit::utils::deserialize_duration",
+///     )]
+///     how_long: Duration,
+/// }
+/// ```
+pub fn deserialize_duration<'de, D: Deserializer<'de>>(d: D) -> Result<Duration, D::Error> {
+    let s = String::deserialize(d)?;
+
+    humantime::parse_duration(&s)
+        .map_err(|_| DeError::invalid_value(Unexpected::Str(&s), &"Human readable duration"))
 }
 
 /// Deserialize an `Option<Duration>` using the [`humantime`] crate.

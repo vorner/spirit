@@ -23,7 +23,6 @@ use std::time::Duration;
 use futures::task::AtomicTask;
 use futures::{Async, Poll, Stream};
 use serde::de::DeserializeOwned;
-use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 use spirit::extension::Extensible;
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
@@ -135,10 +134,6 @@ fn default_error_sleep() -> Duration {
     Duration::from_millis(100)
 }
 
-fn serialize_duration<S: Serializer>(d: &Duration, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&::humantime::format_duration(*d).to_string())
-}
-
 /// An implementation of [`ListenLimits`] that reads the limits from configuration.
 ///
 /// # Fields
@@ -165,8 +160,8 @@ pub struct Limits {
     #[serde(
         rename = "error-sleep",
         default = "default_error_sleep",
-        deserialize_with = "::serde_humantime::deserialize",
-        serialize_with = "serialize_duration"
+        deserialize_with = "spirit::utils::deserialize_duration",
+        serialize_with = "spirit::utils::serialize_duration"
     )]
     error_sleep: Duration,
 

@@ -185,7 +185,7 @@ pub struct Config {
     /// The metrics are not sent right away, they are buffered and collated for this period of
     /// time, then they are sent in a batch.
     #[serde(
-        deserialize_with = "serde_humantime::deserialize",
+        deserialize_with = "spirit::utils::deserialize_duration",
         serialize_with = "spirit::utils::serialize_duration",
         default = "default_flush"
     )]

@@ -301,7 +301,7 @@ impl<'de> Deserialize<'de> for MaybeDuration {
         #[derive(Deserialize)]
         #[serde(untagged)]
         enum Raw {
-            Duration(#[serde(with = "serde_humantime")] Duration),
+            Duration(#[serde(deserialize_with = "spirit::utils::deserialize_duration")] Duration),
             Off(bool),
         }
 
