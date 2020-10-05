@@ -21,7 +21,9 @@
 //! use serde::Deserialize;
 //! use spirit::{Empty, Pipeline, Spirit};
 //! use spirit::prelude::*;
-//! use spirit_reqwest::{AtomicClient, IntoBlockingClient, ReqwestClient};
+//! use spirit_reqwest::ReqwestClient;
+//! // Here we choose if we want blocking or async (futures module)
+//! use spirit_reqwest::blocking::{AtomicClient, IntoClient};
 //!
 //! #[derive(Debug, Default, Deserialize)]
 //! struct Cfg {
@@ -42,7 +44,9 @@
 //!             Pipeline::new("http client")
 //!                 .extract_cfg(Cfg::client)
 //!                 // Choose if you want blocking or async client
-//!                 .transform(IntoBlockingClient)
+//!                 // (eg. spirit_reqwest::blocking::IntoClient or
+//!                 // spirit_reqwest::futures::IntoClient)
+//!                 .transform(IntoClient)
 //!                 // Choose where to store it
 //!                 .install(client.clone())
 //!         )
@@ -66,21 +70,16 @@ use std::collections::HashMap;
 use std::fs;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Duration;
 
-use arc_swap::ArcSwapOption;
 use err_context::prelude::*;
 use log::{debug, trace};
-use reqwest::blocking::{
-    Client as BlockingClient, ClientBuilder as BlockingBuilder, RequestBuilder,
-};
+use reqwest::blocking::{Client as BlockingClient, ClientBuilder as BlockingBuilder};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::redirect::Policy;
-use reqwest::{Certificate, Client, ClientBuilder, Identity, IntoUrl, Method, Proxy};
+use reqwest::{Certificate, Client, ClientBuilder, Identity, Proxy};
 use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::CacheEq;
-use spirit::fragment::{Installer, Transformation};
 use spirit::utils::Hidden;
 use spirit::AnyError;
 use url::Url;
@@ -89,6 +88,7 @@ use url::Url;
  * TODO: Make the gzip and brotli dep optional
  * TODO: make native-tls or whatever tls optional
  * TODO: Make the blocking optional
+ * TODO: Logging
  */
 
 fn load_cert(path: &Path) -> Result<Certificate, AnyError> {
@@ -434,50 +434,15 @@ impl ReqwestClient {
     }
 }
 
-/// A storage for one [`Client`] that can be atomically exchanged under the hood.
-///
-/// This acts as a proxy for a [`Client`]. This is cheap to clone all cloned handles refer to the
-/// same client. It has most of the [`Client`]'s methods directly on itself, the others can be
-/// accessed through the [`client`] method.
-///
-/// It also supports the [`replace`] method, by which it is possible to exchange the client inside.
-///
-/// While it can be used separately, it is best paired with a [`ReqwestClient`] configuration
-/// fragment inside [`Spirit`] to have an up to date client around.
-///
-/// # Warning
-///
-/// As it is possible for the client to get replaced at any time by another thread, therefore
-/// successive calls to eg. [`get`] may happen on different clients. If this is a problem, a caller
-/// may get a specific client by the [`client`] method ‒ the client returned will not change for as
-/// long as it is held (if the one inside here is replaced, both are kept alive until the return
-/// value of [`client`] goes out of scope).
-///
-/// # Panics
-///
-/// Trying to access the client if the [`AtomicClient`] was created with [`empty`] and wasn't set
-/// yet (either by [`Spirit`] or by explicit [`replace`]) will result into panic.
-///
-/// If you may use the client sooner, prefer either `default` or [`unconfigured`].
-///
-/// [`unconfigured`]: AtomicClient::unconfigured
-/// [`Spirit`]: spirit::Spirit
-/// [`replace`]: AtomicClient::replace
-/// [`empty`]: AtomicClient::empty
-/// [`client`]: AtomicClient::client
-/// [`get`]: AtomicClient::get
-#[derive(Clone, Debug)]
-pub struct AtomicClient(Arc<ArcSwapOption<BlockingClient>>);
 
-impl Default for AtomicClient {
-    fn default() -> Self {
-        Self::unconfigured()
-    }
-}
-
-impl<C: Into<Arc<BlockingClient>>> From<C> for AtomicClient {
-    fn from(c: C) -> Self {
-        AtomicClient(Arc::new(ArcSwapOption::from(Some(c.into()))))
+spirit::simple_fragment! {
+    impl Fragment for ReqwestClient {
+        type Driver = CacheEq<ReqwestClient>;
+        type Resource = ClientBuilder;
+        type Installer = ();
+        fn create(&self, _: &'static str) -> Result<ClientBuilder, AnyError> {
+            self.async_builder()
+        }
     }
 }
 
@@ -496,130 +461,191 @@ macro_rules! method {
     }
 }
 
-impl AtomicClient {
-    /// Creates an empty [`AtomicClient`].
+macro_rules! submodule {
+(pub mod $module:ident with $path:path) => {
+pub mod $module {
+    use std::sync::Arc;
+
+    use arc_swap::ArcSwapOption;
+    use err_context::AnyError;
+    use err_context::prelude::*;
+    use log::debug;
+    use $path::{Client, ClientBuilder, RequestBuilder};
+    use reqwest::{IntoUrl, Method};
+    use spirit::fragment::{Installer, Transformation};
+
+    /// A storage for one [`Client`] that can be atomically exchanged under the hood.
     ///
-    /// This is effectively a `NULL`. It'll panic until a value is set, either by [`replace`]
-    /// or by [`Spirit`] behind the scenes. It is appropriate if the caller is sure it will get
-    /// configured before being accessed and creating an intermediate client first would be a
-    /// waste.
+    /// This acts as a proxy for a [`Client`]. This is cheap to clone all cloned handles refer to
+    /// the same client. It has most of the [`Client`]'s methods directly on itself, the others can
+    /// be accessed through the [`client`] method.
     ///
-    /// [`replace`]: AtomicClient::replace
+    /// It also supports the [`replace`] method, by which it is possible to exchange the client
+    /// inside.
+    ///
+    /// While it can be used separately, it is best paired with a [`ReqwestClient`] configuration
+    /// fragment inside [`Spirit`] to have an up to date client around.
+    ///
+    /// # Warning
+    ///
+    /// As it is possible for the client to get replaced at any time by another thread, therefore
+    /// successive calls to eg. [`get`] may happen on different clients. If this is a problem, a
+    /// caller may get a specific client by the [`client`] method ‒ the client returned will not
+    /// change for as long as it is held (if the one inside here is replaced, both are kept alive
+    /// until the return value of [`client`] goes out of scope).
+    ///
+    /// # Panics
+    ///
+    /// Trying to access the client if the [`AtomicClient`] was created with [`empty`] and wasn't
+    /// set yet (either by [`Spirit`] or by explicit [`replace`]) will result into panic.
+    ///
+    /// If you may use the client sooner, prefer either `default` or [`unconfigured`].
+    ///
+    /// [`unconfigured`]: AtomicClient::unconfigured
     /// [`Spirit`]: spirit::Spirit
-    pub fn empty() -> Self {
-        AtomicClient(Arc::new(ArcSwapOption::empty()))
+    /// [`replace`]: AtomicClient::replace
+    /// [`empty`]: AtomicClient::empty
+    /// [`client`]: AtomicClient::client
+    /// [`get`]: AtomicClient::get
+    #[derive(Clone, Debug)]
+    pub struct AtomicClient(Arc<ArcSwapOption<Client>>);
+
+    impl Default for AtomicClient {
+        fn default() -> Self {
+            Self::unconfigured()
+        }
     }
 
-    /// Creates an [`AtomicClient`] with default [`Client`] inside.
-    pub fn unconfigured() -> Self {
-        AtomicClient(Arc::new(ArcSwapOption::from_pointee(BlockingClient::new())))
+    impl<C: Into<Arc<Client>>> From<C> for AtomicClient {
+        fn from(c: C) -> Self {
+            AtomicClient(Arc::new(ArcSwapOption::from(Some(c.into()))))
+        }
     }
 
-    /// Replaces the content of this [`AtomicClient`] with a new [`Client`].
-    ///
-    /// If you want to create a new [`AtomicClient`] out of a client, use [`From`]. This is meant
-    /// for replacing the content of already existing ones.
-    ///
-    /// This replaces it for *all* connected handles (eg. created by cloning from the same
-    /// original [`AtomicClient`]).
-    pub fn replace<C: Into<Arc<BlockingClient>>>(&self, by: C) {
-        let client = by.into();
-        self.0.store(Some(client));
+    impl AtomicClient {
+        /// Creates an empty [`AtomicClient`].
+        ///
+        /// This is effectively a `NULL`. It'll panic until a value is set, either by [`replace`]
+        /// or by [`Spirit`] behind the scenes. It is appropriate if the caller is sure it will get
+        /// configured before being accessed and creating an intermediate client first would be a
+        /// waste.
+        ///
+        /// [`replace`]: AtomicClient::replace
+        /// [`Spirit`]: spirit::Spirit
+        pub fn empty() -> Self {
+            AtomicClient(Arc::new(ArcSwapOption::empty()))
+        }
+
+        /// Creates an [`AtomicClient`] with default [`Client`] inside.
+        pub fn unconfigured() -> Self {
+            AtomicClient(Arc::new(ArcSwapOption::from_pointee(Client::new())))
+        }
+
+        /// Replaces the content of this [`AtomicClient`] with a new [`Client`].
+        ///
+        /// If you want to create a new [`AtomicClient`] out of a client, use [`From`]. This is
+        /// meant for replacing the content of already existing ones.
+        ///
+        /// This replaces it for *all* connected handles (eg. created by cloning from the same
+        /// original [`AtomicClient`]).
+        pub fn replace<C: Into<Arc<Client>>>(&self, by: C) {
+            let client = by.into();
+            self.0.store(Some(client));
+        }
+
+        /// Returns a handle to the [`Client`] currently held inside.
+        ///
+        /// This serves a dual purpose:
+        ///
+        /// * If some functionality is not directly provided by the [`AtomicClient`] proxy.
+        /// * If the caller needs to ensure a series of requests is performed using the same client.
+        ///   While the content of the [`AtomicClient`] can change between calls to it, the content of
+        ///   the [`Arc`] can't. While it is possible the client inside [`AtomicClient`] exchanged, the
+        ///   [`Arc`] keeps its [`Client`] around (which may lead to multiple [`Client`]s in memory).
+        pub fn client(&self) -> Arc<Client> {
+            self.0
+                .load_full()
+                .expect("Accessing Reqwest HTTP client before setting it up")
+        }
+
+        /// Starts building an arbitrary request using the current client.
+        ///
+        /// This is forwarded to [`Client::request`].
+        pub fn request<U: IntoUrl>(&self, method: Method, url: U) -> RequestBuilder {
+            self.0
+                .load()
+                .as_ref()
+                .expect("Accessing Reqwest HTTP client before setting it up")
+                .request(method, url)
+        }
+        method! {
+            /// Starts building a GET request.
+            ///
+            /// This is forwarded to [`Client::get`].
+            get();
+
+            /// Starts building a POST request.
+            ///
+            /// This is forwarded to [`Client::post`].
+            post();
+
+            /// Starts building a PUT request.
+            ///
+            /// This is forwarded to [`Client::put`].
+            put();
+
+            /// Starts building a PATCH request.
+            ///
+            /// This is forwarded to [`Client::patch`].
+            patch();
+
+            /// Starts building a DELETE request.
+            ///
+            /// This is forwarded to [`Client::delete`].
+            delete();
+
+            /// Starts building a HEAD request.
+            ///
+            /// This is forwarded to [`Client::head`].
+            head();
+        }
     }
 
-    /// Returns a handle to the [`Client`] currently held inside.
-    ///
-    /// This serves a dual purpose:
-    ///
-    /// * If some functionality is not directly provided by the [`AtomicClient`] proxy.
-    /// * If the caller needs to ensure a series of requests is performed using the same client.
-    ///   While the content of the [`AtomicClient`] can change between calls to it, the content of
-    ///   the [`Arc`] can't. While it is possible the client inside [`AtomicClient`] exchanged, the
-    ///   [`Arc`] keeps its [`Client`] around (which may lead to multiple [`Client`]s in memory).
-    pub fn client(&self) -> Arc<BlockingClient> {
-        self.0
-            .load_full()
-            .expect("Accessing Reqwest HTTP client before setting it up")
+    pub struct IntoClient;
+
+    impl<I, F> Transformation<reqwest::ClientBuilder, I, F> for IntoClient {
+        type OutputResource = Client;
+        type OutputInstaller = ();
+        fn installer(&mut self, _: I, _: &str) {}
+        fn transform(
+            &mut self,
+            builder: reqwest::ClientBuilder,
+            _: &F,
+            _: &str,
+            ) -> Result<Self::OutputResource, AnyError> {
+            let builder = ClientBuilder::from(builder);
+            builder
+                .build()
+                .context("Failed to finish creating Reqwest HTTP client")
+                .map_err(AnyError::from)
+        }
     }
 
-    /// Starts building an arbitrary request using the current client.
-    ///
-    /// This is forwarded to [`Client::request`].
-    pub fn request<U: IntoUrl>(&self, method: Method, url: U) -> RequestBuilder {
-        self.0
-            .load()
-            .as_ref()
-            .expect("Accessing Reqwest HTTP client before setting it up")
-            .request(method, url)
-    }
-    method! {
-        /// Starts building a GET request.
-        ///
-        /// This is forwarded to [`Client::get`].
-        get();
-
-        /// Starts building a POST request.
-        ///
-        /// This is forwarded to [`Client::post`].
-        post();
-
-        /// Starts building a PUT request.
-        ///
-        /// This is forwarded to [`Client::put`].
-        put();
-
-        /// Starts building a PATCH request.
-        ///
-        /// This is forwarded to [`Client::patch`].
-        patch();
-
-        /// Starts building a DELETE request.
-        ///
-        /// This is forwarded to [`Client::delete`].
-        delete();
-
-        /// Starts building a HEAD request.
-        ///
-        /// This is forwarded to [`Client::head`].
-        head();
-    }
-}
-
-spirit::simple_fragment! {
-    impl Fragment for ReqwestClient {
-        type Driver = CacheEq<ReqwestClient>;
-        type Resource = ClientBuilder;
-        type Installer = ();
-        fn create(&self, _: &'static str) -> Result<ClientBuilder, AnyError> {
-            self.async_builder()
+    impl<O, C> Installer<Client, O, C> for AtomicClient {
+        type UninstallHandle = ();
+        fn install(&mut self, client: Client, name: &'static str) {
+            debug!("Installing http client '{}'", name);
+            self.replace(client);
         }
     }
 }
-
-pub struct IntoBlockingClient;
-
-impl<I, F> Transformation<ClientBuilder, I, F> for IntoBlockingClient {
-    type OutputResource = BlockingClient;
-    type OutputInstaller = ();
-    fn installer(&mut self, _: I, _: &str) {}
-    fn transform(
-        &mut self,
-        builder: ClientBuilder,
-        _: &F,
-        _: &str,
-    ) -> Result<Self::OutputResource, AnyError> {
-        let builder = BlockingBuilder::from(builder);
-        builder
-            .build()
-            .context("Failed to finish creating Reqwest HTTP client")
-            .map_err(AnyError::from)
-    }
+}
 }
 
-impl<O, C> Installer<BlockingClient, O, C> for AtomicClient {
-    type UninstallHandle = ();
-    fn install(&mut self, client: BlockingClient, name: &'static str) {
-        debug!("Installing http client '{}'", name);
-        self.replace(client);
-    }
+submodule! {
+pub mod blocking with reqwest::blocking
+}
+
+submodule! {
+pub mod futures with reqwest
 }
