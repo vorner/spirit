@@ -314,10 +314,7 @@ enum Proposition<F: Fragment + ToOwned> {
 
 impl<F: Fragment + ToOwned> Proposition<F> {
     fn active(&self) -> bool {
-        match self {
-            Proposition::Nothing => false,
-            _ => true,
-        }
+        !matches!(self, Proposition::Nothing)
     }
 }
 

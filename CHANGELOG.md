@@ -1,3 +1,8 @@
+# spirit-0.4.5
+# spirit-daemonize-0.3.2
+
+* Dep updates.
+
 # spirit-log-0.4.0
 
 * Releasing the previous as a breaking version; exposed different version of

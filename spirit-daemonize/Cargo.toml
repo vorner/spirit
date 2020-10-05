@@ -1,6 +1,6 @@
 [package]
 name = "spirit-daemonize"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Spirit helpers and config fragments to daemonize"
 documentation = "https://docs.rs/spirit-daemonize"
@@ -27,7 +27,7 @@ cfg-help = ["spirit/cfg-help", "structdoc"]
 [dependencies]
 err-context = "~0.1"
 log = "~0.4"
-nix = "~0.17"
+nix = "~0.18"
 privdrop = "~0.3"
 serde = { version = "~1", features = ["derive"] }
 spirit = { version = "~0.4", path = "..", default-features = false }
