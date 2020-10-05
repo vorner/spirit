@@ -10,10 +10,39 @@
 //! This is part of the [`spirit`] system.
 //!
 //! There are two levels of support. The first one is just letting the [`Spirit`] to load the
-//! [`ReqwestClient`] configuration fragment and calling [`create`] or [`builder`] on it manually.
+//! [`ReqwestClient`] configuration fragment and calling one of its methods to create the
+//! [`Client`] or others.
 //!
-//! The other, more convenient way, is pairing an extractor function with the [`AtomicClient`] and
+//! The other, more convenient way, is pairing an extractor function with the
+//! [`AtomicClient`][futures::AtomicClient] and
 //! letting [`Spirit`] keep an up to date version of [`Client`] in there at all times.
+//!
+//! # The split and features
+//!
+//! The [`ReqwestClient`] lives at the top of the crate. However, [`reqwest`] provides both
+//! blocking and async flavours of the HTTP client. For that reason, this crate provides two
+//! submodules, each with the relevant support (note that the name of the async one is [`futures`],
+//! because `async` is a keyword). The pipeline is configured with the relevant `IntoClient`
+//! transformation and installed into the relevant `AtomicClient`.
+//!
+//! Features enable parts of the functionality here and correspond to some of the features of
+//! [`reqwest`]. In particular:
+//!
+//! * `gzip`: The `enable-gzip` configuration option.
+//! * `brotli`: The `enable-brotli` configuration option.
+//! * `native-tls`: The `tls-identity`, `tls-identity-password` and `tls-accept-invalid-hostnames`
+//!   options.
+//! * `blocking`: The whole [`blocking`] module and methods for creating the blocking client and
+//!   builder.
+//!
+//! # Porting from the 0.3 version
+//!
+//! * You may need to enable certain features (if you want to keep using the blocking API, you need
+//!   the `blocking` feature, but you also may want the `native-tls` and `gzip` features to get the
+//!   same feature coverage).
+//! * Part of what you used moved to the submodule, but otherwise should have same or similar API
+//! * The pipeline needs the addition of `.transform(IntoClient)` between config extraction and
+//!   installation, to choose if you are interested in blocking or async flavour.
 //!
 //! # Examples
 //!
@@ -92,7 +121,6 @@ use spirit::AnyError;
 use url::Url;
 
 /*
- * TODO: Make the blocking optional
  * TODO: Logging
  */
 
@@ -127,7 +155,7 @@ fn is_false(b: &bool) -> bool {
 /// corresponds to default [`Client::new()`], but most things can be overridden.
 ///
 /// The client can be created either manually by methods here, or by pairing it with
-/// [`AtomicClient`]. See the [crate example](index.html#examples)
+/// [`AtomicClient`][futures::AtomicClient]. See the [crate example](index.html#examples)
 ///
 /// # Fields
 ///
@@ -143,13 +171,17 @@ fn is_false(b: &bool) -> bool {
 /// * `enable-brotli`: Enable brotli compression of transferred data. Default is `true`.
 /// * `default-headers`: A bundle of headers a request starts with. Map of name-value, defaults to
 ///   empty.
+/// * `user-agent`: The user agent to send with requests.
 /// * `timeout`: Default whole-request timeout. Can be a time specification (with units) or `nil`
 ///   for no timeout. Default is `30s`.
 /// * `connect-timeout`: Timeout for the connection phase of a request (with units) or `nil` for no
 ///   such timeout. Default is no timeout.
 /// * `max-idle-per-host`: Maximal number of idle connection per one host in the pool. Defaults to
 ///   `nil` (no limit).
+/// * `pool-idle-timeout`: How long to keep unused connections around (`nil` to no limit`).
 /// * `http2-only`: Use only HTTP/2. Default is false (both HTTP/1 and HTTP/2 are allowed).
+/// * `http2-initial-stream-window-size`, `http2-initial-connection-window-size`: Tweak the low
+///   level TCP options.
 /// * `http1-case-sensitive-headers`: Consider HTTP/1 headers case sensitive.
 /// * `local-address`: Make the requests from this address. Default is `nil`, which lets the OS to
 ///   choose.
@@ -162,20 +194,28 @@ fn is_false(b: &bool) -> bool {
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 #[serde(rename_all = "kebab-case", default)]
 pub struct ReqwestClient {
+    /// Set the user agent header.
+    #[serde(skip_serializing_if = "Option::is_none")]
     user_agent: Option<String>,
+
+    /// Timeout for connections sitting unused in the pool.
     #[serde(
         deserialize_with = "spirit::utils::deserialize_opt_duration",
         serialize_with = "spirit::utils::serialize_opt_duration"
     )]
     pool_idle_timeout: Option<Duration>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     http2_initial_stream_window_size: Option<u32>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     http2_initial_connection_window_size: Option<u32>,
 
     /// Requires that all sockets used have the `SO_NODELAY` set.
     ///
     /// This improves latency in some cases at the cost of sending more packets.
+    ///
+    /// On by default.
     tcp_nodelay: bool,
 
     /// Additional certificates to add into the TLS trust store.
@@ -355,9 +395,10 @@ impl ReqwestClient {
     /// This configures everything according to `self` and then returns the builder. The caller can
     /// modify it further and then create the client.
     ///
-    /// Unless there's a need to tweak the configuration, the [`create`] is more comfortable.
+    /// Unless there's a need to tweak the configuration, the [`create_async_client`] is more
+    /// comfortable.
     ///
-    /// [`create_client`]: ReqwestClient::create
+    /// [`create_async_client`]: ReqwestClient::create_async_client
     pub fn async_builder(&self) -> Result<ClientBuilder, AnyError> {
         debug!("Creating Reqwest client from {:?}", self);
         let mut headers = HeaderMap::new();
@@ -442,15 +483,17 @@ impl ReqwestClient {
         Ok(builder)
     }
 
+    /// Creates a blocking [`ClientBuilder`][BlockingBuilder].
     #[cfg(feature = "blocking")]
     pub fn blocking_builder(&self) -> Result<BlockingBuilder, AnyError> {
         self.async_builder().map(BlockingBuilder::from)
     }
 
-    /// Creates a [`BlockingClient`] according to the configuration inside `self`.
+    /// Creates a [`Client`][BlockingClient] according to the configuration inside `self`.
     ///
     /// This is for manually creating the client. It is also possible to pair with an
-    /// [`AtomicClient`] to form a [`CfgHelper`].
+    /// [`AtomicClient`][blocking::AtomicClient] to form a
+    /// [`Pipeline`][spirit::fragment::pipeline::Pipeline].
     #[cfg(feature = "blocking")]
     pub fn create_blocking_client(&self) -> Result<BlockingClient, AnyError> {
         self.blocking_builder()?
@@ -462,7 +505,8 @@ impl ReqwestClient {
     /// Creates a [`Client`] according to the configuration inside `self`.
     ///
     /// This is for manually creating the client. It is also possible to pair with an
-    /// [`AtomicClient`] to form a [`CfgHelper`].
+    /// [`AtomicClient`][futures::AtomicClient] to form a
+    /// [`Pipeline`][spirit::fragment::pipeline::Pipeline].
     pub fn create_async_client(&self) -> Result<Client, AnyError> {
         self.async_builder()?
             .build()
@@ -499,7 +543,8 @@ macro_rules! method {
 }
 
 macro_rules! submodule {
-(pub mod $module:ident with $path:path) => {
+($(#[$attr: meta])* pub mod $module:ident with $path:path) => {
+$(#[$attr])*
 pub mod $module {
     use std::sync::Arc;
 
@@ -520,8 +565,9 @@ pub mod $module {
     /// It also supports the [`replace`] method, by which it is possible to exchange the client
     /// inside.
     ///
-    /// While it can be used separately, it is best paired with a [`ReqwestClient`] configuration
-    /// fragment inside [`Spirit`] to have an up to date client around.
+    /// While it can be used separately, it is best paired with a
+    /// [`ReqwestClient`][crate::ReqwestClient] configuration fragment inside [`Spirit`] to have an
+    /// up to date client around.
     ///
     /// # Warning
     ///
@@ -648,6 +694,9 @@ pub mod $module {
         }
     }
 
+    /// A transformation to turn a [`ClientBuilder`] into a [`Client`].
+    ///
+    /// To be used inside a [`Pipeline`][spirit::fragment::pipeline::Pipeline].
     pub struct IntoClient;
 
     impl<I, F> Transformation<reqwest::ClientBuilder, I, F> for IntoClient {
@@ -681,9 +730,11 @@ pub mod $module {
 
 #[cfg(feature = "blocking")]
 submodule! {
+/// The support for blocking clients.
 pub mod blocking with reqwest::blocking
 }
 
 submodule! {
+/// The support for async clients.
 pub mod futures with reqwest
 }
