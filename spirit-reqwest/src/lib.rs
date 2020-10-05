@@ -18,6 +18,7 @@
 //! # Examples
 //!
 //! ```rust
+//! # #[cfg(feature = "blocking")] mod example {
 //! use serde::Deserialize;
 //! use spirit::{Empty, Pipeline, Spirit};
 //! use spirit::prelude::*;
@@ -37,6 +38,7 @@
 //!     }
 //! }
 //!
+//! # pub
 //! fn main() {
 //!     let client = AtomicClient::unconfigured(); // Get a default config before we get configured
 //!     Spirit::<Empty, Cfg>::new()
@@ -60,6 +62,9 @@
 //!             Ok(())
 //!         });
 //! }
+//! # }
+//! # #[cfg(not(feature = "blocking"))] mod example { pub fn main() {} }
+//! # fn main() { example::main() }
 //! ```
 //!
 //! [`create`]: ReqwestClient::create
@@ -74,19 +79,19 @@ use std::time::Duration;
 
 use err_context::prelude::*;
 use log::{debug, trace};
+#[cfg(feature = "blocking")]
 use reqwest::blocking::{Client as BlockingClient, ClientBuilder as BlockingBuilder};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::redirect::Policy;
-use reqwest::{Certificate, Client, ClientBuilder, Identity, Proxy};
+use reqwest::{Certificate, Client, ClientBuilder, Proxy};
 use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::CacheEq;
+#[cfg(feature = "native-tls")]
 use spirit::utils::Hidden;
 use spirit::AnyError;
 use url::Url;
 
 /*
- * TODO: Make the gzip and brotli dep optional
- * TODO: make native-tls or whatever tls optional
  * TODO: Make the blocking optional
  * TODO: Logging
  */
@@ -105,9 +110,10 @@ fn load_cert(path: &Path) -> Result<Certificate, AnyError> {
     Ok(result)
 }
 
-fn load_identity(path: &Path, passwd: &str) -> Result<Identity, AnyError> {
+#[cfg(feature = "native-tls")]
+fn load_identity(path: &Path, passwd: &str) -> Result<reqwest::Identity, AnyError> {
     let identity = fs::read(path)?;
-    Ok(Identity::from_pkcs12_der(&identity, passwd)?)
+    Ok(reqwest::Identity::from_pkcs12_der(&identity, passwd)?)
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -188,6 +194,7 @@ pub struct ReqwestClient {
     ///
     /// If not set, no client identity is used.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg(feature = "native-tls")]
     tls_identity: Option<PathBuf>,
 
     /// A password for the client identity file.
@@ -195,6 +202,7 @@ pub struct ReqwestClient {
     /// If tls-identity is not set, the value here is ignored. If not set and the tls-identity is
     /// present, an empty password is attempted.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg(feature = "native-tls")]
     tls_identity_password: Option<Hidden<String>>,
 
     /// When validating the server certificate, accept even invalid or not matching hostnames.
@@ -222,11 +230,13 @@ pub struct ReqwestClient {
     /// Enables gzip transport compression.
     ///
     /// Default is on.
+    #[cfg(feature = "gzip")]
     enable_gzip: bool,
 
     /// Enables brotli transport compression.
     ///
     /// Default is on.
+    #[cfg(feature = "brotli")]
     enable_brotli: bool,
 
     /// Headers added to each request.
@@ -309,11 +319,15 @@ impl Default for ReqwestClient {
     fn default() -> Self {
         ReqwestClient {
             tls_extra_root_certs: Vec::new(),
+            #[cfg(feature = "native-tls")]
             tls_identity: None,
+            #[cfg(feature = "native-tls")]
             tls_identity_password: None,
             tls_accept_invalid_hostnames: false,
             tls_accept_invalid_certs: false,
+            #[cfg(feature = "gzip")]
             enable_gzip: true,
+            #[cfg(feature = "brotli")]
             enable_brotli: true,
             default_headers: HashMap::new(),
             user_agent: None,
@@ -360,9 +374,6 @@ impl ReqwestClient {
         };
         let mut builder = Client::builder()
             .danger_accept_invalid_certs(self.tls_accept_invalid_certs)
-            .danger_accept_invalid_hostnames(self.tls_accept_invalid_hostnames)
-            .gzip(self.enable_gzip)
-            .brotli(self.enable_brotli)
             .tcp_nodelay_(self.tcp_nodelay)
             .pool_max_idle_per_host(self.max_idle_per_host.unwrap_or(usize::max_value()))
             .pool_idle_timeout(self.pool_idle_timeout)
@@ -370,6 +381,18 @@ impl ReqwestClient {
             .default_headers(headers)
             .redirect(redirects)
             .referer(self.referer);
+        #[cfg(feature = "gzip")]
+        {
+            builder = builder.gzip(self.enable_gzip);
+        }
+        #[cfg(feature = "brotli")]
+        {
+            builder = builder.brotli(self.enable_brotli);
+        }
+        #[cfg(feature = "native-tls")]
+        {
+            builder = builder.danger_accept_invalid_hostnames(self.tls_accept_invalid_hostnames);
+        }
         if let Some(agent) = self.user_agent.as_ref() {
             builder = builder.user_agent(agent);
         }
@@ -391,6 +414,7 @@ impl ReqwestClient {
                 .with_context(|_| format!("Failed to load certificate {:?}", cert_path))?;
             builder = builder.add_root_certificate(cert);
         }
+        #[cfg(feature = "native-tls")]
         if let Some(identity_path) = &self.tls_identity {
             trace!("Setting TLS client identity {:?}", identity_path);
             let passwd: &str = self
@@ -418,16 +442,29 @@ impl ReqwestClient {
         Ok(builder)
     }
 
+    #[cfg(feature = "blocking")]
     pub fn blocking_builder(&self) -> Result<BlockingBuilder, AnyError> {
         self.async_builder().map(BlockingBuilder::from)
+    }
+
+    /// Creates a [`BlockingClient`] according to the configuration inside `self`.
+    ///
+    /// This is for manually creating the client. It is also possible to pair with an
+    /// [`AtomicClient`] to form a [`CfgHelper`].
+    #[cfg(feature = "blocking")]
+    pub fn create_blocking_client(&self) -> Result<BlockingClient, AnyError> {
+        self.blocking_builder()?
+            .build()
+            .context("Failed to finish creating Reqwest HTTP client")
+            .map_err(AnyError::from)
     }
 
     /// Creates a [`Client`] according to the configuration inside `self`.
     ///
     /// This is for manually creating the client. It is also possible to pair with an
     /// [`AtomicClient`] to form a [`CfgHelper`].
-    pub fn create_client(&self) -> Result<BlockingClient, AnyError> {
-        self.blocking_builder()?
+    pub fn create_async_client(&self) -> Result<Client, AnyError> {
+        self.async_builder()?
             .build()
             .context("Failed to finish creating Reqwest HTTP client")
             .map_err(AnyError::from)
@@ -642,6 +679,7 @@ pub mod $module {
 }
 }
 
+#[cfg(feature = "blocking")]
 submodule! {
 pub mod blocking with reqwest::blocking
 }
