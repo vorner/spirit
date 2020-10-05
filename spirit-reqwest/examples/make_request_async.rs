@@ -1,10 +1,10 @@
 use err_context::AnyError;
-use serde::Deserialize;
 use reqwest::Client;
+use serde::Deserialize;
 use spirit::prelude::*;
 use spirit::{Empty, Pipeline, Spirit};
-use spirit_reqwest::ReqwestClient;
 use spirit_reqwest::futures::{AtomicClient, IntoClient};
+use spirit_reqwest::ReqwestClient;
 use tokio::runtime::Runtime;
 
 #[derive(Debug, Default, Deserialize)]

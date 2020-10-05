@@ -515,7 +515,6 @@ impl ReqwestClient {
     }
 }
 
-
 spirit::simple_fragment! {
     impl Fragment for ReqwestClient {
         type Driver = CacheEq<ReqwestClient>;

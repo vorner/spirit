@@ -3,8 +3,8 @@ mod example {
     use serde::Deserialize;
     use spirit::prelude::*;
     use spirit::{Empty, Pipeline, Spirit};
-    use spirit_reqwest::ReqwestClient;
     use spirit_reqwest::blocking::{AtomicClient, IntoClient};
+    use spirit_reqwest::ReqwestClient;
 
     #[derive(Debug, Default, Deserialize)]
     struct Cfg {
