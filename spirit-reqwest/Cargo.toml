@@ -28,12 +28,11 @@ cfg-help = ["spirit/cfg-help", "structdoc"]
 arc-swap = "~0.4"
 err-context = "~0.1"
 log = "~0.4"
-reqwest = "~0.9.12"
+reqwest = { version = "~0.10", features = ["native-tls", "gzip", "brotli", "blocking"] }
 serde = { version = "~1", features = ["derive"] }
 spirit = { version = "~0.4", path = "..", default-features = false }
 structdoc = { version = "~0.1", optional = true }
-url = "~1.7"
-url_serde = "~0.2"
+url = { version = "~2", features = ["serde"] }
 
 [dev-dependencies]
 version-sync = "~0.9"

@@ -21,7 +21,7 @@
 //! use serde::Deserialize;
 //! use spirit::{Empty, Pipeline, Spirit};
 //! use spirit::prelude::*;
-//! use spirit_reqwest::{AtomicClient, ReqwestClient};
+//! use spirit_reqwest::{AtomicClient, IntoBlockingClient, ReqwestClient};
 //!
 //! #[derive(Debug, Default, Deserialize)]
 //! struct Cfg {
@@ -38,7 +38,14 @@
 //! fn main() {
 //!     let client = AtomicClient::unconfigured(); // Get a default config before we get configured
 //!     Spirit::<Empty, Cfg>::new()
-//!         .with(Pipeline::new("http client").extract_cfg(Cfg::client).install(client.clone()))
+//!         .with(
+//!             Pipeline::new("http client")
+//!                 .extract_cfg(Cfg::client)
+//!                 // Choose if you want blocking or async client
+//!                 .transform(IntoBlockingClient)
+//!                 // Choose where to store it
+//!                 .install(client.clone())
+//!         )
 //!         .run(move |_| {
 //!             let page = client
 //!                 .get("https://www.rust-lang.org")
@@ -65,33 +72,24 @@ use std::time::Duration;
 use arc_swap::ArcSwapOption;
 use err_context::prelude::*;
 use log::{debug, trace};
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use reqwest::{
-    Certificate, Client, ClientBuilder, Identity, IntoUrl, Method, Proxy, RedirectPolicy,
-    RequestBuilder,
+use reqwest::blocking::{
+    Client as BlockingClient, ClientBuilder as BlockingBuilder, RequestBuilder,
 };
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use reqwest::redirect::Policy;
+use reqwest::{Certificate, Client, ClientBuilder, Identity, IntoUrl, Method, Proxy};
 use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::CacheEq;
-use spirit::fragment::Installer;
+use spirit::fragment::{Installer, Transformation};
 use spirit::utils::Hidden;
 use spirit::AnyError;
-use url_serde::SerdeUrl;
+use url::Url;
 
-fn default_timeout() -> Option<Duration> {
-    Some(Duration::from_secs(30))
-}
-
-fn default_gzip() -> bool {
-    true
-}
-
-fn default_redirects() -> Option<usize> {
-    Some(10)
-}
-
-fn default_referer() -> bool {
-    true
-}
+/*
+ * TODO: Make the gzip and brotli dep optional
+ * TODO: make native-tls or whatever tls optional
+ * TODO: Make the blocking optional
+ */
 
 fn load_cert(path: &Path) -> Result<Certificate, AnyError> {
     let cert = fs::read(path)?;
@@ -136,6 +134,7 @@ fn is_false(b: &bool) -> bool {
 /// * `tls-accept-invalid-certs`: Allow accepting invalid https certificates. **Dangerous**, avoid
 ///   if possible (default is `false`).
 /// * `enable-gzip`: Enable gzip compression of transferred data. Default is `true`.
+/// * `enable-brotli`: Enable brotli compression of transferred data. Default is `true`.
 /// * `default-headers`: A bundle of headers a request starts with. Map of name-value, defaults to
 ///   empty.
 /// * `timeout`: Default whole-request timeout. Can be a time specification (with units) or `nil`
@@ -155,12 +154,22 @@ fn is_false(b: &bool) -> bool {
 /// * `tcp-nodelay`: Use the `SO_NODELAY` flag on all connections.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", default)]
 pub struct ReqwestClient {
+    user_agent: Option<String>,
+    #[serde(
+        deserialize_with = "spirit::utils::deserialize_opt_duration",
+        serialize_with = "spirit::utils::serialize_opt_duration"
+    )]
+    pool_idle_timeout: Option<Duration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    http2_initial_stream_window_size: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    http2_initial_connection_window_size: Option<u32>,
+
     /// Requires that all sockets used have the `SO_NODELAY` set.
     ///
     /// This improves latency in some cases at the cost of sending more packets.
-    #[serde(default)]
     tcp_nodelay: bool,
 
     /// Additional certificates to add into the TLS trust store.
@@ -169,7 +178,7 @@ pub struct ReqwestClient {
     /// store.
     ///
     /// Accepts PEM and DER formats (autodetected).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     tls_extra_root_certs: Vec<PathBuf>,
 
     /// Client identity.
@@ -196,7 +205,7 @@ pub struct ReqwestClient {
     /// part of the protections TLS provides.
     ///
     /// Default is `false` (eg. invalid hostnames are not accepted).
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(skip_serializing_if = "is_false")]
     tls_accept_invalid_hostnames: bool,
 
     /// When validating the server certificate, accept even invalid or untrusted certificates.
@@ -207,14 +216,18 @@ pub struct ReqwestClient {
     /// part of the protections TLS provides.
     ///
     /// Default is `false` (eg. invalid certificates are not accepted).
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(skip_serializing_if = "is_false")]
     tls_accept_invalid_certs: bool,
 
     /// Enables gzip transport compression.
     ///
     /// Default is on.
-    #[serde(default = "default_gzip")]
     enable_gzip: bool,
+
+    /// Enables brotli transport compression.
+    ///
+    /// Default is on.
+    enable_brotli: bool,
 
     /// Headers added to each request.
     ///
@@ -231,7 +244,6 @@ pub struct ReqwestClient {
     /// The default is `30s`. Can be turned off by setting to `nil`.
     #[serde(
         deserialize_with = "spirit::utils::deserialize_opt_duration",
-        default = "default_timeout",
         serialize_with = "spirit::utils::serialize_opt_duration"
     )]
     timeout: Option<Duration>,
@@ -241,7 +253,6 @@ pub struct ReqwestClient {
     /// The default is no connection timeout.
     #[serde(
         deserialize_with = "spirit::utils::deserialize_opt_duration",
-        default,
         serialize_with = "spirit::utils::serialize_opt_duration"
     )]
     connect_timeout: Option<Duration>,
@@ -251,26 +262,24 @@ pub struct ReqwestClient {
     /// No proxy is used if not set.
     #[structdoc(leaf = "URL")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    http_proxy: Option<SerdeUrl>,
+    http_proxy: Option<Url>,
 
     /// An URL for proxy to use on HTTPS requests.
     ///
     /// No proxy is used if not set.
     #[structdoc(leaf = "URL")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    https_proxy: Option<SerdeUrl>,
+    https_proxy: Option<Url>,
 
     /// How many redirects to allow for one request.
     ///
     /// The default value is 10. Support for redirects can be completely disabled by setting this
     /// to `nil`.
-    #[serde(default = "default_redirects")]
     redirects: Option<usize>,
 
     /// Manages automatic setting of the Referer header.
     ///
     /// Default is on.
-    #[serde(default = "default_referer")]
     referer: bool,
 
     /// Maximum number of idle connections per one host.
@@ -304,16 +313,21 @@ impl Default for ReqwestClient {
             tls_identity_password: None,
             tls_accept_invalid_hostnames: false,
             tls_accept_invalid_certs: false,
-            enable_gzip: default_gzip(),
+            enable_gzip: true,
+            enable_brotli: true,
             default_headers: HashMap::new(),
-            timeout: default_timeout(),
+            user_agent: None,
+            timeout: Some(Duration::from_secs(30)),
             connect_timeout: None,
+            pool_idle_timeout: Some(Duration::from_secs(90)),
             http_proxy: None,
             https_proxy: None,
-            redirects: default_redirects(),
-            referer: default_referer(),
+            redirects: Some(10),
+            referer: true,
             http2_only: false,
             http1_case_sensitive_headers: false,
+            http2_initial_connection_window_size: None,
+            http2_initial_stream_window_size: None,
             max_idle_per_host: None,
             tcp_nodelay: false,
             local_address: None,
@@ -330,7 +344,7 @@ impl ReqwestClient {
     /// Unless there's a need to tweak the configuration, the [`create`] is more comfortable.
     ///
     /// [`create_client`]: ReqwestClient::create
-    pub fn builder(&self) -> Result<ClientBuilder, AnyError> {
+    pub fn async_builder(&self) -> Result<ClientBuilder, AnyError> {
         debug!("Creating Reqwest client from {:?}", self);
         let mut headers = HeaderMap::new();
         for (key, val) in &self.default_headers {
@@ -341,25 +355,32 @@ impl ReqwestClient {
             headers.insert(name, header);
         }
         let redirects = match self.redirects {
-            None => RedirectPolicy::none(),
-            Some(limit) => RedirectPolicy::limited(limit),
+            None => Policy::none(),
+            Some(limit) => Policy::limited(limit),
         };
         let mut builder = Client::builder()
             .danger_accept_invalid_certs(self.tls_accept_invalid_certs)
             .danger_accept_invalid_hostnames(self.tls_accept_invalid_hostnames)
             .gzip(self.enable_gzip)
-            .timeout(self.timeout)
-            .connect_timeout(self.connect_timeout)
-            .max_idle_per_host(self.max_idle_per_host.unwrap_or(usize::max_value()))
+            .brotli(self.enable_brotli)
+            .tcp_nodelay_(self.tcp_nodelay)
+            .pool_max_idle_per_host(self.max_idle_per_host.unwrap_or(usize::max_value()))
+            .pool_idle_timeout(self.pool_idle_timeout)
             .local_address(self.local_address)
             .default_headers(headers)
             .redirect(redirects)
             .referer(self.referer);
-        if self.tcp_nodelay {
-            builder = builder.tcp_nodelay();
+        if let Some(agent) = self.user_agent.as_ref() {
+            builder = builder.user_agent(agent);
+        }
+        if let Some(timeout) = self.timeout {
+            builder = builder.timeout(timeout);
+        }
+        if let Some(connect_timeout) = self.connect_timeout {
+            builder = builder.connect_timeout(connect_timeout);
         }
         if self.http2_only {
-            builder = builder.h2_prior_knowledge();
+            builder = builder.http2_prior_knowledge();
         }
         if self.http1_case_sensitive_headers {
             builder = builder.http1_title_case_headers();
@@ -382,13 +403,13 @@ impl ReqwestClient {
             builder = builder.identity(identity);
         }
         if let Some(proxy) = &self.http_proxy {
-            let proxy_url = proxy.clone().into_inner();
+            let proxy_url = proxy.clone();
             let proxy = Proxy::http(proxy_url)
                 .with_context(|_| format!("Failed to configure http proxy to {:?}", proxy))?;
             builder = builder.proxy(proxy);
         }
-        if let Some(proxy) = &self.http_proxy {
-            let proxy_url = proxy.clone().into_inner();
+        if let Some(proxy) = &self.https_proxy {
+            let proxy_url = proxy.clone();
             let proxy = Proxy::https(proxy_url)
                 .with_context(|_| format!("Failed to configure https proxy to {:?}", proxy))?;
             builder = builder.proxy(proxy);
@@ -397,12 +418,16 @@ impl ReqwestClient {
         Ok(builder)
     }
 
+    pub fn blocking_builder(&self) -> Result<BlockingBuilder, AnyError> {
+        self.async_builder().map(BlockingBuilder::from)
+    }
+
     /// Creates a [`Client`] according to the configuration inside `self`.
     ///
     /// This is for manually creating the client. It is also possible to pair with an
     /// [`AtomicClient`] to form a [`CfgHelper`].
-    pub fn create_client(&self) -> Result<Client, AnyError> {
-        self.builder()?
+    pub fn create_client(&self) -> Result<BlockingClient, AnyError> {
+        self.blocking_builder()?
             .build()
             .context("Failed to finish creating Reqwest HTTP client")
             .map_err(AnyError::from)
@@ -442,7 +467,7 @@ impl ReqwestClient {
 /// [`client`]: AtomicClient::client
 /// [`get`]: AtomicClient::get
 #[derive(Clone, Debug)]
-pub struct AtomicClient(Arc<ArcSwapOption<Client>>);
+pub struct AtomicClient(Arc<ArcSwapOption<BlockingClient>>);
 
 impl Default for AtomicClient {
     fn default() -> Self {
@@ -450,7 +475,7 @@ impl Default for AtomicClient {
     }
 }
 
-impl<C: Into<Arc<Client>>> From<C> for AtomicClient {
+impl<C: Into<Arc<BlockingClient>>> From<C> for AtomicClient {
     fn from(c: C) -> Self {
         AtomicClient(Arc::new(ArcSwapOption::from(Some(c.into()))))
     }
@@ -487,7 +512,7 @@ impl AtomicClient {
 
     /// Creates an [`AtomicClient`] with default [`Client`] inside.
     pub fn unconfigured() -> Self {
-        AtomicClient(Arc::new(ArcSwapOption::from_pointee(Client::new())))
+        AtomicClient(Arc::new(ArcSwapOption::from_pointee(BlockingClient::new())))
     }
 
     /// Replaces the content of this [`AtomicClient`] with a new [`Client`].
@@ -497,7 +522,7 @@ impl AtomicClient {
     ///
     /// This replaces it for *all* connected handles (eg. created by cloning from the same
     /// original [`AtomicClient`]).
-    pub fn replace<C: Into<Arc<Client>>>(&self, by: C) {
+    pub fn replace<C: Into<Arc<BlockingClient>>>(&self, by: C) {
         let client = by.into();
         self.0.store(Some(client));
     }
@@ -511,7 +536,7 @@ impl AtomicClient {
     ///   While the content of the [`AtomicClient`] can change between calls to it, the content of
     ///   the [`Arc`] can't. While it is possible the client inside [`AtomicClient`] exchanged, the
     ///   [`Arc`] keeps its [`Client`] around (which may lead to multiple [`Client`]s in memory).
-    pub fn client(&self) -> Arc<Client> {
+    pub fn client(&self) -> Arc<BlockingClient> {
         self.0
             .load_full()
             .expect("Accessing Reqwest HTTP client before setting it up")
@@ -563,17 +588,37 @@ impl AtomicClient {
 spirit::simple_fragment! {
     impl Fragment for ReqwestClient {
         type Driver = CacheEq<ReqwestClient>;
-        type Resource = Client;
+        type Resource = ClientBuilder;
         type Installer = ();
-        fn create(&self, _: &'static str) -> Result<Client, AnyError> {
-            self.create_client()
+        fn create(&self, _: &'static str) -> Result<ClientBuilder, AnyError> {
+            self.async_builder()
         }
     }
 }
 
-impl<O, C> Installer<Client, O, C> for AtomicClient {
+pub struct IntoBlockingClient;
+
+impl<I, F> Transformation<ClientBuilder, I, F> for IntoBlockingClient {
+    type OutputResource = BlockingClient;
+    type OutputInstaller = ();
+    fn installer(&mut self, _: I, _: &str) {}
+    fn transform(
+        &mut self,
+        builder: ClientBuilder,
+        _: &F,
+        _: &str,
+    ) -> Result<Self::OutputResource, AnyError> {
+        let builder = BlockingBuilder::from(builder);
+        builder
+            .build()
+            .context("Failed to finish creating Reqwest HTTP client")
+            .map_err(AnyError::from)
+    }
+}
+
+impl<O, C> Installer<BlockingClient, O, C> for AtomicClient {
     type UninstallHandle = ();
-    fn install(&mut self, client: Client, name: &'static str) {
+    fn install(&mut self, client: BlockingClient, name: &'static str) {
         debug!("Installing http client '{}'", name);
         self.replace(client);
     }

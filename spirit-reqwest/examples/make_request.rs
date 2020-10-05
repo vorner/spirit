@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use spirit::prelude::*;
 use spirit::{Empty, Pipeline, Spirit};
-use spirit_reqwest::{AtomicClient, ReqwestClient};
+use spirit_reqwest::{AtomicClient, IntoBlockingClient, ReqwestClient};
 
 #[derive(Debug, Default, Deserialize)]
 struct Cfg {
@@ -30,6 +30,7 @@ fn main() {
         .with(
             Pipeline::new("http client")
                 .extract_cfg(Cfg::client)
+                .transform(IntoBlockingClient)
                 .install(client.clone()),
         )
         .run(move |_| {
