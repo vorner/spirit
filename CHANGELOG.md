@@ -1,3 +1,9 @@
+# spirit-unreleased
+
+* `Extensible::around_hooks` to support wrapping hooks/callbacks/pipelines
+  inside a context similar to `Extensible::run_around`.
+TODO: Bump required version of spirit inside spirit-tokio.
+
 # spirit-0.4.5
 # spirit-daemonize-0.3.2
 
