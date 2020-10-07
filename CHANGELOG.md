@@ -1,3 +1,7 @@
+# spirit-reqwest-0.4.0
+
+* Update to reqwest 0.10.
+
 # spirit-0.4.5
 # spirit-daemonize-0.3.2
 
