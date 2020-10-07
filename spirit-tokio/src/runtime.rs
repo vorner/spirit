@@ -101,7 +101,7 @@ pub type TokioBody = Box<dyn Future<Item = (), Error = AnyError> + Send>;
 /// [`FutureInstaller`]: crate::installer::FutureInstaller
 /// [`Fragment`]: spirit::Fragment
 /// [`run`]: spirit::SpiritBuilder::run
-/// [`with_singleton`]: spirit::extension::Extension::with_singleton
+/// [`with_singleton`]: spirit::extension::Extensible::with_singleton
 #[non_exhaustive]
 pub enum Runtime {
     /// Use the threadpool runtime.
@@ -268,7 +268,7 @@ impl ThreadPoolConfig {
     ///
     /// See the [example](#examples).
     ///
-    /// [`with`]: spirit::extension::Extension::with
+    /// [`with`]: spirit::extension::Extensible::with
     pub fn extension<O, C, F>(extract: F) -> impl Extension<Builder<O, C>>
     where
         F: Fn(&C) -> Self + Clone + Send + Sync + 'static,

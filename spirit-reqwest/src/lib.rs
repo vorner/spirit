@@ -327,9 +327,9 @@ impl ReqwestClient {
     /// This configures everything according to `self` and then returns the builder. The caller can
     /// modify it further and then create the client.
     ///
-    /// Unless there's a need to tweak the configuration, the [`create`] is more comfortable.
+    /// Unless there's a need to tweak the configuration, the [`create_client`] is more comfortable.
     ///
-    /// [`create_client`]: ReqwestClient::create
+    /// [`create_client`]: ReqwestClient::create_client
     pub fn builder(&self) -> Result<ClientBuilder, AnyError> {
         debug!("Creating Reqwest client from {:?}", self);
         let mut headers = HeaderMap::new();
@@ -400,7 +400,7 @@ impl ReqwestClient {
     /// Creates a [`Client`] according to the configuration inside `self`.
     ///
     /// This is for manually creating the client. It is also possible to pair with an
-    /// [`AtomicClient`] to form a [`CfgHelper`].
+    /// [`AtomicClient`] to form a [`Pipeline`][spirit::fragment::pipeline::Pipeline].
     pub fn create_client(&self) -> Result<Client, AnyError> {
         self.builder()?
             .build()

@@ -5,8 +5,8 @@
 //!
 //! Furthermore, [`Extensible`] is also implemented for `Result`s containing them. This allows
 //! chaining the building without manually handling the errors. The error then can be handled by
-//! [`SpiritBuilder::run`] and logged, without making a distinction if it comes from the setup or
-//! application run.
+//! [`Builder::run`][crate::Builder::run] and logged, without making a distinction if it comes from
+//! the setup or application run.
 //!
 //! Some libraries might want to provide bits of functionality that need to register several
 //! different callbacks at once to work properly. This is described by the [`Extension`] trait.
