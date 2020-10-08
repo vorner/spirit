@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-tokio/0.6.1/spirit_tokio/",
+    html_root_url = "https://docs.rs/spirit-tokio/0.6.1/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -118,13 +118,17 @@
 //! [`UnixListenWithLimits`]: net::unix::UnixListenWithLimits
 //! [`Builder`]: spirit::Builder
 
+/*
 pub mod either;
 pub mod handlers;
 pub mod installer;
 pub mod net;
+*/
 pub mod runtime;
 // pub mod scaled; XXX
 
+/*
 pub use crate::handlers::{HandleListener, HandleListenerInit, HandleSocket};
 pub use crate::net::{TcpListen, TcpListenWithLimits, UdpListen};
 pub use crate::runtime::Runtime;
+*/

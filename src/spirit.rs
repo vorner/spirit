@@ -254,13 +254,20 @@ where
     /// don't have to by `Sync`). That, however, means that you can't call `config_reload` or
     /// [`terminate`][Spirit::terminate] from any callback as that would lead to a deadlock.
     pub fn config_reload(&self) -> Result<(), AnyError> {
+        self.config_reload_with_wrapper(|inner| inner())
+    }
+
+    fn config_reload_with_wrapper<W>(&self, mut wrapper: W) -> Result<(), AnyError>
+    where
+        W: for<'a> FnMut(Box<dyn FnOnce() + 'a>),
+    {
         let mut new = self.load_config().context("Failed to load configuration")?;
         // The lock here is across the whole processing, to avoid potential races in logic
         // processing. This makes writing the hooks correctly easier.
         let mut hooks = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
         debug!("Running {} config mutators", hooks.config_mutators.len());
         for m in &mut hooks.config_mutators {
-            m(&mut new);
+            wrapper(Box::new(|| m(&mut new)));
         }
         let new = Arc::new(new);
         let old = self.config.load();
@@ -272,7 +279,11 @@ where
         let mut failed_validators = 0;
         let mut actions = Vec::with_capacity(hooks.config_validators.len());
         for v in hooks.config_validators.iter_mut() {
-            match v(&old, &new, &self.opts) {
+            let mut result = None;
+            wrapper(Box::new(|| {
+                result = Some(v(&old, &new, &self.opts));
+            }));
+            match result.expect("Hook wrapper didn't call inner") {
                 Ok(ac) => actions.push(ac),
                 Err(e) => {
                     failed_validators += 1;
@@ -310,7 +321,7 @@ where
         self.config.store(Arc::clone(&new));
         debug!("Running {} post-configuration hooks", hooks.config.len());
         for hook in &mut hooks.config {
-            hook(&self.opts, &new);
+            wrapper(Box::new(|| hook(&self.opts, &new)));
         }
         debug!("Configuration reloaded");
         Ok(())
@@ -403,7 +414,7 @@ where
             let term = match signal {
                 libc::SIGHUP => {
                     let _ = error::log_errors(module_path!(), || {
-                        self.wrap_around_hooks(|| self.config_reload())
+                        self.config_reload_with_wrapper(|inner| self.wrap_around_hooks(inner))
                     });
                     false
                 }
@@ -1016,7 +1027,7 @@ where
             bg_thread: Mutex::new(None),
         };
         spirit
-            .wrap_around_hooks(|| spirit.config_reload())
+            .config_reload_with_wrapper(|inner| spirit.wrap_around_hooks(inner))
             .context("Problem loading the initial configuration")?;
         let spirit = Arc::new(spirit);
         if background_thread {

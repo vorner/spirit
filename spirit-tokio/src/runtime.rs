@@ -1,5 +1,6 @@
 //! An extension to start the tokio runtime at the appropriate time.
 
+/*
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,9 +13,212 @@ use spirit::extension::{Extensible, Extension};
 use spirit::AnyError;
 use spirit::{Builder, Spirit};
 use structdoc::StructDoc;
-use structopt::StructOpt;
 use tokio::runtime;
+*/
 
+use std::sync::{Arc, Mutex, PoisonError};
+
+use err_context::AnyError;
+use err_context::prelude::*;
+use log::{debug, trace, warn};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use spirit::extension::{Extensible, Extension};
+use spirit::validation::Action;
+use structopt::StructOpt;
+use tokio::runtime::{Builder, Runtime};
+
+// TODO: Make rt-threaded optional (which'd disable a lot of stuff in here I guess?)
+
+// From tokio documentation
+const DEFAULT_MAX_THREADS: usize = 512;
+const THREAD_NAME: &str = "tokio-runtime-worker";
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", default)]
+pub struct Cfg {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    core_threads: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_threads: Option<usize>,
+    thread_name: String,
+}
+
+impl Default for Cfg {
+    fn default() -> Self {
+        Cfg {
+            core_threads: None,
+            max_threads: None,
+            thread_name: THREAD_NAME.to_owned(),
+        }
+    }
+}
+
+impl Into<Builder> for Cfg {
+    fn into(self) -> Builder {
+        let mut builder = Builder::new();
+        let threads = self.core_threads.unwrap_or_else(num_cpus::get);
+        builder.core_threads(threads);
+        let max = match self.max_threads {
+            None if threads >= DEFAULT_MAX_THREADS => {
+                warn!(
+                    "Increasing max threads from implicit {} to {} to match core threads",
+                    DEFAULT_MAX_THREADS, threads
+                );
+                threads
+            }
+            None => DEFAULT_MAX_THREADS,
+            Some(max_threads) if max_threads < threads => {
+                warn!(
+                    "Incrementing max threads from configured {} to {} to match core threads",
+                    max_threads, threads
+                );
+                threads
+            }
+            Some(max) => max,
+        };
+        builder.max_threads(max);
+        builder.thread_name(self.thread_name);
+        builder
+    }
+}
+
+#[non_exhaustive]
+pub enum Tokio<O, C> {
+    Default,
+    Custom(Box<dyn FnMut(&O, &Arc<C>) -> Result<Runtime, AnyError> + Send>),
+    FromCfg(
+        Box<dyn FnMut(&O, &C) -> Cfg + Send>,
+        Box<dyn FnMut(Builder) -> Result<Runtime, AnyError> + Send>,
+    ),
+}
+
+impl<O, C> Tokio<O, C> {
+    pub fn create(&mut self, opts: &O, cfg: &Arc<C>) -> Result<Runtime, AnyError> {
+        match self {
+            Tokio::Default => Runtime::new().map_err(AnyError::from),
+            Tokio::Custom(ctor) => ctor(opts, cfg),
+            Tokio::FromCfg(extractor, postprocess) => {
+                let cfg = extractor(opts, cfg);
+                let mut builder: Builder = cfg.into();
+                builder.enable_all().threaded_scheduler();
+                postprocess(builder)
+            }
+        }
+    }
+}
+
+impl<O, C> Default for Tokio<O, C> {
+    fn default() -> Self {
+        Tokio::Default
+    }
+}
+
+impl<E> Extension<E> for Tokio<E::Opts, E::Config>
+where
+    E: Extensible<Ok = E>,
+    E::Config: DeserializeOwned + Send + Sync + 'static,
+    E::Opts: StructOpt + Send + Sync + 'static,
+{
+    fn apply(mut self, ext: E) -> Result<E, AnyError> {
+        trace!("Wrapping in tokio runtime");
+
+        // The local hackonomicon:
+        //
+        // * We need to create a runtime and wrap both the application body in it and the
+        //   callbacks/hooks of spirit, as they might want to create some futures/resources that
+        //   need access to tokio.
+        // * But that will be ready only after we did the configuration. By that time we no longer
+        //   have access to anything that would allow us this kind of injection.
+        // * Furthermore, we need even the following on_config callbacks/whatever else to be
+        //   wrapped in the handle.
+        //
+        // Therefore we install the wrappers in right away and provide them with the data only once
+        // it is ready. The mutexes will always be unlocked, all these things will in fact be
+        // called from the same thread, it's just not possible to explain to Rust right now.
+
+        let runtime = Arc::new(Mutex::new(None));
+        let handle = Arc::new(Mutex::new(None));
+
+        let init = {
+            let mut initialized = false;
+            let runtime = Arc::clone(&runtime);
+            let handle = Arc::clone(&handle);
+            let mut prev_cfg = None;
+
+            // This runs as config validator to be sooner in the chain.
+            move |_: &_, cfg: &Arc<_>, opts: &_| -> Result<Action, AnyError> {
+                if initialized {
+                    if let Tokio::FromCfg(extract, _) = &mut self {
+                        let prev = prev_cfg.as_ref().expect("Should have stored config on init");
+                        let new = extract(opts, &cfg);
+                        if prev != &new {
+                            warn!("Tokio configuration differs, but can't be reloaded at run time");
+                        }
+                    }
+                } else {
+                    debug!("Creating the tokio runtime");
+                    let new_runtime = self.create(opts, &cfg).context("Tokio runtime creation")?;
+                    let new_handle = new_runtime.handle().clone();
+                    // We do so *right now* so the following config validators have some chance of
+                    // having the runtime. It's one-shot anyway, so we are not *replacing* anything
+                    // previous.
+                    *runtime.lock().unwrap() = Some(new_runtime);
+                    *handle.lock().unwrap() = Some(new_handle);
+                    initialized = true;
+                    if let Tokio::FromCfg(extract, _) = &mut self {
+                        prev_cfg = Some(extract(opts, &cfg));
+                    }
+                }
+                Ok(Action::new())
+            }
+        };
+
+        // Ugly hack: seems like Rust is not exactly ready to deal with our crazy type in here and
+        // deduce it in just the function call :-(. Force it by an explicit type.
+        let around_hooks: Box<dyn for<'a> FnMut(Box<dyn FnOnce() + 'a>) + Send> =
+            Box::new(move |inner| {
+                let locked = handle
+                    .lock()
+                    // The inner may panic and we are OK with that, we just want to be able to run
+                    // next time again.
+                    .unwrap_or_else(PoisonError::into_inner);
+
+                if let Some(handle) = locked.as_ref() {
+                    trace!("Wrapping hooks into tokio handle");
+                    handle.enter(inner);
+                    trace!("Leaving tokio handle");
+                } else {
+                    // During startup, the handle/runtime is not *yet* ready. This is OK and
+                    // expected, but we must run without it. And we also need to unlock that mutex,
+                    // because the inner might actually contain the above init and want to provide
+                    // the handle, so we don't want a deadlock.
+                    drop(locked);
+                    trace!("Running hooks without tokio handle, not available yet");
+                    inner();
+                }
+            });
+
+        ext
+            .config_validator(init)
+            .around_hooks(around_hooks)
+            .run_around(move |spirit, inner| -> Result<(), AnyError> {
+                // No need to worry about poisons here, we are going to be called just once
+                let runtime = runtime.lock().unwrap().take().expect("Run even before config");
+                debug!("Running with tokio handle");
+                let result = runtime.enter(inner);
+                if result.is_err() {
+                    warn!("Tokio runtime initialization body returned an error, trying to shut everything down gracefully");
+                    runtime.shutdown_background();
+                    spirit.terminate();
+                }
+                result
+                // Here the runtime is dropped. That makes it finish all the tasks.
+            })
+    }
+}
+
+/*
 /// A body run on tokio runtime.
 ///
 /// When specifying custom tokio runtime through the [`Runtime`](enum.Runtime.html) extension, this
@@ -333,3 +537,4 @@ impl ThreadPoolConfig {
         }
     }
 }
+*/
