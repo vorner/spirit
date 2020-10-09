@@ -17,8 +17,9 @@ include = [
 ]
 
 [features]
-default = ["cfg-help"]
+default = ["cfg-help", "rt-from-cfg"]
 cfg-help = ["spirit/cfg-help", "structdoc"]
+rt-from-cfg = ["tokio/rt-threaded", "tokio/time", "tokio/io-driver"]
 
 [badges]
 travis-ci = { repository = "vorner/spirit" }
@@ -32,8 +33,13 @@ serde = { version = "~1", features = ["derive"] }
 spirit = { version = "~0.4.0", path = "..", default-features = false }
 structdoc = { version = "~0.1", optional = true }
 structopt = { version = "~0.3", default-features = false }
+
+[dependencies.tokio]
 # TODO: Make some/all these features optional (maybe default)?
-tokio = { version = "0.2", default-features = false, features = ["io-driver", "time", "rt-threaded"] }
+version = "0.2"
+default-features = false
+features = ["macros", "rt-core", "sync"]
 
 [dev-dependencies]
 version-sync = "~0.9"
+env_logger = "0.7"

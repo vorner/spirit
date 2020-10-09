@@ -6,19 +6,20 @@
 //! [`FutureInstaller`]: crate::installer::FutureInstaller
 //! [`Installer`]: spirit::fragment::Installer
 
-use futures::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
-use futures::sync::oneshot::{self, Receiver, Sender};
-use futures::{Future, IntoFuture, Stream};
-use log::{debug, error, trace, warn};
+use std::future::Future;
+
+use err_context::AnyError;
+use log::trace;
 use serde::de::DeserializeOwned;
 use spirit::extension::Extensible;
 use spirit::fragment::Installer;
-use spirit::AnyError;
 use structopt::StructOpt;
+use tokio::runtime::Handle;
+use tokio::select;
+use tokio::sync::oneshot::{self, Receiver, Sender};
 
-use crate::runtime::Runtime;
+use crate::runtime::Tokio;
 
-// TODO: Make this publicly creatable
 /// An [`UninstallHandle`] for the [`FutureInstaller`].
 ///
 /// This allows to cancel a future when this handle is dropped and wait for it to happen. It is not
@@ -28,7 +29,7 @@ use crate::runtime::Runtime;
 pub struct RemoteDrop {
     name: &'static str,
     request_drop: Option<Sender<()>>,
-    drop_confirmed: Option<Receiver<()>>,
+    terminated: Option<Receiver<()>>,
 }
 
 impl Drop for RemoteDrop {
@@ -37,112 +38,80 @@ impl Drop for RemoteDrop {
         // Ask the other side to drop the thing
         let _ = self.request_drop.take().unwrap().send(());
         // And wait for it to actually happen
-        let _ = self.drop_confirmed.take().unwrap().wait();
+        let mut terminated = self.terminated.take().unwrap();
+        if terminated.try_recv().is_err() {
+            let _ = Handle::current().block_on(terminated);
+        }
         trace!("Remote drop done on {}", self.name);
     }
 }
 
-struct Install<R> {
-    resource: R,
-    drop_req: Receiver<()>,
-    confirm_drop: Sender<()>,
-}
+struct SendOnDrop(Option<Sender<()>>);
 
-impl<R> Install<R>
-where
-    R: IntoFuture<Item = (), Error = ()> + Send,
-    R::Future: Send + 'static,
-{
-    fn spawn(self, name: &'static str) {
-        let drop_req = self.drop_req;
-        let confirm_drop = self.confirm_drop;
-        let fut = self
-            .resource
-            .into_future()
-            .map_err(move |()| error!("{} unexpectedly failed", name))
-            .select(drop_req.map_err(|_| ()))
-            .then(move |orig| {
-                // Just make sure the original future is dropped first
-                drop(orig);
-                // Nobody listening for that is fine.
-                let _ = confirm_drop.send(());
-                debug!("Terminated resource {}", name);
-                Ok(())
-            });
-
-        tokio::spawn(fut);
+impl Drop for SendOnDrop {
+    fn drop(&mut self) {
+        let _ = self.0.take().unwrap().send(());
     }
 }
 
-/// An [`Installer`] of [`Future`]s.
+/// An installer able to install (an uninstall) long-running futures.
 ///
-/// The future is spawned onto a default runtime. An installer that'd install into specific runtime
-/// is possible, but hasn't been written yet.
+/// This is an installer that can be used with [`Fragment`] that produce futures.
 ///
-/// End-user applications seldom need to interact with this type directly, since it is set up by
-/// all the [`handlers`][crate::handlers]. However, if you're writing a new [`Fragment`] or new
-/// [`Transformation`], you might want to reuse it.
+/// * If the spirit does not contain a [`Tokio`] runtime yet, one (the default one) will be added
+///   as a singleton. Note that this has effect on how spirit manages lifetime of the application.
+/// * An uninstallation is performed by dropping canceling the future.
+/// * This works with both concrete types (implementing `Future<Output = ()> + Send`) and boxed
+///   ones. Note that the boxed ones are `Pin<Box<dyn Future<Output = ()> + Send>>`, created by
+///   [`Box::pin`].
+///
+/// See the crate level examples for details how to use (the installer is used only as the
+/// associated type in the fragment implementation).
 ///
 /// [`Fragment`]: spirit::fragment::Fragment
-/// [`Transformation`]: spirit::fragment::Transformation
-pub struct FutureInstaller<R> {
-    receiver: Option<UnboundedReceiver<Install<R>>>,
-    sender: UnboundedSender<Install<R>>,
-}
+#[derive(Copy, Clone, Debug, Default)]
+pub struct FutureInstaller;
 
-impl<R> Default for FutureInstaller<R> {
-    fn default() -> Self {
-        let (sender, receiver) = mpsc::unbounded();
-        FutureInstaller {
-            receiver: Some(receiver),
-            sender,
-        }
-    }
-}
-
-impl<R, O, C> Installer<R, O, C> for FutureInstaller<R>
+impl<F, O, C> Installer<F, O, C> for FutureInstaller
 where
-    R: IntoFuture<Item = (), Error = ()> + Send + 'static,
-    R::Future: Send + 'static,
+    F: Future<Output = ()> + Send + 'static,
 {
     type UninstallHandle = RemoteDrop;
-    fn install(&mut self, resource: R, name: &'static str) -> RemoteDrop {
-        let (drop_send, drop_recv) = oneshot::channel();
+
+    fn install(&mut self, fut: F, name: &'static str) -> RemoteDrop {
+        let (request_send, request_recv) = oneshot::channel();
         let (confirm_send, confirm_recv) = oneshot::channel();
-        let sent = self.sender.unbounded_send(Install {
-            resource,
-            drop_req: drop_recv,
-            confirm_drop: confirm_send,
-        });
-        if sent.is_err() {
-            warn!(
-                "Remote installer end of {} no longer listens (shutting down?)",
-                name
-            );
-        }
+
+        // Make sure we can terminate the future remotely/uninstall it.
+        // (Is there a more lightweight version in tokio than bringing in the macros & doing an
+        // async block? The futures crate has select function, but we don't have futures as dep and
+        // bringing it just for this feels… heavy)
+        let cancellable_future = async move {
+            // Send the confirmation we're done by RAII. This works with panics and shutdown.
+            let _guard = SendOnDrop(Some(confirm_send));
+
+            select! {
+                _ = request_recv => trace!("Future {} requested to terminate", name),
+                _ = fut => trace!("Future {} terminated on its own", name),
+            };
+        };
+
+        trace!("Installing future {}", name);
+        tokio::spawn(cancellable_future);
+
         RemoteDrop {
             name,
-            request_drop: Some(drop_send),
-            drop_confirmed: Some(confirm_recv),
+            request_drop: Some(request_send),
+            terminated: Some(confirm_recv),
         }
     }
-    fn init<B: Extensible<Opts = O, Config = C, Ok = B>>(
-        &mut self,
-        builder: B,
-        name: &'static str,
-    ) -> Result<B, AnyError>
+
+    fn init<E>(&mut self, ext: E, _name: &'static str) -> Result<E, AnyError>
     where
-        B::Config: DeserializeOwned + Send + Sync + 'static,
-        B::Opts: StructOpt + Send + Sync + 'static,
+        E: Extensible<Opts = O, Config = C, Ok = E>,
+        E::Config: DeserializeOwned + Send + Sync + 'static,
+        E::Opts: StructOpt + Send + Sync + 'static,
     {
-        let receiver = self.receiver.take().expect("Init called multiple times");
-        let installer = receiver.for_each(move |install| {
-            install.spawn(name);
-            Ok(())
-        });
-        builder.with_singleton(Runtime::default()).run_before(|_| {
-            tokio::spawn(installer);
-            Ok(())
-        })
+        ext.with_singleton(Tokio::Default)
     }
 }

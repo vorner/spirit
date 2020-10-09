@@ -4,131 +4,122 @@
 )]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
-#![allow(
-    unknown_lints,
-    clippy::unknown_clippy_lints,
-    clippy::needless_doctest_main
-)]
 
-//! A collection of [`Fragment`]s and [`Extension`]s integrating tokio primitives into [spirit].
+//! Support for tokio inside spirit
 //!
-//! The crate provides utilities to auto-configure tokio primitives, like listening sockets. This
-//! allows, for example, specifying just the function that handles a single connection and let
-//! spirit handle all the rest ‒ creating and shutting down the listening socket based on the
-//! configuration changes, specifying details like the listen backlog or TCP keepalive, etc. It
-//! couples them together and spawns the resulting future onto a tokio runtime (also created by
-//! this crate, around the main body of application).
+//! For now, this provides configuration for the runtime and an installer of futures.
 //!
-//! # Available fragments
+//! The previous versions also had [`Fragment`]s for configuring network primitives. These were for
+//! tokio 0.1 and were not ported yet to support tokio 0.2. They may come back (hint: you can help
+//! by PR).
 //!
-//! * [`TcpListen`] for [`TcpListener`]
-//! * [`UdpListen`] for [`UdpSocket`] (bound to an address)
-//! * [`UnixListen`] for [`UnixListener`] (available on unix systems)
-//! * [`DatagramListen`] for [`UnixDatagram`] (available on unix systems)
+//! Note that this enables several features of [`tokio`].
 //!
-//! The [`WithListenLimits`] is a wrapper that adds limits to number of concurrent connections as
-//! well as a backoff timeout in case of soft errors (like „Too many open files“). There are also
-//! type aliases [`TcpListenWithLimits`] and [`UnixListenWithLimits`].
+//! # Features
 //!
-//! # Runtime
-//!
-//! Currently, the crate supports spawning futures on the default runtime only. It also sets up the
-//! default runtime as part of the pipelines. However, this works only if at least one pipeline is
-//! plugged into the [`Builder`]. If all the pipelines you install into [spirit] are plugged after
-//! building, it'll panic.
-//!
-//! In such case, the runtime needs to be plugged in manually as part of the setup, like this:
-//!
-//! ```rust
-//! # use spirit::{Empty, Spirit};
-//! # use spirit::prelude::*;
-//! # use spirit_tokio::runtime::Runtime;
-//! Spirit::<Empty, Empty>::new()
-//!     .with_singleton(Runtime::default())
-//!     .run(|_spirit| {
-//!         // Plugging spirit-tokio pipelines in here into _spirit
-//!         Ok(())
-//!     });
-//! ```
+//! * `rt-from-cfg`: Allows creating runtime from configuration. Enables the [`Tokio::FromCfg`]
+//!   variant and [`Cfg`][crate::runtime::Cfg]. Enabled by default.
+//! * `cfg-help`: Support for generating help for the configuration options.
 //!
 //! # Examples
 //!
 //! ```rust
-//! use std::sync::Arc;
+//! use std::future::Future;
+//! use std::pin::Pin;
+//! use std::time::Duration;
 //!
-//! use serde::Deserialize;
-//! use spirit::{AnyError, Empty, Pipeline, Spirit};
+//! use err_context::AnyError;
+//! use serde::{Deserialize, Serialize};
+//! use spirit::{Empty, Pipeline, Spirit};
 //! use spirit::prelude::*;
-//! use spirit_tokio::{HandleListener, TcpListenWithLimits};
-//! use tokio::prelude::*;
+//! use spirit::fragment::driver::CacheEq;
+//! use spirit_tokio::{FutureInstaller, Tokio};
+//! use spirit_tokio::runtime::Cfg as TokioCfg;
+//! use structdoc::StructDoc;
 //!
-//! const DEFAULT_CONFIG: &str = r#"
-//! [listening_socket]
-//! port = 1234
-//! max-conn = 20
-//! error-sleep = "100ms"
-//! "#;
-//!
-//! #[derive(Default, Deserialize)]
-//! struct Config {
-//!     listening_socket: TcpListenWithLimits,
+//! #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, StructDoc)]
+//! #[serde(default)]
+//! struct MsgCfg {
+//!     /// A message to print now and then.
+//!     msg: String,
+//!     /// Time between printing the message.
+//!     interval: Duration,
 //! }
 //!
-//! impl Config {
-//!     fn listening_socket(&self) -> TcpListenWithLimits {
-//!         self.listening_socket.clone()
+//! impl MsgCfg {
+//!     async fn run(self) {
+//!         loop {
+//!             println!("{}", self.msg);
+//!             tokio::time::delay_for(self.interval).await;
+//!         }
 //!     }
 //! }
 //!
-//! fn connection<C: AsyncRead + AsyncWrite>(conn: C) -> impl Future<Item = (), Error = AnyError> {
-//!     tokio::io::write_all(conn, "Hello\n")
-//!         .map(|_| ())
-//!         .map_err(AnyError::from)
+//! impl Default for MsgCfg {
+//!     fn default() -> Self {
+//!         MsgCfg {
+//!             msg: "Hello".to_owned(),
+//!             interval: Duration::from_secs(1),
+//!         }
+//!     }
+//! }
+//!
+//! spirit::simple_fragment! {
+//!     impl Fragment for MsgCfg {
+//!         type Driver = CacheEq<MsgCfg>;
+//!         type Resource = Pin<Box<dyn Future<Output = ()> + Send>>;
+//!         type Installer = FutureInstaller;
+//!         fn create(&self, _: &'static str) -> Result<Self::Resource, AnyError> {
+//!             let fut = self.clone().run();
+//!             Ok(Box::pin(fut))
+//!         }
+//!     }
+//! }
+//!
+//! /// An application.
+//! #[derive(Default, Deserialize, Serialize, StructDoc)]
+//! struct AppConfig {
+//!     #[serde(flatten)]
+//!     msg: MsgCfg,
+//!
+//!     /// Configuration of the asynchronous tokio runtime.
+//!     #[serde(default)]
+//!     threadpool: TokioCfg,
+//! }
+//!
+//! impl AppConfig {
+//!     fn threadpool(&self) -> TokioCfg {
+//!         self.threadpool.clone()
+//!     }
+//!
+//!     fn msg(&self) -> &MsgCfg {
+//!         &self.msg
+//!     }
 //! }
 //!
 //! fn main() {
-//!     Spirit::<Empty, Config>::new()
-//!         .config_defaults(DEFAULT_CONFIG)
-//!         .with(
-//!             Pipeline::new("listener")
-//!                 .extract_cfg(Config::listening_socket)
-//!                 .transform(HandleListener(|conn, _cfg: &_| connection(conn)))
-//!         )
+//!     Spirit::<Empty, AppConfig>::new()
+//!         // Makes sure we have a runtime configured from the config.
+//!         // If we don't do this, the pipeline below would insert a default Tokio runtime to make
+//!         // it work. If you want to customize the runtime (like here), make sure to insert it
+//!         // before any pipelines requiring it (otherwise you get the default one from them).
+//!         .with_singleton(Tokio::from_cfg(AppConfig::threadpool))
+//!         // Will install and possibly cancel and replace the future if the config changes.
+//!         .with(Pipeline::new("Msg").extract_cfg(AppConfig::msg))
+//!         // Just an empty body here.
 //!         .run(|spirit| {
-//! #           let spirit = Arc::clone(spirit);
-//! #           std::thread::spawn(move || spirit.terminate());
+//!             // Usually, one would terminate by CTRL+C, but we terminate from here to make sure
+//!             // the example finishes.
+//!             spirit.terminate();
 //!             Ok(())
-//!         });
+//!         })
 //! }
 //! ```
 //!
-//! Further examples are in the
-//! [git repository](https://github.com/vorner/spirit/tree/master/spirit-tokio/examples).
-//!
-//! [`Fragment`]: spirit::Fragment
-//! [`Extension`]: spirit::extension::Extension
-//! [spirit]: https://crates.io/crates/spirit.
-//! [`TcpListener`]: ::tokio::net::TcpListener
-//! [`UdpSocket`]: ::tokio::net::UdpSocket
-//! [`UnixListen`]: net::unix::UnixListen
-//! [`UnixListener`]: ::tokio::net::unix::UnixListener
-//! [`DatagramListen`]: net::unix::DatagramListen
-//! [`UnixDatagram`]: ::tokio::net::unix::UnixDatagram
-//! [`WithListenLimits`]: net::limits::WithListenLimits
-//! [`UnixListenWithLimits`]: net::unix::UnixListenWithLimits
-//! [`Builder`]: spirit::Builder
+//! [`Fragment`]: spirit::fragment::Fragment
 
-/*
-pub mod either;
-pub mod handlers;
 pub mod installer;
-pub mod net;
-*/
 pub mod runtime;
-// pub mod scaled; XXX
 
-/*
-pub use crate::handlers::{HandleListener, HandleListenerInit, HandleSocket};
-pub use crate::net::{TcpListen, TcpListenWithLimits, UdpListen};
-pub use crate::runtime::Runtime;
-*/
+pub use crate::installer::FutureInstaller;
+pub use crate::runtime::Tokio;

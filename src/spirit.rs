@@ -307,12 +307,12 @@ where
         if errors == 0 {
             debug!("Validation successful, switching to new config");
             for a in actions {
-                a.run(true);
+                wrapper(Box::new(|| a.run(true)));
             }
         } else {
             debug!("Rolling back validation attempt");
             for a in actions {
-                a.run(false);
+                wrapper(Box::new(|| a.run(false)));
             }
             return Err(ValidationError(errors, failed_validators).into());
         }
