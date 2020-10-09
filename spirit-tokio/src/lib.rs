@@ -8,11 +8,9 @@
 
 //! Support for tokio inside spirit
 //!
-//! For now, this provides configuration for the runtime and an installer of futures.
+//! This provides configuration of the tokio runtime and installer of futures.
 //!
-//! The previous versions also had [`Fragment`]s for configuring network primitives. These were for
-//! tokio 0.1 and were not ported yet to support tokio 0.2. They may come back (hint: you can help
-//! by PR).
+//! It also provides few configuration [`Fragment`]s for configuring network primitives.
 //!
 //! Note that this enables several features of [`tokio`].
 //!
@@ -120,6 +118,8 @@
 //! [`Fragment`]: spirit::fragment::Fragment
 
 pub mod installer;
+#[cfg(feature = "net")]
+pub mod net;
 pub mod runtime;
 
 pub use crate::installer::FutureInstaller;

@@ -18,8 +18,11 @@ include = [
 
 [features]
 default = ["cfg-help", "rt-from-cfg"]
+
 cfg-help = ["spirit/cfg-help", "structdoc"]
+net = ["humantime", "net2", "tokio/net"]
 rt-from-cfg = ["tokio/rt-threaded", "tokio/time", "tokio/io-driver"]
+stream = ["tokio/stream"]
 
 [badges]
 travis-ci = { repository = "vorner/spirit" }
@@ -28,6 +31,8 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 err-context = "~0.1"
 log = "~0.4"
+humantime = { version = "~2", optional = true }
+net2 = { version = "~0.2", optional = true }
 num_cpus = "~1"
 serde = { version = "~1", features = ["derive"] }
 spirit = { version = "~0.4.0", path = "..", default-features = false }
@@ -42,4 +47,5 @@ features = ["macros", "rt-core", "sync"]
 
 [dev-dependencies]
 version-sync = "~0.9"
-env_logger = "0.7"
+env_logger = "~0.7"
+serde_json = "~1"

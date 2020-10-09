@@ -8,12 +8,6 @@ Several helpers to easily integrate tokio with configuration managed by the
 See the [docs](https://docs.rs/spirit-tokio) and the
 [examples](spirit-tokio/examples).
 
-## Missing APIs
-
-After migrating to the [tokio 0.2](https://docs.rs/tokio/0.2.*/), most of the
-APIs and configuration fragments for network primitives are not available. This
-is mostly because they were not ported yet. PRs in that regard are welcome.
-
 ## License
 
 Licensed under either of
