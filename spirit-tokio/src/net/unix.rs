@@ -178,14 +178,16 @@ pub type UnixListenWithLimits<ExtraCfg = Empty, UnixStreamConfig = UnixConfig> =
 /// apply here except that the base configuration fields are taken from [`unix::Listen`] instead of
 /// [`net::Listen`].
 ///
-/// [`UdpListen`]: crate::UdpListen
+/// [`UdpListen`]: crate::net::UdpListen
 /// [`unix::Listen`]: Listen
 /// [`net::Listen`]: crate::net::Listen
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
+#[non_exhaustive]
 pub struct DatagramListen<ExtraCfg = Empty> {
+    /// The listening address.
     #[serde(flatten)]
-    listen: Listen,
+    pub listen: Listen,
 
     /// Arbitrary application-specific configuration that doesn't influence the socket itself.
     ///
