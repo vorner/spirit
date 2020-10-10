@@ -34,6 +34,8 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::stream::Stream;
 
 pub mod limits;
+#[cfg(unix)]
+pub mod unix;
 
 // TODO: Unix domain sockets
 // TODO: Either?
