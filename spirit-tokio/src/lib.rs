@@ -1,7 +1,10 @@
 #![doc(
     html_root_url = "https://docs.rs/spirit-tokio/0.6.1/",
-    test(attr(deny(warnings)))
+    test(attr(deny(warnings))),
+
 )]
+// Our program-long snippets are more readable with main
+#![allow(clippy::needless_doctest_main)]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -115,12 +118,18 @@
 //! }
 //! ```
 //!
+//! An alternative approach can be seen at [`handlers::ToFutureUnconfigured`].
+//!
 //! [`Fragment`]: spirit::fragment::Fragment
 
+//pub mod either;
+pub mod handlers;
 pub mod installer;
 #[cfg(feature = "net")]
 pub mod net;
 pub mod runtime;
 
 pub use crate::installer::FutureInstaller;
+#[cfg(feature = "net")]
+pub use crate::net::{TcpListen, TcpListenWithLimits, UdpListen};
 pub use crate::runtime::Tokio;

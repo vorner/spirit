@@ -13,6 +13,7 @@
 //! [`WithListenLimits`]: crate::net::limits::WithListenLimits
 //! [`TcpListenWithLimits`]: crate::net::TcpListenWithLimits
 
+use std::cmp;
 use std::fmt::Debug;
 use std::future::Future;
 use std::io::{Error as IoError, SeekFrom};
@@ -52,7 +53,7 @@ pub trait ListenLimits {
 
     /// Maximum number of active connections one instance will have.
     ///
-    /// If you don't want the limit, return some huge number (`usize::max_value() / 2 - 1` is
+    /// If you don't want the limit, return some huge number (`usize::max_value() / 8 - 1` is
     /// recommended maximum).
     fn max_conn(&self) -> usize;
 }
@@ -121,11 +122,13 @@ where
         name: &'static str,
     ) -> Result<Self::Resource, AnyError> {
         let inner = self.listen.make_resource(seed, name)?;
+        // :-( Semaphore can't handle more than that
+        let limit = cmp::min(self.limits.max_conn(), usize::MAX >> 4);
         Ok(Limited {
             inner,
             error_sleep: self.limits.error_sleep(),
             err_delay: None,
-            allowed_conns: Arc::new(Semaphore::new(self.limits.max_conn())),
+            allowed_conns: Arc::new(Semaphore::new(limit)),
             permit_fut: None,
         })
     }
@@ -149,7 +152,7 @@ fn default_error_sleep() -> Duration {
 /// * `error-sleep`: The back-off time when non-fatal error happens, in human readable form.
 ///   Defaults to `100ms` if not present.
 /// * `max-conn`: Maximum number of parallel connections on this listener. Defaults to no limit
-///   (well, to `usize::max_value() / 2 - 1`, actually, for technical reasons, but that should be
+///   (well, to `usize::max_value() / 8 - 1`, actually, for technical reasons, but that should be
 ///   effectively no limit).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
@@ -345,51 +348,51 @@ impl<C> DerefMut for Tracked<C> {
 // fulfill it, so we probably don't really care.
 impl<C: AsyncBufRead + Unpin> AsyncBufRead for Tracked<C> {
     fn poll_fill_buf(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Result<&[u8], IoError>> {
-        Pin::new(self.get_mut()).poll_fill_buf(ctx)
+        Pin::new(&mut self.get_mut().inner).poll_fill_buf(ctx)
     }
     fn consume(mut self: Pin<&mut Self>, amt: usize) {
-        self.as_mut().consume(amt)
+        Pin::new(&mut self.inner).consume(amt)
     }
 }
 
-impl<C: AsyncRead> AsyncRead for Tracked<C> {
+impl<C: AsyncRead + Unpin> AsyncRead for Tracked<C> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         ctx: &mut Context,
         buf: &mut [u8],
     ) -> Poll<Result<usize, IoError>> {
-        self.as_mut().poll_read(ctx, buf)
+        Pin::new(&mut self.inner).poll_read(ctx, buf)
     }
 }
 
-impl<C: AsyncSeek> AsyncSeek for Tracked<C> {
+impl<C: AsyncSeek + Unpin> AsyncSeek for Tracked<C> {
     fn start_seek(
         mut self: Pin<&mut Self>,
         ctx: &mut Context,
         position: SeekFrom,
     ) -> Poll<Result<(), IoError>> {
-        self.as_mut().start_seek(ctx, position)
+        Pin::new(&mut self.inner).start_seek(ctx, position)
     }
     fn poll_complete(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<u64, IoError>> {
-        self.as_mut().poll_complete(ctx)
+        Pin::new(&mut self.inner).poll_complete(ctx)
     }
 }
 
-impl<C: AsyncWrite> AsyncWrite for Tracked<C> {
+impl<C: AsyncWrite + Unpin> AsyncWrite for Tracked<C> {
     fn poll_write(
         mut self: Pin<&mut Self>,
         ctx: &mut Context,
         buf: &[u8],
     ) -> Poll<Result<usize, IoError>> {
-        self.as_mut().poll_write(ctx, buf)
+        Pin::new(&mut self.inner).poll_write(ctx, buf)
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<(), IoError>> {
-        self.as_mut().poll_flush(ctx)
+        Pin::new(&mut self.inner).poll_flush(ctx)
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<(), IoError>> {
-        self.as_mut().poll_shutdown(ctx)
+        Pin::new(&mut self.inner).poll_shutdown(ctx)
     }
 }
 
