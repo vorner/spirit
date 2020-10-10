@@ -17,10 +17,11 @@ include = [
 ]
 
 [features]
-default = ["cfg-help", "rt-from-cfg"]
+# TODO: Cut down on the default features a bit
+default = ["cfg-help", "rt-from-cfg", "net", "stream"]
 
 cfg-help = ["spirit/cfg-help", "structdoc"]
-net = ["humantime", "net2", "tokio/net"]
+net = ["humantime", "net2", "tokio/net", "tokio/time"]
 rt-from-cfg = ["tokio/rt-threaded", "tokio/time", "tokio/io-driver"]
 stream = ["tokio/stream"]
 

@@ -33,7 +33,8 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 #[cfg(feature = "stream")]
 use tokio::stream::Stream;
 
-// TODO: Limits
+pub mod limits;
+
 // TODO: Unix domain sockets
 // TODO: Either?
 
@@ -112,6 +113,7 @@ impl Serialize for MaybeDuration {
     }
 }
 
+/// A plumbing type, return value of [`Accept::accept`].
 pub struct AcceptFuture<'a, A: ?Sized>(&'a mut A);
 
 impl<A: Accept> Future for AcceptFuture<'_, A> {
@@ -509,8 +511,11 @@ where
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[non_exhaustive]
 pub struct TcpListen<ExtraCfg = Empty, TcpStreamConfigure = TcpConfig> {
+    /// The actual listener socket address.
     #[serde(flatten)]
     pub listen: Listen,
+
+    /// Configuration to be applied to the accepted connections.
     #[serde(flatten)]
     pub tcp_config: TcpStreamConfigure,
 
@@ -564,15 +569,12 @@ where
 /// This doesn't configure much more than the minimum actually needed.
 pub type MinimalTcpListen<ExtraCfg = Empty> = TcpListen<ExtraCfg, Empty>;
 
-/*
- * TODO
 /// Convenience type alias for configuration fragment for TCP listening socket with handling of
 /// accept errors and limiting number of current connections.
 ///
 /// You might prefer this one over plain [`TcpListen`].
 pub type TcpListenWithLimits<ExtraCfg = Empty, TcpStreamConfigure = TcpConfig> =
     limits::WithLimits<TcpListen<ExtraCfg, TcpStreamConfigure>>;
-*/
 
 /// A configuration fragment describing a bound UDP socket.
 ///
@@ -589,9 +591,11 @@ pub type TcpListenWithLimits<ExtraCfg = Empty, TcpStreamConfigure = TcpConfig> =
 /// prestent.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
+#[non_exhaustive]
 pub struct UdpListen<ExtraCfg = Empty> {
+    /// Configuration for the address to bind to.
     #[serde(flatten)]
-    listen: Listen,
+    pub listen: Listen,
 
     /// Arbitrary application specific configuration that doesn't influence the created socket, but
     /// can be examined in the [`handlers`].
