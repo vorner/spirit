@@ -22,6 +22,12 @@
 //! * `rt-from-cfg`: Allows creating runtime from configuration. Enables the [`Tokio::FromCfg`]
 //!   variant and [`Cfg`][crate::runtime::Cfg]. Enabled by default.
 //! * `cfg-help`: Support for generating help for the configuration options.
+//! * `net`: Network primitive configuration [`Fragment`]s in the [`net`] module.
+//! * `stream`: Implementations of [`tokio::stream::Stream`] on several types.
+//! * `futures`: Support for converting between [`futures`][futures_util]' and ours
+//!   [`Either`][crate::either::Either].
+//! * `either`: Support for converting between our [`Either`][crate::either::Either] and the one
+//!   from the [`either`] crate.
 //!
 //! # Examples
 //!
@@ -122,7 +128,7 @@
 //!
 //! [`Fragment`]: spirit::fragment::Fragment
 
-//pub mod either;
+pub mod either;
 pub mod handlers;
 pub mod installer;
 #[cfg(feature = "net")]

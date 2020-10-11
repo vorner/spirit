@@ -25,11 +25,15 @@ net = ["humantime", "net2", "tokio/net", "tokio/time"]
 rt-from-cfg = ["tokio/rt-threaded", "tokio/time", "tokio/io-driver"]
 stream = ["tokio/stream"]
 
+futures = ["futures-util"]
+
 [badges]
 travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
 [dependencies]
+either = { version = "~1", optional = true }
+futures-util = { version = "~0.3", optional = true, default-features = false }
 err-context = "~0.1"
 log = "~0.4"
 humantime = { version = "~2", optional = true }
