@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::CacheEq;
 use spirit::prelude::*;
 use spirit::{Empty, Pipeline, Spirit};
-use spirit_tokio::runtime::Cfg as TokioCfg;
+use spirit_tokio::runtime::Config as TokioCfg;
 use spirit_tokio::{FutureInstaller, Tokio};
 use structdoc::StructDoc;
 
