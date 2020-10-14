@@ -26,15 +26,14 @@ cfg-help = ["spirit/cfg-help", "spirit-tokio/cfg-help", "structdoc"]
 
 [dependencies]
 err-context = "~0.1"
-futures = "~0.1"
-hyper = "~0.12.17"
+hyper = "~0.13"
 log = "~0.4"
 serde = { version = "~1", features = ["derive"] }
 spirit = { path = "..", version = "~0.4.0", default-features = false }
-spirit-tokio = { path = "../spirit-tokio", version = "~0.6", default-features = false }
+spirit-tokio = { path = "../spirit-tokio", version = "~0.6", default-features = false, features = ["net"] }
 structdoc = { version = "~0.1", optional = true }
 structopt = { version = "~0.3", default-features = false }
-tokio = "~0.1"
+tokio = { version = "~0.2", default-features = false, features = ["rt-core"] }
 
 [dev-dependencies]
 env_logger = "~0.7"

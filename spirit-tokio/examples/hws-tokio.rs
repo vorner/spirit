@@ -20,11 +20,11 @@ use log::{debug, warn};
 use serde::Deserialize;
 use spirit::prelude::*;
 use spirit::{AnyError, Empty, Pipeline, Spirit};
-use spirit_tokio::Tokio;
 use spirit_tokio::handlers::PerConnection;
-use spirit_tokio::net::TcpListenWithLimits;
 use spirit_tokio::net::limits::Tracked;
+use spirit_tokio::net::TcpListenWithLimits;
 use spirit_tokio::runtime::Cfg as TokioCfg;
+use spirit_tokio::Tokio;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
@@ -111,9 +111,7 @@ pub fn main() {
         .with(
             Pipeline::new("listen")
                 .extract_cfg(Config::listen)
-                .transform(PerConnection(conn_handler))
+                .transform(PerConnection(conn_handler)),
         )
-        .run(|_| {
-            Ok(())
-        });
+        .run(|_| Ok(()));
 }

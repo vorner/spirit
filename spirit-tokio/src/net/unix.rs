@@ -16,8 +16,8 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use err_context::AnyError;
 use err_context::prelude::*;
+use err_context::AnyError;
 use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};

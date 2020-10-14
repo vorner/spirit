@@ -5,9 +5,9 @@ use std::io::{Error as IoError, SeekFrom};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use err_context::AnyError;
 #[cfg(feature = "either")]
 use either::Either as OtherEither;
+use err_context::AnyError;
 #[cfg(feature = "futures")]
 use futures_util::future::Either as FutEither;
 use serde::de::DeserializeOwned;
@@ -334,7 +334,8 @@ impl<A, B> Stackable for Either<A, B>
 where
     A: Stackable,
     B: Stackable,
-{ }
+{
+}
 
 impl<A, B, AR, BR> Comparable<Either<AR, BR>> for Either<A, B>
 where

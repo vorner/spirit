@@ -1,3 +1,12 @@
+# spirit-hyper
+
+* Upgrade to spirit-hyper to 0.13.
+
+# spirit-tokio-unreleased
+
+* Upgrade to tokio 0.2. Hopefully not much functionality lost on the way. API
+  changed, unfortunately.
+
 # spirit-unreleased
 
 * `Extensible::around_hooks` to support wrapping hooks/callbacks/pipelines

@@ -4,11 +4,11 @@ use std::time::Duration;
 
 use err_context::AnyError;
 use serde::{Deserialize, Serialize};
-use spirit::{Empty, Pipeline, Spirit};
-use spirit::prelude::*;
 use spirit::fragment::driver::CacheEq;
-use spirit_tokio::{FutureInstaller, Tokio};
+use spirit::prelude::*;
+use spirit::{Empty, Pipeline, Spirit};
 use spirit_tokio::runtime::Cfg as TokioCfg;
+use spirit_tokio::{FutureInstaller, Tokio};
 use structdoc::StructDoc;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, StructDoc)]
@@ -78,7 +78,5 @@ fn main() {
     Spirit::<Empty, AppConfig>::new()
         .with_singleton(Tokio::from_cfg(AppConfig::threadpool))
         .with(Pipeline::new("Msg").extract_cfg(AppConfig::msg))
-        .run(|_| {
-            Ok(())
-        })
+        .run(|_| Ok(()))
 }
