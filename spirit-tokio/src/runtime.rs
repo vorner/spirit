@@ -2,21 +2,26 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use err_context::AnyError;
 use err_context::prelude::*;
+use err_context::AnyError;
 use log::{debug, trace, warn};
 use serde::de::DeserializeOwned;
+#[cfg(feature = "rt-from-cfg")]
 use serde::{Deserialize, Serialize};
 use spirit::extension::{Extensible, Extension};
 use spirit::validation::Action;
-#[cfg(feature = "cfg-help")]
+#[cfg(all(feature = "cfg-help", feature = "rt-from-cfg"))]
 use structdoc::StructDoc;
 use structopt::StructOpt;
-use tokio::runtime::{Builder, Runtime};
+#[cfg(feature = "rt-from-cfg")]
+use tokio::runtime::Builder;
+use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
 // From tokio documentation
+#[cfg(feature = "rt-from-cfg")]
 const DEFAULT_MAX_THREADS: usize = 512;
+#[cfg(feature = "rt-from-cfg")]
 const THREAD_NAME: &str = "tokio-runtime-worker";
 
 /// Configuration for building a threaded runtime.
@@ -142,13 +147,8 @@ impl<O, C> Tokio<O, C> {
         E: FnMut(&C) -> Cfg + Send + 'static,
     {
         let extractor = move |_opts: &O, cfg: &C| extractor(&cfg);
-        let finish = |mut builder: Builder| -> Result<Runtime, AnyError> {
-            Ok(builder.build()?)
-        };
-        Tokio::FromCfg(
-            Box::new(extractor),
-            Box::new(finish),
-        )
+        let finish = |mut builder: Builder| -> Result<Runtime, AnyError> { Ok(builder.build()?) };
+        Tokio::FromCfg(Box::new(extractor), Box::new(finish))
     }
 
     /// Method to create the runtime.
@@ -213,7 +213,9 @@ where
                 if initialized {
                     #[cfg(feature = "rt-from-cfg")]
                     if let Tokio::FromCfg(extract, _) = &mut self {
-                        let prev = prev_cfg.as_ref().expect("Should have stored config on init");
+                        let prev = prev_cfg
+                            .as_ref()
+                            .expect("Should have stored config on init");
                         let new = extract(opts, &cfg);
                         if prev != &new {
                             warn!("Tokio configuration differs, but can't be reloaded at run time");

@@ -6,27 +6,27 @@
 //! [`Fragment`]: spirit::Fragment
 
 use std::cmp;
-use std::io::Error as IoError;
 use std::fmt::Debug;
 use std::future::Future;
+use std::io::Error as IoError;
 use std::net::{IpAddr, TcpListener as StdTcpListener, UdpSocket as StdUdpSocket};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use err_context::AnyError;
 use err_context::prelude::*;
+use err_context::AnyError;
 #[cfg(not(unix))]
 use log::warn;
-use net2::{TcpBuilder, UdpBuilder};
 #[cfg(unix)]
 use net2::unix::{UnixTcpBuilderExt, UnixUdpBuilderExt};
+use net2::{TcpBuilder, UdpBuilder};
 use serde::de::{Deserializer, Error as DeError, Unexpected};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
-use spirit::Empty;
-use spirit::fragment::{Fragment, Stackable};
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
+use spirit::fragment::{Fragment, Stackable};
+use spirit::Empty;
 #[cfg(feature = "cfg-help")]
 use structdoc::StructDoc;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
@@ -685,6 +685,9 @@ mod tests {
 
     #[test]
     fn maybe_duration_nil() {
-        assert_eq!(MaybeDuration::Unset, MaybeDuration::load(r#"{"maybe": null}"#).unwrap());
+        assert_eq!(
+            MaybeDuration::Unset,
+            MaybeDuration::load(r#"{"maybe": null}"#).unwrap()
+        );
     }
 }

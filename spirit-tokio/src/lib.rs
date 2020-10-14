@@ -1,7 +1,6 @@
 #![doc(
     html_root_url = "https://docs.rs/spirit-tokio/0.6.1/",
-    test(attr(deny(warnings))),
-
+    test(attr(deny(warnings)))
 )]
 // Our program-long snippets are more readable with main
 #![allow(clippy::needless_doctest_main)]

@@ -478,7 +478,9 @@ mod tests {
         time::timeout(Duration::from_secs(5), async {
             acceptor.await.unwrap();
             connector.await.unwrap();
-        }).await.expect("Didn't finish test in time");
+        })
+        .await
+        .expect("Didn't finish test in time");
     }
 
     /// Similar to above, but we don't check for the fact we don't get a connection.
@@ -508,6 +510,8 @@ mod tests {
         time::timeout(Duration::from_secs(5), async {
             acceptor.await.unwrap();
             connector.await.unwrap();
-        }).await.expect("Didn't finish test in time");
+        })
+        .await
+        .expect("Didn't finish test in time");
     }
 }
