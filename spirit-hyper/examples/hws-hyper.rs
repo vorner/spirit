@@ -112,7 +112,7 @@ fn main() {
             spirit.with(
                 Pipeline::new("listen")
                     .extract_cfg(Config::listen)
-                    .transform(BuildServer(build_server))
+                    .transform(BuildServer(build_server)),
             )?;
             Ok(())
         });

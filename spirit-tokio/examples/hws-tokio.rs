@@ -23,7 +23,7 @@ use spirit::{AnyError, Empty, Pipeline, Spirit};
 use spirit_tokio::handlers::PerConnection;
 use spirit_tokio::net::limits::Tracked;
 use spirit_tokio::net::TcpListenWithLimits;
-use spirit_tokio::runtime::Cfg as TokioCfg;
+use spirit_tokio::runtime::Config as TokioCfg;
 use spirit_tokio::Tokio;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;

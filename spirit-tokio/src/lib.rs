@@ -41,7 +41,7 @@
 //! use spirit::prelude::*;
 //! use spirit::fragment::driver::CacheEq;
 //! use spirit_tokio::{FutureInstaller, Tokio};
-//! use spirit_tokio::runtime::Cfg as TokioCfg;
+//! use spirit_tokio::runtime::Config as TokioCfg;
 //! use structdoc::StructDoc;
 //!
 //! #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, StructDoc)]

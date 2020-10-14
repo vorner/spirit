@@ -30,7 +30,7 @@ const THREAD_NAME: &str = "tokio-runtime-worker";
 #[serde(rename_all = "kebab-case", default)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[non_exhaustive]
-pub struct Cfg {
+pub struct Config {
     /// Number of threads used for asynchronous processing.
     ///
     /// Defaults to number of available CPUs in the system if left unconfigured.
@@ -48,9 +48,9 @@ pub struct Cfg {
 }
 
 #[cfg(feature = "rt-from-cfg")]
-impl Default for Cfg {
+impl Default for Config {
     fn default() -> Self {
-        Cfg {
+        Config {
             core_threads: None,
             max_threads: None,
             thread_name: THREAD_NAME.to_owned(),
@@ -59,7 +59,7 @@ impl Default for Cfg {
 }
 
 #[cfg(feature = "rt-from-cfg")]
-impl Into<Builder> for Cfg {
+impl Into<Builder> for Config {
     fn into(self) -> Builder {
         let mut builder = Builder::new();
         let threads = self.core_threads.unwrap_or_else(num_cpus::get);
@@ -130,7 +130,7 @@ pub enum Tokio<O, C> {
     /// This is available only with the [`rt-from-cfg`] feature enabled.
     #[cfg(feature = "rt-from-cfg")]
     FromCfg(
-        Box<dyn FnMut(&O, &C) -> Cfg + Send>,
+        Box<dyn FnMut(&O, &C) -> Config + Send>,
         Box<dyn FnMut(Builder) -> Result<Runtime, AnyError> + Send>,
     ),
 }
@@ -144,7 +144,7 @@ impl<O, C> Tokio<O, C> {
     #[cfg(feature = "rt-from-cfg")]
     pub fn from_cfg<E>(mut extractor: E) -> Self
     where
-        E: FnMut(&C) -> Cfg + Send + 'static,
+        E: FnMut(&C) -> Config + Send + 'static,
     {
         let extractor = move |_opts: &O, cfg: &C| extractor(&cfg);
         let finish = |mut builder: Builder| -> Result<Runtime, AnyError> { Ok(builder.build()?) };
