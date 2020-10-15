@@ -2,6 +2,8 @@
     html_root_url = "https://docs.rs/spirit-hyper/0.6.0/spirit_hyper/",
     test(attr(deny(warnings)))
 )]
+// Our program-long snippets are more readable with main
+#![allow(clippy::needless_doctest_main)]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
