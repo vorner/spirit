@@ -44,7 +44,7 @@ where
 /// The future is created later on, during the transformation phase. While a little bit more
 /// verbose here, this comes with two advantages:
 ///
-/// * Works with already provided fragments, like the network primitives in [`net`][crate::net]. IN
+/// * Works with already provided fragments, like the network primitives in [`net`][crate::net]. In
 ///   that case you might want to prefer the [`ToFuture`], as it also gives access to the original
 ///   configuration fragment, including any extra configuration for the future.
 /// * The future can be an arbitrary anonymous/unnameable type (eg. `impl Future` or an `async`
