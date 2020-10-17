@@ -181,7 +181,7 @@ where
                     let fut = (me.f)(conn, &me.cfg);
                     tokio::spawn(fut);
                 }
-                Poll::Pending => break Poll::Pending,
+                Poll::Pending => return Poll::Pending,
             }
         }
     }
