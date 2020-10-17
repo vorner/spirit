@@ -1,3 +1,8 @@
+# spirit-unreleased
+
+* Fix `--version` (taken from the application, not from spirit).
+* Don't use hidden/private API of structopt.
+
 # spirit-reqwest-0.4.0
 
 * Update to reqwest 0.10.

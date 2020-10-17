@@ -54,25 +54,17 @@ use fallible_iterator::FallibleIterator;
 use log::{debug, trace, warn};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use structopt::clap::App;
-use structopt::{StructOpt, StructOptInternal};
+use structopt::clap::{App, Arg};
+use structopt::StructOpt;
 use toml::Value;
 
+use crate::utils;
 use crate::AnyError;
 
-#[derive(Default, StructOpt)]
+#[derive(Default)]
 struct CommonOpts {
-    /// Override specific config values.
-    #[structopt(
-        short = "C",
-        long = "config-override",
-        parse(try_from_str = crate::utils::key_val),
-        number_of_values(1),
-    )]
     config_overrides: Vec<(String, String)>,
 
-    /// Configuration files or directories to load.
-    #[structopt(parse(from_os_str = crate::utils::absolute_from_os_str))]
     configs: Vec<PathBuf>,
 }
 
@@ -83,16 +75,49 @@ struct OptWrapper<O> {
 
 // Unfortunately, StructOpt doesn't like flatten with type parameter
 // (https://github.com/TeXitoi/structopt/issues/128). It is not even trivial to do, since some of
-// the very important functions are *not* part of the trait. So we do it manually ‒ we take the
-// type parameter's clap definition and add our own into it.
+// the very important functions are *not* part of the trait.
+//
+// Furthermore, flattening does ugly things to our version and name and description. Therefore, we
+// simply manually use clap and enrich all the things here by the right parameters (inspired by
+// what structopt for the CommonOpts actually derives).
 impl<O: StructOpt> StructOpt for OptWrapper<O> {
     fn clap<'a, 'b>() -> App<'a, 'b> {
-        CommonOpts::augment_clap(O::clap())
+        O::clap()
+            .arg(
+                Arg::with_name("config-overrides")
+                    .takes_value(true)
+                    .multiple(true)
+                    .validator(|s| {
+                        utils::key_val(s.as_str())
+                            .map(|_: (String, String)| ())
+                            .map_err(|e| e.to_string())
+                    })
+                    .help("Override specific config values")
+                    .short("C")
+                    .long("config-override")
+                    .number_of_values(1),
+            )
+            .arg(
+                Arg::with_name("configs")
+                    .takes_value(true)
+                    .multiple(true)
+                    .help("Configuration files or directories to load"),
+            )
     }
 
     fn from_clap(matches: &structopt::clap::ArgMatches) -> Self {
+        let common = CommonOpts {
+            config_overrides: matches
+                .values_of("config-overrides")
+                .map_or_else(Vec::new, |v| {
+                    v.map(|s| utils::key_val(s).unwrap()).collect()
+                }),
+            configs: matches
+                .values_of_os("configs")
+                .map_or_else(Vec::new, |v| v.map(utils::absolute_from_os_str).collect()),
+        };
         OptWrapper {
-            common: StructOpt::from_clap(matches),
+            common,
             other: StructOpt::from_clap(matches),
         }
     }

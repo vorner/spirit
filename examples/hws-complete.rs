@@ -40,13 +40,18 @@ use structopt::StructOpt;
 // `--config-override` to override one or more config option on the command line and it'll accept
 // an optional list of config files and config directories.
 //
-// Note that this doc comment gets printed as part of the `--help` message:
+// Note that this doc comment gets printed as part of the `--help` message, you can include
+// authors, etc:
 /// A Hello World Service.
 ///
 /// Will listen on some HTTP sockets and greet every client that comes with a configured message,
 /// by default „hello world“.
 ///
 /// You can play with the options, configuration, runtime-reloading (by SIGHUP), etc.
+#[structopt(
+    version = "1.0.0-example", // Taken from Cargo.toml if not specified
+    author,
+)]
 #[derive(Clone, Debug, StructOpt)]
 struct Opts {
     // Adds the `--daemonize` and `--foreground` options.
