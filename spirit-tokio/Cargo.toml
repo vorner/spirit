@@ -21,7 +21,7 @@ include = [
 default = ["cfg-help", "rt-from-cfg", "net", "stream"]
 
 cfg-help = ["spirit/cfg-help", "structdoc"]
-net = ["humantime", "net2", "tokio/net", "tokio/time"]
+net = ["humantime", "socket2", "tokio/net", "tokio/time"]
 rt-from-cfg = ["tokio/rt-threaded", "tokio/time", "tokio/io-driver"]
 stream = ["tokio/stream"]
 
@@ -37,7 +37,7 @@ futures-util = { version = "~0.3", optional = true, default-features = false }
 err-context = "~0.1"
 log = "~0.4"
 humantime = { version = "~2", optional = true }
-net2 = { version = "~0.2", optional = true }
+socket2 = { version = "~0.3", optional = true, features = ["reuseport"] }
 num_cpus = "~1"
 serde = { version = "~1", features = ["derive"] }
 spirit = { version = "~0.4.0", path = "..", default-features = false }

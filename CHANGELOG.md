@@ -11,11 +11,7 @@
 * Remove doc comments in build from `StructOpt` things, to work around problem
   in `structopt`.
 
-# spirit-reqwest-0.4.0
-
-* Update to reqwest 0.10.
-
-# spirit-hyper
+# spirit-hyper-unreleased
 
 * Upgrade to spirit-hyper to 0.13.
 
@@ -23,6 +19,8 @@
 
 * Upgrade to tokio 0.2. Hopefully not much functionality lost on the way. API
   changed, unfortunately.
+* Use `socket2` instead of `net2`. Besides `net2` being deprecated, this'll
+  allow us some more options for the sockets in the future.
 
 # spirit-unreleased
 
@@ -34,6 +32,10 @@
 * `Extensible::around_hooks` to support wrapping hooks/callbacks/pipelines
   inside a context similar to `Extensible::run_around`.
 TODO: Bump required version of spirit inside spirit-tokio.
+
+# spirit-reqwest-0.4.0
+
+* Update to reqwest 0.10.
 
 # spirit-0.4.5
 # spirit-daemonize-0.3.2

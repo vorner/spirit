@@ -9,7 +9,7 @@ use std::cmp;
 use std::fmt::Debug;
 use std::future::Future;
 use std::io::Error as IoError;
-use std::net::{IpAddr, TcpListener as StdTcpListener, UdpSocket as StdUdpSocket};
+use std::net::{IpAddr, SocketAddr, TcpListener as StdTcpListener, UdpSocket as StdUdpSocket};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -19,11 +19,10 @@ use err_context::AnyError;
 #[cfg(not(unix))]
 use log::warn;
 #[cfg(unix)]
-use net2::unix::{UnixTcpBuilderExt, UnixUdpBuilderExt};
-use net2::{TcpBuilder, UdpBuilder};
 use serde::de::{Deserializer, Error as DeError, Unexpected};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
+use socket2::{Domain, Socket, Type as SocketType};
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};
 use spirit::Empty;
@@ -269,57 +268,55 @@ impl Default for Listen {
 }
 
 impl Listen {
-    /// Creates a TCP socket described by the loaded configuration.
-    ///
-    /// This is the synchronous socket from standard library. See [`TcpListener::from_std`].
-    pub fn create_tcp(&self) -> Result<StdTcpListener, AnyError> {
-        let builder = match self.host {
-            IpAddr::V4(_) => TcpBuilder::new_v4(),
-            IpAddr::V6(_) => TcpBuilder::new_v6(),
-        }?;
+    fn create_any(&self, tp: SocketType) -> Result<Socket, AnyError> {
+        let domain = match self.host {
+            IpAddr::V4(_) => Domain::ipv4(),
+            IpAddr::V6(_) => Domain::ipv6(),
+        };
+        let socket = Socket::new(domain, tp, None).context("Creating socket")?;
         if let Some(only_v6) = self.only_v6 {
-            builder.only_v6(only_v6)?;
+            socket
+                .set_only_v6(only_v6)
+                .context("Setting IPV6_V6ONLY flag")?;
         }
         if let Some(reuse_addr) = self.reuse_addr {
-            builder.reuse_address(reuse_addr)?;
+            socket
+                .set_reuse_address(reuse_addr)
+                .context("Setting SO_REUSEADDR flag")?;
         }
         if let Some(reuse_port) = self.reuse_port {
             #[cfg(unix)]
-            builder.reuse_port(reuse_port)?;
+            socket
+                .set_reuse_port(reuse_port)
+                .context("Setting SO_REUSEPORT flag")?;
             #[cfg(not(unix))]
             warn!("reuse-port does nothing on this platform");
         }
         if let Some(ttl) = self.ttl {
-            builder.ttl(ttl)?;
+            socket.set_ttl(ttl)?;
         }
-        builder.bind((self.host, self.port))?;
-        Ok(builder.listen(cmp::min(self.backlog, i32::max_value() as u32) as i32)?)
+        let addr = SocketAddr::from((self.host, self.port));
+        socket
+            .bind(&addr.into())
+            .with_context(|_| format!("Binding socket to {}", addr))?;
+        Ok(socket)
+    }
+    /// Creates a TCP socket described by the loaded configuration.
+    ///
+    /// This is the synchronous socket from standard library. See [`TcpListener::from_std`].
+    pub fn create_tcp(&self) -> Result<StdTcpListener, AnyError> {
+        let sock = self.create_any(SocketType::stream())?;
+        sock.listen(cmp::min(self.backlog, i32::max_value() as u32) as i32)
+            .context("Listening to TCP socket")?;
+        Ok(sock.into_tcp_listener())
     }
 
     /// Creates a UDP socket described by the loaded configuration.
     ///
     /// This is the synchronous socket from standard library. See [`UdpSocket::from_std`].
     pub fn create_udp(&self) -> Result<StdUdpSocket, AnyError> {
-        let builder = match self.host {
-            IpAddr::V4(_) => UdpBuilder::new_v4(),
-            IpAddr::V6(_) => UdpBuilder::new_v6(),
-        }?;
-        if let Some(only_v6) = self.only_v6 {
-            builder.only_v6(only_v6)?;
-        }
-        if let Some(reuse_addr) = self.reuse_addr {
-            builder.reuse_address(reuse_addr)?;
-        }
-        if let Some(reuse_port) = self.reuse_port {
-            #[cfg(unix)]
-            builder.reuse_port(reuse_port)?;
-            #[cfg(not(unix))]
-            warn!("reuse-port does nothing on this platform");
-        }
-        if let Some(ttl) = self.ttl {
-            builder.ttl(ttl)?;
-        }
-        Ok(builder.bind((self.host, self.port))?)
+        let sock = self.create_any(SocketType::dgram())?;
+        Ok(sock.into_udp_socket())
     }
 }
 
