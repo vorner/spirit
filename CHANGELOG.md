@@ -1,3 +1,8 @@
+# spirit-daemonize-unreleased
+
+* Move to pipelines.
+* Postpone daemonization for after stuff got validated, so errors are shown.
+
 # spirit-unreleased
 
 * Fix `--version` (taken from the application, not from spirit).

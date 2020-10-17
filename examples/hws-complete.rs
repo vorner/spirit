@@ -11,6 +11,7 @@
 
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use hyper::server::Builder;
 use hyper::service::service_fn_ok;
 use hyper::{Body, Request, Response};
@@ -235,10 +236,10 @@ keep-alive = "15s"
 /// This thing handles one request. The plumbing behind the scenes give it access to the relevant
 /// parts of config.
 #[allow(clippy::needless_pass_by_value)] // The server_configured expects this signature
-fn hello(spirit: &Arc<Spirit<Opts, Cfg>>, cfg: &Arc<Server>, req: Request<Body>) -> Response<Body> {
+fn hello(global_cfg: &Cfg, cfg: &Arc<Server>, req: Request<Body>) -> Response<Body> {
     trace!("Handling request {:?}", req);
     // Get some global configuration
-    let mut msg = format!("{}\n", spirit.config().ui.msg);
+    let mut msg = format!("{}\n", global_cfg.ui.msg);
     // Get some listener-local configuration.
     if let Some(ref signature) = extract_signature(cfg) {
         msg.push_str(&format!("Brought to you by {}\n", signature));
@@ -248,6 +249,19 @@ fn hello(spirit: &Arc<Spirit<Opts, Cfg>>, cfg: &Arc<Server>, req: Request<Body>)
 
 /// Putting it all together and starting.
 fn main() {
+    let global_cfg = Arc::new(ArcSwap::from_pointee(Cfg::default()));
+    let build_server = {
+        let global_cfg = Arc::clone(&global_cfg);
+        move |builder: Builder<_>, cfg: &Server, _: &'static str| {
+            let global_cfg = Arc::clone(&global_cfg);
+            let cfg = Arc::new(cfg.clone());
+            builder.serve(move || {
+                let global_cfg = Arc::clone(&global_cfg);
+                let cfg = Arc::clone(&cfg);
+                service_fn_ok(move |req| hello(&global_cfg.load(), &cfg, req))
+            })
+        }
+    };
     Spirit::<Opts, Cfg>::new()
         // The baked in configuration.
         .config_defaults(DEFAULT_CONFIG)
@@ -264,9 +278,10 @@ fn main() {
         // Plug in the daemonization configuration and command line arguments. The library will
         // make it alive ‒ it'll do the actual daemonization based on the config, it only needs to
         // be told it should do so this way.
-        .with(Daemon::extension(|cfg: &Cfg, opts: &Opts| {
-            opts.daemon.transform(cfg.daemon.clone())
-        }))
+        .with(
+            Pipeline::new("daemon")
+                .extract(|o: &Opts, c: &Cfg| o.daemon.transform(c.daemon.clone())),
+        )
         // Similarly with logging.
         .with(
             Pipeline::new("logging").extract(|opts: &Opts, cfg: &Cfg| LogBoth {
@@ -280,31 +295,21 @@ fn main() {
         .on_config(|cmd_line, new_cfg| {
             debug!("Current cmdline: {:?} and config {:?}", cmd_line, new_cfg);
         })
+        .on_config({
+            let cfg = Arc::clone(&global_cfg);
+            move |_, new_cfg| cfg.store(Arc::clone(new_cfg))
+        })
         // Configure number of threads & similar
         .with(ThreadPoolConfig::extension(Cfg::threadpool))
-        // If we didn't use ThreadPoolConfig, we would have to make sure we have tokio runtime (the
-        // server pipeline would make sure it is available, but we plug it in quite late).
-        //.with_singleton(Runtime::default())
-        // And run the application.
-        //
-        // Mostly empty body here is fine. The rest of the work will happen afterwards, inside the
-        // HTTP server.
-        .run(|spirit| {
-            let spirit_srv = Arc::clone(spirit);
-            let build_server = move |builder: Builder<_>, cfg: &Server, _: &'static str| {
-                let spirit = Arc::clone(&spirit_srv);
-                let cfg = Arc::new(cfg.clone());
-                builder.serve(move || {
-                    let spirit = Arc::clone(&spirit);
-                    let cfg = Arc::clone(&cfg);
-                    service_fn_ok(move |req| hello(&spirit, &cfg, req))
-                })
-            };
-            spirit.with(
-                Pipeline::new("listen")
-                    .extract_cfg(Cfg::listen)
-                    .transform(BuildServer(build_server)),
-            )?;
+        // And finally, the server.
+        .with(
+            Pipeline::new("listen")
+                .extract_cfg(Cfg::listen)
+                .transform(BuildServer(build_server)),
+        )
+        .run(|_| {
+            // The run is empty, that's OK, because we are running with tokio. We let it keep
+            // running until we shut down the application.
             Ok(())
         });
 }

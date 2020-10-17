@@ -401,7 +401,12 @@
 //!             opts: opts.logging.clone(),
 //!         }))
 //!         // Also add daemonization
-//!         .with(Daemon::extension(|cfg: &Cfg, opts: &Opts| opts.daemon.transform(cfg.daemon.clone())))
+//!         .with(
+//!             Pipeline::new("daemon")
+//!                 .extract(|o: &Opts, c: &Cfg| {
+//!                     o.daemon.transform(c.daemon.clone())
+//!                 })
+//!         )
 //!         // Let's provide some --config-help and --config-dump options. These get the
 //!         // information from the documentation strings we provided inside the structures. It
 //!         // also uses the `Serialize` trait to provide the dump.

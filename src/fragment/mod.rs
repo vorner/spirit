@@ -369,7 +369,7 @@ where
 // TODO: Export the macro for other containers?
 // TODO: The where-* should be where-?
 macro_rules! fragment_for_seq {
-    ($cond: ident => $container: ident<$base: ident $(, $extra: ident)*> $(where $($bounds: tt)+)*) => {
+    ($cond: ident => $container: ident<$base: ident $(, $extra: ident)*> $(where $($bounds: tt)+)?) => {
         impl<$base: Fragment + $cond + 'static $(, $extra)*> Fragment
             for $container<$base $(, $extra)*>
         $(

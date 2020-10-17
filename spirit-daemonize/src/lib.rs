@@ -15,7 +15,7 @@
 //!
 //! ```rust
 //! use serde::Deserialize;
-//! use spirit::Spirit;
+//! use spirit::{Pipeline, Spirit};
 //! use spirit::prelude::*;
 //! use spirit_daemonize::{Daemon, Opts as DaemonOpts};
 //! use structopt::StructOpt;
@@ -27,12 +27,6 @@
 //!     daemon: Daemon,
 //! }
 //!
-//! impl Cfg {
-//!    fn daemon(&self, opts: &Opts) -> Daemon {
-//!        opts.daemon.transform(self.daemon.clone())
-//!    }
-//! }
-//!
 //! // From command line
 //! #[derive(Debug, StructOpt)]
 //! struct Opts {
@@ -42,7 +36,13 @@
 //!
 //! fn main() {
 //!      Spirit::<Opts, Cfg>::new()
-//!         .with(Daemon::extension(Cfg::daemon))
+//!         .with(
+//!             Pipeline::new("daemon")
+//!                 .extract(|o: &Opts, c: &Cfg| {
+//!                     // Put the two sources together to one Daemon
+//!                     o.daemon.transform(c.daemon.clone())
+//!                 })
+//!         )
 //!         .run(|_spirit| {
 //!             // Possibly daemonized program goes here
 //!             Ok(())
@@ -68,7 +68,8 @@
 //! As daemonization is done by using `fork`, you should start any threads *after* you initialize
 //! the `spirit`. Otherwise you'll lose the threads (and further bad things will happen).
 //!
-//! The daemonization happens inside the `config_validator` callback. If other config validators
+//! The daemonization happens inside the application of [validator
+//! actions][spirit::validation::Action] of `config_validator` callback. If other config validators
 //! need to start any threads, they should be plugged in after the daemonization callback. However,
 //! the safer option is to start them inside the `run` method.
 
@@ -79,19 +80,76 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::sync::Arc;
 
 use err_context::prelude::*;
 use log::{debug, trace, warn};
 use nix::sys::stat::{self, Mode};
 use nix::unistd::{self, ForkResult, Gid, Uid};
 use serde::{Deserialize, Serialize};
-use spirit::extension::{Extensible, Extension};
-use spirit::validation::Action;
+use spirit::error::log_errors;
+use spirit::fragment::driver::OnceDriver;
+use spirit::fragment::Installer;
+
 use spirit::AnyError;
 use structdoc::StructDoc;
 #[cfg(feature = "cfg-help")]
 use structopt::StructOpt;
+
+/// Intermediate plumbing type.
+///
+/// This is passed through the [`Pipeline`] as a way of signalling the next actions. Users are not
+/// expected to interact directly with this.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct Daemonize {
+    daemonize: bool,
+    pid_file: Option<PathBuf>,
+}
+
+impl Daemonize {
+    /// Goes into background according to the configuration.
+    ///
+    /// This does the actual work of daemonization. This can be used manually.
+    ///
+    /// This is not expected to fail in practice, as all checks are performed in advance. It can
+    /// fail for rare race conditions (eg. the directory where the PID file should go disappears
+    /// between the check and now) or if there are not enough PIDs available to fork.
+    pub fn daemonize(&self) -> Result<(), AnyError> {
+        if self.daemonize {
+            trace!("Redirecting stdio");
+            let devnull = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open("/dev/null")
+                .context("Failed to open /dev/null")?;
+            for fd in &[0, 1, 2] {
+                unistd::dup2(devnull.as_raw_fd(), *fd)
+                    .with_context(|_| format!("Failed to redirect FD {}", fd))?;
+            }
+            trace!("Doing double fork");
+            if let ForkResult::Parent { .. } = unistd::fork().context("Failed to fork")? {
+                process::exit(0);
+            }
+            unistd::setsid()?;
+            if let ForkResult::Parent { .. } = unistd::fork().context("Failed to fork")? {
+                process::exit(0);
+            }
+        } else {
+            trace!("Not going to background");
+        }
+        if let Some(file) = self.pid_file.as_ref() {
+            let mut f = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o644)
+                .open(file)
+                .with_context(|_| format!("Failed to write PID file {}", file.display()))?;
+            writeln!(f, "{}", unistd::getpid())?;
+        }
+        Ok(())
+    }
+}
 
 /// Configuration of either user or a group.
 ///
@@ -99,6 +157,7 @@ use structopt::StructOpt;
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum SecId {
     /// Look up based on the name.
     Name(String),
@@ -148,6 +207,7 @@ impl Default for SecId {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub struct Daemon {
     /// The user to drop privileges to.
     ///
@@ -181,19 +241,18 @@ pub struct Daemon {
     /// but it doesn't go to background.
     #[serde(default)]
     pub daemonize: bool,
-
-    // Prevent the user from creating this directly.
-    #[serde(default, skip)]
-    sentinel: (),
 }
 
 impl Daemon {
-    /// Goes into background according to the configuration.
+    /// Prepare for daemonization.
     ///
-    /// This does the actual work of daemonization. This can be used manually.
-    pub fn daemonize(&self) -> Result<(), AnyError> {
+    /// This does the fist (fallible) phase of daemonization and schedules the rest, though the
+    /// [`Daemonize`]. This is mostly used through [`spirit::Pipeline`] (see the [`crate`]
+    /// examples), if used outside of them, prefer the [`daemonize`][Daemon::daemonize].
+    pub fn prepare(&self) -> Result<Daemonize, AnyError> {
         // TODO: Tests for this
         debug!("Preparing to daemonize with {:?}", self);
+
         stat::umask(Mode::empty()); // No restrictions on write modes
         let workdir = self
             .workdir
@@ -201,76 +260,87 @@ impl Daemon {
             .map(|pb| pb as &Path)
             .unwrap_or_else(|| Path::new("/"));
         trace!("Changing working directory to {:?}", workdir);
-        env::set_current_dir(workdir)?;
-        if self.daemonize {
-            trace!("Redirecting stdio");
-            let devnull = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .open("/dev/null")?;
-            for fd in &[0, 1, 2] {
-                unistd::dup2(devnull.as_raw_fd(), *fd)?;
-            }
-            trace!("Doing double fork");
-            if let ForkResult::Parent { .. } = unistd::fork()? {
-                process::exit(0);
-            }
-            unistd::setsid()?;
-            if let ForkResult::Parent { .. } = unistd::fork()? {
-                process::exit(0);
-            }
-        } else {
-            trace!("Not going to background");
-        }
-        if let Some(ref file) = self.pid_file {
-            let mut f = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o644)
-                .open(file)?;
-            writeln!(f, "{}", unistd::getpid())?;
-        }
+        env::set_current_dir(workdir)
+            .with_context(|_| format!("Failed to switch to workdir {}", workdir.display()))?;
+
         // PrivDrop implements the necessary libc lookups to find the group and
         //  user entries matching the given names. If these queries fail,
         //  because the user or group names are invalid, the function will fail.
         match self.group {
-            SecId::Id(id) => unistd::setgid(Gid::from_raw(id))?,
-            SecId::Name(ref name) => privdrop::PrivDrop::default().group(&name).apply()?,
+            SecId::Id(id) => {
+                unistd::setgid(Gid::from_raw(id)).context("Failed to change the group")?
+            }
+            SecId::Name(ref name) => privdrop::PrivDrop::default()
+                .group(&name)
+                .apply()
+                .context("Failed to change the group")?,
             SecId::Nothing => (),
         }
         match self.user {
-            SecId::Id(id) => unistd::setuid(Uid::from_raw(id))?,
-            SecId::Name(ref name) => privdrop::PrivDrop::default().user(&name).apply()?,
+            SecId::Id(id) => {
+                unistd::setuid(Uid::from_raw(id)).context("Failed to change the user")?
+            }
+            SecId::Name(ref name) => privdrop::PrivDrop::default()
+                .user(&name)
+                .apply()
+                .context("Failed to change the user")?,
             SecId::Nothing => (),
         }
-        Ok(())
+
+        // We try to check the PID file is writable, as we still can reasonably report errors now.
+        if let Some(file) = self.pid_file.as_ref() {
+            let _ = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .mode(0o644)
+                .open(file)
+                .with_context(|_| format!("Writing the PID file {}", file.display()))?;
+        }
+
+        Ok(Daemonize {
+            daemonize: self.daemonize,
+            pid_file: self.pid_file.clone(),
+        })
     }
 
-    /// An extension that can be plugged into the [`Spirit`][spirit::Spirit].
+    /// Perform the daemonization according to the setup inside.
     ///
-    /// See the [crate documentation](index.html).
-    pub fn extension<E, F>(extractor: F) -> impl Extension<E>
-    where
-        E: Extensible<Ok = E>,
-        F: Fn(&E::Config, &E::Opts) -> Self + Send + 'static,
-    {
-        let mut previous_daemon = None;
-        let validator_hook =
-            move |_: &_, cfg: &Arc<E::Config>, opts: &_| -> Result<Action, AnyError> {
-                let daemon = extractor(cfg, opts);
-                if let Some(previous) = previous_daemon.as_ref() {
-                    if previous != &daemon {
-                        warn!("Can't change daemon config at runtime");
-                    }
-                    return Ok(Action::new());
-                }
-                daemon.daemonize().context("Failed to daemonize")?;
-                previous_daemon = Some(daemon);
-                Ok(Action::new())
-            };
-        move |e: E| e.config_validator(validator_hook)
+    /// This is the routine one would call if using the fragments manually, not through the spirit
+    /// management and [`Pipeline`]s.
+    pub fn daemonize(&self) -> Result<(), AnyError> {
+        self.prepare()?.daemonize()?;
+        Ok(())
+    }
+}
+
+/// An installer for [`Daemonize`].
+///
+/// Mostly internal plumbing type, used through [`Pipeline`].
+///
+/// If the daemonization fails, the program aborts with a logged error.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct DaemonizeInstaller;
+
+impl<O, C> Installer<Daemonize, O, C> for DaemonizeInstaller {
+    type UninstallHandle = ();
+    fn install(&mut self, daemonize: Daemonize, _: &str) {
+        // If we can't daemonize, we abort it. It's really unlikely to happen, though.
+        if log_errors(module_path!(), || daemonize.daemonize()).is_err() {
+            // The error has already been logged
+            process::abort();
+        }
+    }
+}
+
+spirit::simple_fragment! {
+    impl Fragment for Daemon {
+        type Driver = OnceDriver<Self>;
+        type Resource = Daemonize;
+        type Installer = DaemonizeInstaller;
+        fn create(&self, _: &'static str) -> Result<Daemonize, AnyError> {
+            self.prepare()
+        }
     }
 }
 
@@ -299,14 +369,15 @@ impl From<UserDaemon> for Daemon {
 ///
 /// [`extension`]: Daemon::extension
 #[derive(Clone, Debug, StructOpt)]
+#[non_exhaustive]
 pub struct Opts {
     /// Daemonize ‒ go to background (override the config).
-    #[structopt(short = "d", long = "daemonize")]
-    daemonize: bool,
+    #[structopt(short, long)]
+    pub daemonize: bool,
 
     /// Stay in foreground (don't go to background even if config says so).
-    #[structopt(short = "f", long = "foreground")]
-    foreground: bool,
+    #[structopt(short, long)]
+    pub foreground: bool,
 }
 
 impl Opts {
@@ -348,18 +419,19 @@ impl Opts {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub struct UserDaemon {
     /// Where to store a PID file.
     ///
     /// If not set, no PID file is created.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pid_file: Option<PathBuf>,
+    pub pid_file: Option<PathBuf>,
 
     /// Switch to this working directory at startup.
     ///
     /// If not set, working directory is not switched.
     #[serde(skip_serializing_if = "Option::is_none")]
-    workdir: Option<PathBuf>,
+    pub workdir: Option<PathBuf>,
 
     // This is overwritten by [`Opts::transform`](struct.Opts.html#method.transform).
     //
@@ -368,7 +440,7 @@ pub struct UserDaemon {
     /// Even if this is false, some activity (setting PID file, etc) is still done,
     /// but it doesn't go to background.
     #[serde(default)]
-    daemonize: bool,
+    pub daemonize: bool,
 }
 
 impl UserDaemon {
@@ -379,5 +451,16 @@ impl UserDaemon {
     /// It can be also converted using the usual [`From`]/[`Into`] traits.
     pub fn into_daemon(self) -> Daemon {
         self.into()
+    }
+}
+
+spirit::simple_fragment! {
+    impl Fragment for UserDaemon {
+        type Driver = OnceDriver<Self>;
+        type Resource = Daemonize;
+        type Installer = DaemonizeInstaller;
+        fn create(&self, _: &'static str) -> Result<Daemonize, AnyError> {
+            Daemon::from(self.clone()).prepare()
+        }
     }
 }
