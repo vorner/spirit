@@ -9,6 +9,7 @@
 * Don't use hidden/private API of structopt.
 * Clearer error message if config loading fails and there was no config passed
   in at all.
+* Remove links to the guide. There's nothing in it right now anyway :-(.
 
 # spirit-reqwest-0.4.0
 

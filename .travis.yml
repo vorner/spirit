@@ -29,21 +29,23 @@ script:
     - (test "$TRAVIS_RUST_VERSION" == nightly || cargo clippy --all -- --deny clippy::all)
     - (test "$TRAVIS_RUST_VERSION" == nightly || cargo fmt --all -- --check)
 
-before_deploy:
-    - mdbook build user-guide
-    - mkdir public
-    - cp -r target/doc public/doc
-    - cp -r target/user-guide public/user-guide
-    - echo '<head><meta http-equiv="refresh" content="0; URL=user-guide/index.html"/></head>' > public/index.html
-
-deploy:
-  - provider: pages
-    skip-cleanup: true
-    github-token: "$GITHUB_TOKEN"
-    keep-history: false
-    local-dir: public
-    on:
-      branch: master
-      rust: nightly
-      os: linux
+# Disabled: it doesn't work for some reason and there's nothing useful in the user guide anyway :-(
+# Need to decide what happens to it.
+#before_deploy:
+#    - mdbook build user-guide
+#    - mkdir public
+#    - cp -r target/doc public/doc
+#    - cp -r target/user-guide public/user-guide
+#    - echo '<head><meta http-equiv="refresh" content="0; URL=user-guide/index.html"/></head>' > public/index.html
+#
+#deploy:
+#  - provider: pages
+#    skip-cleanup: true
+#    github-token: "$GITHUB_TOKEN"
+#    keep-history: false
+#    local-dir: public
+#    on:
+#      branch: master
+#      rust: nightly
+#      os: linux
 
