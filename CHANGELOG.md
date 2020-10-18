@@ -7,6 +7,8 @@
 
 * Fix `--version` (taken from the application, not from spirit).
 * Don't use hidden/private API of structopt.
+* Clearer error message if config loading fails and there was no config passed
+  in at all.
 
 # spirit-reqwest-0.4.0
 

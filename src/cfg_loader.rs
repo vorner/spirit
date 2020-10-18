@@ -48,7 +48,7 @@ use std::ffi::OsString;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::path::{Path, PathBuf};
 
-use config::{Config, Environment, File, FileFormat};
+use config::{Config, Environment, File, FileFormat, Source};
 use err_context::prelude::*;
 use fallible_iterator::FallibleIterator;
 use log::{debug, trace, warn};
@@ -552,6 +552,7 @@ impl Loader {
     pub fn load<C: DeserializeOwned>(&mut self) -> Result<C, AnyError> {
         debug!("Loading configuration");
         let mut config = Config::new();
+        let mut external_cfg = false;
         // To avoid problems with trying to parse without any configuration present (it would
         // complain that it found unit and whatever the config was is expected instead).
         config.merge(File::from_str("", FileFormat::Toml))?;
@@ -563,6 +564,7 @@ impl Loader {
         }
         for path in &self.files {
             if path.is_file() {
+                external_cfg = true;
                 trace!("Loading config file {:?}", path);
                 config
                     .merge(File::from(path as &Path))
@@ -588,6 +590,7 @@ impl Loader {
                 // Traverse them sorted.
                 files.sort();
                 for file in files {
+                    external_cfg = true;
                     trace!("Loading config file {:?}", file);
                     config
                         .merge(File::from(&file as &Path))
@@ -601,13 +604,23 @@ impl Loader {
         }
         if let Some(env_prefix) = self.env.as_ref() {
             trace!("Loading config from environment {}", env_prefix);
+            let env = Environment::with_prefix(env_prefix).separator("_");
+            if !external_cfg {
+                // We want to know if anything is in the environment, but that means iterating it
+                // twice, so do it only if we know we didn't get anything already.
+                external_cfg = !env
+                    .collect()
+                    .context("Failed to include environment in config")?
+                    .is_empty();
+            }
             config
-                .merge(Environment::with_prefix(env_prefix).separator("_"))
+                .merge(env)
                 .context("Failed to include environment in config")?;
         }
         for (ref key, ref value) in &self.overrides {
             trace!("Config override {} => {}", key, value);
             config.set(*key, *value as &str).with_context(|_| {
+                external_cfg = true;
                 format!("Failed to push override {}={} into config", key, value)
             })?;
         }
@@ -619,12 +632,19 @@ impl Loader {
         };
         let config = serde_ignored::Deserializer::new(config, &mut ignored_cback);
 
-        let result = serde_path_to_error::deserialize(config).map_err(|e| {
-            let ctx = format!("Failed to decode configuration at {}", e.path());
-            e.into_inner().context(ctx)
-        })?;
+        let mut result: Result<_, AnyError> =
+            serde_path_to_error::deserialize(config).map_err(|e| {
+                let ctx = format!("Failed to decode configuration at {}", e.path());
+                e.into_inner().context(ctx).into()
+            });
 
-        Ok(result)
+        if !external_cfg {
+            result = result
+                .context("No config passed to application")
+                .map_err(AnyError::from)
+        }
+
+        Ok(result?)
     }
 }
 
