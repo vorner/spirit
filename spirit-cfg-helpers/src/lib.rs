@@ -148,60 +148,67 @@ impl FromStr for DumpFormat {
     }
 }
 
-/// A command line fragment to add `--dump-config` to allow showing loaded configuration.
-///
-/// When this is added into the command line options structure, the `--dump-config` and
-/// `--dump-config-as` options are added.
-///
-/// These dump the current configuration and exit.
-///
-/// In case the configuration is collected over multiple configuration files, directories and
-/// possibly environment variables and command line overrides, it is not always clear what exact
-/// configuration is actually used. This allows the user to query the actual configuration the
-/// application would use.
-///
-/// The fragment can be either used manually with the [`dump`][CfgDump::dump] method or
-/// automatically by registering its [`extension`][CfgDump::extension].
-///
-/// # Requirements
-///
-/// For this to work, the configuration structure must implement [`Serialize`]. This is not
-/// mandated by [`Spirit`][spirit::Spirit] itself. However, all the fragments provided by spirit
-/// crates implement it. For custom structures it is often sufficient to stick
-/// `#[derive(Serialize)]` onto them.
-///
-/// # Examples
-///
-/// ```rust
-/// use serde_derive::{Deserialize, Serialize};
-/// use spirit::Spirit;
-/// use spirit::prelude::*;
-/// use spirit_cfg_helpers::CfgDump;
-/// use structopt::StructOpt;
-///
-/// #[derive(Default, Deserialize, Serialize)]
-/// struct Cfg {
-///     option: Option<String>,
-/// }
-///
-/// #[derive(Debug, StructOpt)]
-/// struct Opts {
-///     #[structopt(flatten)]
-///     dump: CfgDump,
-/// }
-///
-/// impl Opts {
-///     fn dump(&self) -> &CfgDump {
-///         &self.dump
-///     }
-/// }
-///
-/// fn main() {
-///     Spirit::<Opts, Cfg>::new()
-///         .with(CfgDump::extension(Opts::dump))
-///         .run(|_| Ok(()));
-/// }
-/// ```
+// Workaround for https://github.com/TeXitoi/structopt/issues/333
+#[cfg_attr(not(doc), allow(missing_docs))]
+#[cfg_attr(
+    doc,
+    doc = r#"
+A command line fragment to add `--dump-config` to allow showing loaded configuration.
+
+When this is added into the command line options structure, the `--dump-config` and
+`--dump-config-as` options are added.
+
+These dump the current configuration and exit.
+
+In case the configuration is collected over multiple configuration files, directories and
+possibly environment variables and command line overrides, it is not always clear what exact
+configuration is actually used. This allows the user to query the actual configuration the
+application would use.
+
+The fragment can be either used manually with the [`dump`][CfgDump::dump] method or
+automatically by registering its [`extension`][CfgDump::extension].
+
+# Requirements
+
+For this to work, the configuration structure must implement [`Serialize`]. This is not
+mandated by [`Spirit`][spirit::Spirit] itself. However, all the fragments provided by spirit
+crates implement it. For custom structures it is often sufficient to stick
+`#[derive(Serialize)]` onto them.
+
+# Examples
+
+```rust
+use serde_derive::{Deserialize, Serialize};
+use spirit::Spirit;
+use spirit::prelude::*;
+use spirit_cfg_helpers::CfgDump;
+use structopt::StructOpt;
+
+#[derive(Default, Deserialize, Serialize)]
+struct Cfg {
+    option: Option<String>,
+}
+
+#[derive(Debug, StructOpt)]
+struct Opts {
+    #[structopt(flatten)]
+    dump: CfgDump,
+}
+
+impl Opts {
+    fn dump(&self) -> &CfgDump {
+        &self.dump
+    }
+}
+
+fn main() {
+    Spirit::<Opts, Cfg>::new()
+        .with(CfgDump::extension(Opts::dump))
+        .run(|_| Ok(()));
+}
+```
+"#
+)]
 #[derive(Clone, Debug, Default, StructOpt)]
 pub struct CfgDump {
     /// Dump the parsed configuration and exit.
@@ -272,62 +279,68 @@ mod cfg_help {
 
     use structdoc::StructDoc;
 
-    /// A command line options fragment to add the `--help-config` option.
-    ///
-    /// For the user to be able to configure an application, the user needs to know what options
-    /// can be configured. Usually, this is explained using an example configuration file or through
-    /// a manually written documentation. However, maintaining either is a lot of work, not
-    /// mentioning that various [spirit] crates provide configuration fragments composed from
-    /// several type parameters so hunting down all the available options might be hard.
-    ///
-    /// This helper uses the [`StructDoc`] trait to extract the structure and documentation of the
-    /// configuration automatically. Usually, its derive will extract description from fields' doc
-    /// comments. See the [structdoc] crate's documentation to know how to let the documentation be
-    /// created semi-automatically. All the configuration fragments provided by the spirit crates
-    /// implement [`StructDoc`], unless their [`cfg-help`] feature is disabled.
-    ///
-    /// When the `--help-config` is specified, this auto-generated documentation is printed and the
-    /// application exits.
-    ///
-    /// The fragment can be used either manually with the [`help`][CfgHelp::help] method or by
-    /// registering the [`extension`][CfgHelp::extension] within an
-    /// [`Extensible`][Extensible::with].
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use serde_derive::Deserialize;
-    /// use spirit::Spirit;
-    /// use spirit::prelude::*;
-    /// use spirit_cfg_helpers::CfgHelp;
-    /// use structdoc::StructDoc;
-    /// use structopt::StructOpt;
-    ///
-    /// #[derive(Default, Deserialize, StructDoc)]
-    /// struct Cfg {
-    ///     /// A very much useless but properly documented option.
-    /// #   #[allow(dead_code)]
-    ///     option: Option<String>,
-    /// }
-    ///
-    /// #[derive(Debug, StructOpt)]
-    /// struct Opts {
-    ///     #[structopt(flatten)]
-    ///     help: CfgHelp,
-    /// }
-    ///
-    /// impl Opts {
-    ///     fn help(&self) -> &CfgHelp {
-    ///         &self.help
-    ///     }
-    /// }
-    ///
-    /// fn main() {
-    ///     Spirit::<Opts, Cfg>::new()
-    ///         .with(CfgHelp::extension(Opts::help))
-    ///         .run(|_| Ok(()));
-    /// }
-    /// ```
+    // Workaround for https://github.com/TeXitoi/structopt/issues/333
+    #[cfg_attr(not(doc), allow(missing_docs))]
+    #[cfg_attr(
+        doc,
+        doc = r#"
+    A command line options fragment to add the `--help-config` option.
+
+    For the user to be able to configure an application, the user needs to know what options
+    can be configured. Usually, this is explained using an example configuration file or through
+    a manually written documentation. However, maintaining either is a lot of work, not
+    mentioning that various [spirit] crates provide configuration fragments composed from
+    several type parameters so hunting down all the available options might be hard.
+
+    This helper uses the [`StructDoc`] trait to extract the structure and documentation of the
+    configuration automatically. Usually, its derive will extract description from fields' doc
+    comments. See the [structdoc] crate's documentation to know how to let the documentation be
+    created semi-automatically. All the configuration fragments provided by the spirit crates
+    implement [`StructDoc`], unless their [`cfg-help`] feature is disabled.
+
+    When the `--help-config` is specified, this auto-generated documentation is printed and the
+    application exits.
+
+    The fragment can be used either manually with the [`help`][CfgHelp::help] method or by
+    registering the [`extension`][CfgHelp::extension] within an
+    [`Extensible`][Extensible::with].
+
+    # Examples
+
+    ```rust
+    use serde_derive::Deserialize;
+    use spirit::Spirit;
+    use spirit::prelude::*;
+    use spirit_cfg_helpers::CfgHelp;
+    use structdoc::StructDoc;
+    use structopt::StructOpt;
+
+    #[derive(Default, Deserialize, StructDoc)]
+    struct Cfg {
+        /// A very much useless but properly documented option.
+    #   #[allow(dead_code)]
+        option: Option<String>,
+    }
+
+    #[derive(Debug, StructOpt)]
+    struct Opts {
+        #[structopt(flatten)]
+        help: CfgHelp,
+    }
+
+    impl Opts {
+        fn help(&self) -> &CfgHelp {
+            &self.help
+        }
+    }
+
+    fn main() {
+        Spirit::<Opts, Cfg>::new()
+            .with(CfgHelp::extension(Opts::help))
+            .run(|_| Ok(()));
+    }
+    "#
+    )]
     #[derive(Clone, Debug, Default, StructOpt)]
     pub struct CfgHelp {
         /// Provide help about possible configuration options and exit.
@@ -398,16 +411,23 @@ mod cfg_help {
         }
     }
 
-    /// A combination of the [`CfgDump`] and [`CfgHelp`] fragments.
-    ///
-    /// This is simply a combination of both fragments, providing the same options and
-    /// functionality. Usually one wants to use both. This saves a bit of code, as only one field
-    /// and one extension needs to be registered.
-    ///
-    /// # Requirements
-    ///
-    /// For this to work, the configuration structure needs to implement both [`Serialize`] and
-    /// [`StructDoc`].
+    // Workaround for https://github.com/TeXitoi/structopt/issues/333
+    #[cfg_attr(not(doc), allow(missing_docs))]
+    #[cfg_attr(
+        doc,
+        doc = r#"
+    A combination of the [`CfgDump`] and [`CfgHelp`] fragments.
+
+    This is simply a combination of both fragments, providing the same options and
+    functionality. Usually one wants to use both. This saves a bit of code, as only one field
+    and one extension needs to be registered.
+
+    # Requirements
+
+    For this to work, the configuration structure needs to implement both [`Serialize`] and
+    [`StructDoc`].
+    "#
+    )]
     #[derive(Clone, Debug, Default, StructOpt)]
     pub struct Opts {
         #[structopt(flatten)]

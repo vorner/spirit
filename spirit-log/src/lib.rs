@@ -207,13 +207,20 @@ pub use background::{Background, FlushGuard, OverflowMode};
 
 const UNKNOWN_THREAD: &str = "<unknown>";
 
-/// A fragment for command line options.
-///
-/// By flattening this into the top-level `StructOpt` structure, you get the `-l` and `-L` command
-/// line options. The `-l` (`--log`) sets the global logging level for `stderr`. The `-L` accepts
-/// pairs (eg. `-L spirit=TRACE`) specifying levels for specific logging targets.
-///
-/// If used, the logging will be sent to `stderr`.
+// Workaround for https://github.com/TeXitoi/structopt/issues/333
+#[cfg_attr(not(doc), allow(missing_docs))]
+#[cfg_attr(
+    doc,
+    doc = r#"
+A fragment for command line options.
+
+By flattening this into the top-level `StructOpt` structure, you get the `-l` and `-L` command
+line options. The `-l` (`--log`) sets the global logging level for `stderr`. The `-L` accepts
+pairs (eg. `-L spirit=TRACE`) specifying levels for specific logging targets.
+
+If used, the logging will be sent to `stderr`.
+"#
+)]
 #[derive(Clone, Debug, StructOpt)]
 pub struct Opts {
     /// Log to stderr with this log level.

@@ -1,7 +1,15 @@
+# spirit-log-unreleased
+# spirit-cfg-helpers-unreleased
+
+* Remove doc comments in build from `StructOpt` things, to work around problem
+  in `structopt`.
+
 # spirit-daemonize-unreleased
 
 * Move to pipelines.
 * Postpone daemonization for after stuff got validated, so errors are shown.
+* Remove doc comments in build from `StructOpt` things, to work around problem
+  in `structopt`.
 
 # spirit-unreleased
 

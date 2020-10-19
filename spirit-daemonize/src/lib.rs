@@ -355,19 +355,26 @@ impl From<UserDaemon> for Daemon {
     }
 }
 
-/// Command line options fragment.
-///
-/// This adds the `-d` (`--daemonize`) and `-f` (`--foreground`) flag to command line. These
-/// override whatever is written in configuration (if merged together with the configuration).
-///
-/// This can be used to transform the [`Daemon`] before daemonization.
-///
-/// The [`extension`] here can be used to automatically handle both configuration and command line.
-/// See the [crate example][index.html#examples].
-///
-/// Flatten this into the top-level `StructOpt` structure.
-///
-/// [`extension`]: Daemon::extension
+// Workaround for https://github.com/TeXitoi/structopt/issues/333
+#[cfg_attr(not(doc), allow(missing_docs))]
+#[cfg_attr(
+    doc,
+    doc = r#"
+Command line options fragment.
+
+This adds the `-d` (`--daemonize`) and `-f` (`--foreground`) flag to command line. These
+override whatever is written in configuration (if merged together with the configuration).
+
+This can be used to transform the [`Daemon`] before daemonization.
+
+The [`extension`] here can be used to automatically handle both configuration and command line.
+See the [crate example][index.html#examples].
+
+Flatten this into the top-level `StructOpt` structure.
+
+[`extension`]: Daemon::extension
+"#
+)]
 #[derive(Clone, Debug, StructOpt)]
 #[non_exhaustive]
 pub struct Opts {
