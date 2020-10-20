@@ -1,28 +1,28 @@
-# spirit-log-unreleased
-# spirit-cfg-helpers-unreleased
+# spirit-log-0.4.1
+# spirit-cfg-helpers-0.3.1
 
 * Remove doc comments in build from `StructOpt` things, to work around problem
   in `structopt`.
 
-# spirit-daemonize-unreleased
+# spirit-daemonize-0.4.0
 
 * Move to pipelines.
 * Postpone daemonization for after stuff got validated, so errors are shown.
 * Remove doc comments in build from `StructOpt` things, to work around problem
   in `structopt`.
 
-# spirit-hyper-unreleased
+# spirit-hyper-0.7.0
 
 * Upgrade to spirit-hyper to 0.13.
 
-# spirit-tokio-unreleased
+# spirit-tokio-0.7.0
 
 * Upgrade to tokio 0.2. Hopefully not much functionality lost on the way. API
   changed, unfortunately.
 * Use `socket2` instead of `net2`. Besides `net2` being deprecated, this'll
   allow us some more options for the sockets in the future.
 
-# spirit-unreleased
+# spirit-0.4.6
 
 * Fix `--version` (taken from the application, not from spirit).
 * Don't use hidden/private API of structopt.
@@ -31,7 +31,6 @@
 * Remove links to the guide. There's nothing in it right now anyway :-(.
 * `Extensible::around_hooks` to support wrapping hooks/callbacks/pipelines
   inside a context similar to `Extensible::run_around`.
-TODO: Bump required version of spirit inside spirit-tokio.
 
 # spirit-reqwest-0.4.0
 
