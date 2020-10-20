@@ -20,7 +20,7 @@ use signal_hook::iterator::Signals;
 use structopt::StructOpt;
 
 use crate::app::App;
-use crate::bodies::{InnerBody, SpiritBody, WrapBody, Wrapper};
+use crate::bodies::{HookWrapper, InnerBody, SpiritBody, WrapBody, Wrapper};
 use crate::cfg_loader::{Builder as CfgBuilder, ConfigBuilder, Loader as CfgLoader};
 use crate::empty::Empty;
 use crate::error;
@@ -28,6 +28,25 @@ use crate::extension::{Autojoin, Extensible, Extension};
 use crate::fragment::pipeline::MultiError;
 use crate::validation::Action;
 use crate::AnyError;
+
+/// A recursive implementation of the logic of wrapping of hooks.
+///
+/// The last one added is the innermost.
+fn wrap_around_hooks<R, I>(wrappers: &mut [Box<dyn HookWrapper>], inner: I) -> R
+where
+    I: FnOnce() -> R,
+{
+    if let Some((outer, rest)) = wrappers.split_first_mut() {
+        let mut output = None;
+        let inner_wrapped = || {
+            output = Some(wrap_around_hooks(rest, inner));
+        };
+        outer(Box::new(inner_wrapped));
+        output.expect("Inner body not called by a wrapper")
+    } else {
+        inner()
+    }
+}
 
 #[derive(Copy, Clone, Debug)]
 pub struct ValidationError(usize, usize);
@@ -122,6 +141,7 @@ pub struct Spirit<O = Empty, C = Empty> {
     config: ArcSwap<C>,
     // Note: we ignore poisoning here. If one of the hooks fail, we do continue on purpose.
     hooks: Mutex<Hooks<O, C>>,
+    around_hooks: Mutex<Vec<Box<dyn HookWrapper>>>,
     // TODO: Mode selection for directories
     opts: O,
     terminate: AtomicBool,
@@ -160,6 +180,7 @@ where
             config_hooks: Vec::new(),
             config_mutators: Vec::new(),
             config_validators: Vec::new(),
+            around_hooks: Vec::new(),
             opts: PhantomData,
             sig_hooks: HashMap::new(),
             singletons: HashSet::new(),
@@ -233,13 +254,20 @@ where
     /// don't have to by `Sync`). That, however, means that you can't call `config_reload` or
     /// [`terminate`][Spirit::terminate] from any callback as that would lead to a deadlock.
     pub fn config_reload(&self) -> Result<(), AnyError> {
+        self.config_reload_with_wrapper(|inner| inner())
+    }
+
+    fn config_reload_with_wrapper<W>(&self, mut wrapper: W) -> Result<(), AnyError>
+    where
+        W: for<'a> FnMut(Box<dyn FnOnce() + 'a>),
+    {
         let mut new = self.load_config().context("Failed to load configuration")?;
         // The lock here is across the whole processing, to avoid potential races in logic
         // processing. This makes writing the hooks correctly easier.
         let mut hooks = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
         debug!("Running {} config mutators", hooks.config_mutators.len());
         for m in &mut hooks.config_mutators {
-            m(&mut new);
+            wrapper(Box::new(|| m(&mut new)));
         }
         let new = Arc::new(new);
         let old = self.config.load();
@@ -251,7 +279,11 @@ where
         let mut failed_validators = 0;
         let mut actions = Vec::with_capacity(hooks.config_validators.len());
         for v in hooks.config_validators.iter_mut() {
-            match v(&old, &new, &self.opts) {
+            let mut result = None;
+            wrapper(Box::new(|| {
+                result = Some(v(&old, &new, &self.opts));
+            }));
+            match result.expect("Hook wrapper didn't call inner") {
                 Ok(ac) => actions.push(ac),
                 Err(e) => {
                     failed_validators += 1;
@@ -275,12 +307,12 @@ where
         if errors == 0 {
             debug!("Validation successful, switching to new config");
             for a in actions {
-                a.run(true);
+                wrapper(Box::new(|| a.run(true)));
             }
         } else {
             debug!("Rolling back validation attempt");
             for a in actions {
-                a.run(false);
+                wrapper(Box::new(|| a.run(false)));
             }
             return Err(ValidationError(errors, failed_validators).into());
         }
@@ -289,7 +321,7 @@ where
         self.config.store(Arc::clone(&new));
         debug!("Running {} post-configuration hooks", hooks.config.len());
         for hook in &mut hooks.config {
-            hook(&self.opts, &new);
+            wrapper(Box::new(|| hook(&self.opts, &new)));
         }
         debug!("Configuration reloaded");
         Ok(())
@@ -381,11 +413,13 @@ where
             debug!("Received signal {}", signal);
             let term = match signal {
                 libc::SIGHUP => {
-                    let _ = error::log_errors(module_path!(), || self.config_reload());
+                    let _ = error::log_errors(module_path!(), || {
+                        self.config_reload_with_wrapper(|inner| self.wrap_around_hooks(inner))
+                    });
                     false
                 }
                 libc::SIGTERM | libc::SIGINT | libc::SIGQUIT => {
-                    self.terminate();
+                    self.wrap_around_hooks(|| self.terminate());
                     true
                 }
                 // Some other signal, only for the hook benefit
@@ -395,9 +429,11 @@ where
             let mut lock = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
 
             if let Some(hooks) = lock.sigs.get_mut(&signal) {
-                for hook in hooks {
-                    hook();
-                }
+                self.wrap_around_hooks(|| {
+                    for hook in hooks {
+                        hook();
+                    }
+                });
             }
 
             if term {
@@ -449,6 +485,17 @@ where
             ABANDON => (),
             val => unreachable!("Invalid autojoin variant: {}", val),
         }
+    }
+
+    fn wrap_around_hooks<R, I>(&self, inner: I) -> R
+    where
+        I: FnOnce() -> R,
+    {
+        let mut wrappers = self
+            .around_hooks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        wrap_around_hooks(&mut wrappers, inner)
     }
 }
 
@@ -573,6 +620,18 @@ where
         panic!("Wrapping body while already running is not possible, move this to the builder (see https://docs.rs/spirit/*/extension/trait.Extensible.html#method.run_around");
     }
 
+    fn around_hooks<W>(self, wrapper: W) -> Self
+    where
+        W: HookWrapper,
+    {
+        trace!("Adding around-hook at runtime");
+        self.around_hooks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Box::new(wrapper));
+        self
+    }
+
     fn with_singleton<T>(mut self, singleton: T) -> Result<Self, AnyError>
     where
         T: Extension<Self::Ok> + 'static,
@@ -623,6 +682,7 @@ pub struct Builder<O = Empty, C = Empty> {
     config_hooks: Vec<Box<dyn FnMut(&O, &Arc<C>) + Send>>,
     config_mutators: Vec<Box<dyn FnMut(&mut C) + Send>>,
     config_validators: Vec<Box<dyn FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, AnyError> + Send>>,
+    around_hooks: Vec<Box<dyn HookWrapper>>,
     opts: PhantomData<O>,
     sig_hooks: HashMap<libc::c_int, Vec<Box<dyn FnMut() + Send>>>,
     singletons: HashSet<TypeId>,
@@ -791,6 +851,14 @@ impl<O, C> Extensible for Builder<O, C> {
         Ok(self)
     }
 
+    fn around_hooks<W>(mut self, wrapper: W) -> Self
+    where
+        W: HookWrapper,
+    {
+        self.around_hooks.push(Box::new(wrapper));
+        self
+    }
+
     fn with_singleton<T>(mut self, singleton: T) -> Result<Self, AnyError>
     where
         T: Extension<Self::Ok> + 'static,
@@ -912,9 +980,15 @@ where
     fn build(mut self, background_thread: bool) -> Result<App<O, C>, AnyError> {
         debug!("Building the spirit");
         let (opts, loader) = self.config_loader.build::<Self::Opts>();
-        for before_config in &mut self.before_config {
-            before_config(&self.config, &opts).context("The before-config phase failed")?;
-        }
+        let wrappers = &mut self.around_hooks;
+        let before_configs = &mut self.before_config;
+        let config = &self.config;
+        wrap_around_hooks(wrappers, || -> Result<(), AnyError> {
+            for before_config in before_configs {
+                before_config(config, &opts).context("The before-config phase failed")?;
+            }
+            Ok(())
+        })?;
         let interesting_signals = self
             .sig_hooks
             .keys()
@@ -946,13 +1020,14 @@ where
                 terminated: false,
                 guards: self.guards,
             }),
+            around_hooks: Mutex::new(self.around_hooks),
             opts,
             terminate: AtomicBool::new(false),
             signals: signals_spirit,
             bg_thread: Mutex::new(None),
         };
         spirit
-            .config_reload()
+            .config_reload_with_wrapper(|inner| spirit.wrap_around_hooks(inner))
             .context("Problem loading the initial configuration")?;
         let spirit = Arc::new(spirit);
         if background_thread {

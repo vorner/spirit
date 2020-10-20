@@ -6,14 +6,15 @@
 //! It listens on one or more ports and greets with hello world (or other configured message) over
 //! HTTP. It includes logging and daemonization.
 //!
-//! It allows reconfiguring everything at runtime ‒ change the config file(s), send SIGHUP to it
-//! and it'll reload it.
+//! It allows reconfiguring almost everything at runtime ‒ change the config file(s), send SIGHUP
+//! to it and it'll reload it.
 
+use std::convert::Infallible;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use hyper::server::Builder;
-use hyper::service::service_fn_ok;
+use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response};
 use log::{debug, trace};
 use serde::{Deserialize, Serialize};
@@ -27,10 +28,11 @@ use spirit_tokio::either::Either;
 use spirit_tokio::net::limits::WithLimits;
 #[cfg(unix)]
 use spirit_tokio::net::unix::UnixListen;
-use spirit_tokio::runtime::ThreadPoolConfig;
+use spirit_tokio::runtime::{Config as TokioCfg, Tokio};
 use spirit_tokio::TcpListen;
 use structdoc::StructDoc;
 use structopt::StructOpt;
+use tokio::sync::oneshot::Receiver;
 
 // The command line arguments we would like our application to have.
 //
@@ -122,7 +124,7 @@ type Server = HyperServer<ListenSocket>;
 
 #[cfg(unix)]
 fn extract_signature(listen: &Server) -> &Option<String> {
-    match &listen.transport.listener {
+    match &listen.transport.listen {
         Either::A(tcp) => &tcp.extra_cfg.signature,
         Either::B(unix) => &unix.extra_cfg.signature,
     }
@@ -130,7 +132,7 @@ fn extract_signature(listen: &Server) -> &Option<String> {
 
 #[cfg(not(unix))]
 fn extract_signature(listen: &Server) -> &Option<String> {
-    &listen.transport.listener.extra_cfg.signature
+    &listen.transport.listen.extra_cfg.signature
 }
 
 /// Putting the whole configuration together.
@@ -164,7 +166,7 @@ struct Cfg {
     /// The work threadpool.
     ///
     /// This is for performance tuning.
-    threadpool: ThreadPoolConfig,
+    threadpool: TokioCfg,
 }
 
 impl Cfg {
@@ -174,7 +176,7 @@ impl Cfg {
     fn listen(&self) -> &Vec<Server> {
         &self.listen
     }
-    fn threadpool(&self) -> ThreadPoolConfig {
+    fn threadpool(&self) -> TokioCfg {
         self.threadpool.clone()
     }
 }
@@ -227,8 +229,8 @@ error-sleep = "100ms"
 msg = "Hello world"
 
 [threadpool]
-async-threads = 2
-keep-alive = "15s"
+core-threads = 2
+max-threads = 4
 "#;
 
 /// This is the actual workhorse of the application.
@@ -252,14 +254,26 @@ fn main() {
     let global_cfg = Arc::new(ArcSwap::from_pointee(Cfg::default()));
     let build_server = {
         let global_cfg = Arc::clone(&global_cfg);
-        move |builder: Builder<_>, cfg: &Server, _: &'static str| {
+        move |builder: Builder<_>, cfg: &Server, _: &'static str, shutdown: Receiver<()>| {
             let global_cfg = Arc::clone(&global_cfg);
             let cfg = Arc::new(cfg.clone());
-            builder.serve(move || {
-                let global_cfg = Arc::clone(&global_cfg);
-                let cfg = Arc::clone(&cfg);
-                service_fn_ok(move |req| hello(&global_cfg.load(), &cfg, req))
-            })
+            builder
+                .serve(make_service_fn(move |_conn| {
+                    let global_cfg = Arc::clone(&global_cfg);
+                    let cfg = Arc::clone(&cfg);
+                    async move {
+                        let global_cfg = Arc::clone(&global_cfg);
+                        let cfg = Arc::clone(&cfg);
+                        Ok::<_, Infallible>(service_fn(move |req| {
+                            let global_cfg = Arc::clone(&global_cfg);
+                            let cfg = Arc::clone(&cfg);
+                            async move { Ok::<_, Infallible>(hello(&global_cfg.load(), &cfg, req)) }
+                        }))
+                    }
+                }))
+                .with_graceful_shutdown(async move {
+                    let _ = shutdown.await;
+                })
         }
     };
     Spirit::<Opts, Cfg>::new()
@@ -299,8 +313,14 @@ fn main() {
             let cfg = Arc::clone(&global_cfg);
             move |_, new_cfg| cfg.store(Arc::clone(new_cfg))
         })
-        // Configure number of threads & similar
-        .with(ThreadPoolConfig::extension(Cfg::threadpool))
+        // Configure number of threads & similar. And make sure spirit has a tokio runtime to
+        // provide it for the installed futures (the http server).
+        //
+        // Usually the pipeline would install a default tokio runtime if it is not provided. But if
+        // we plugged the pipeline in inside the run method, that'd be too late ‒ we need the run
+        // to be wrapped in it. So we either need to plug the pipeline in before run, or need to
+        // make sure we add the Tokio runtime manually (even if Tokio::Default).
+        .with(Tokio::from_cfg(Cfg::threadpool))
         // And finally, the server.
         .with(
             Pipeline::new("listen")

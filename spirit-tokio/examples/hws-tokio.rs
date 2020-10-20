@@ -15,15 +15,18 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use log::{debug, warn};
 use serde::Deserialize;
 use spirit::prelude::*;
 use spirit::{AnyError, Empty, Pipeline, Spirit};
-use spirit_tokio::net::limits::LimitedConn;
-use spirit_tokio::runtime::ThreadPoolConfig;
-use spirit_tokio::{HandleListener, TcpListenWithLimits};
+use spirit_tokio::handlers::PerConnection;
+use spirit_tokio::net::limits::Tracked;
+use spirit_tokio::net::TcpListenWithLimits;
+use spirit_tokio::runtime::Config as TokioCfg;
+use spirit_tokio::Tokio;
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
-use tokio::prelude::*;
 
 // Configuration. It has the same shape as the one in spirit's hws.rs.
 
@@ -36,12 +39,13 @@ struct Ui {
 struct Config {
     /// On which ports (and interfaces) to listen.
     listen: HashSet<TcpListenWithLimits>,
+
     /// The UI (there's only the message to send).
     ui: Ui,
 
     /// Threadpool to do the async work.
     #[serde(default)]
-    threadpool: ThreadPoolConfig,
+    threadpool: TokioCfg,
 }
 
 impl Config {
@@ -51,20 +55,21 @@ impl Config {
     }
 
     /// Extraction of the threadpool configuration
-    fn threadpool(&self) -> ThreadPoolConfig {
+    fn threadpool(&self) -> TokioCfg {
         self.threadpool.clone()
     }
 }
 
 const DEFAULT_CONFIG: &str = r#"
 [threadpool]
-async-threads = 2
-blocking-threads = 2
+core-threads = 2
+max-threads = 4
 
 [[listen]]
 port = 1234
 max-conn = 30
 error-sleep = "50ms"
+reuse-addr = true
 
 [[listen]]
 port = 5678
@@ -74,44 +79,39 @@ host = "127.0.0.1"
 msg = "Hello world"
 "#;
 
-/// Handle one connection, the tokio way.
-fn handle_connection(
-    spirit: &Arc<Spirit<Empty, Config>>,
-    conn: LimitedConn<TcpStream>,
-) -> impl Future<Item = (), Error = AnyError> {
-    let addr = conn
-        .peer_addr()
-        .map(|addr| addr.to_string())
-        .unwrap_or_else(|_| "<unknown>".to_owned());
-    debug!("Handling connection {}", addr);
-    let mut msg = spirit.config().ui.msg.clone().into_bytes();
-    msg.push(b'\n');
-    tokio::io::write_all(conn, msg)
-        .map(|_| ()) // Throw away the connection and close it
-        .or_else(move |e| {
-            warn!("Failed to write message to {}: {}", addr, e);
-            future::ok(())
-        })
+async fn handle_connection(conn: &mut Tracked<TcpStream>, cfg: &Config) -> Result<(), AnyError> {
+    let msg = format!("{}\n", cfg.ui.msg);
+    conn.write_all(msg.as_bytes()).await?;
+    conn.shutdown().await?;
+    Ok(())
 }
 
 pub fn main() {
     env_logger::init();
+    let cfg = Arc::new(ArcSwap::default());
+    let cfg_store = Arc::clone(&cfg);
+    let conn_handler = move |mut conn: Tracked<TcpStream>, _: &_| {
+        let cfg = cfg.load_full();
+        async move {
+            let addr = conn
+                .peer_addr()
+                .map(|a| a.to_string())
+                .unwrap_or_else(|_| "<unknown>".to_owned());
+            debug!("Handling connection {}", addr);
+            if let Err(e) = handle_connection(&mut conn, &cfg).await {
+                warn!("Failed to handle connection {}: {}", addr, e);
+            }
+        }
+    };
     Spirit::<Empty, Config>::new()
+        .on_config(move |_, cfg: &Arc<Config>| cfg_store.store(Arc::clone(&cfg)))
         .config_defaults(DEFAULT_CONFIG)
         .config_exts(&["toml", "ini", "json"])
-        .with(ThreadPoolConfig::extension(Config::threadpool))
-        // If the runtime wasn't provided by the ThreadPoolConfig, we would want to plug one
-        // manually.
-        //.with_singleton(Runtime::default())
-        .run(|spirit| {
-            let spirit_handler = Arc::clone(spirit);
-            let handler =
-                HandleListener(move |conn, _: &_| handle_connection(&spirit_handler, conn));
-            spirit.with(
-                Pipeline::new("listen")
-                    .extract_cfg(Config::listen)
-                    .transform(handler),
-            )?;
-            Ok(())
-        });
+        .with_singleton(Tokio::from_cfg(Config::threadpool))
+        .with(
+            Pipeline::new("listen")
+                .extract_cfg(Config::listen)
+                .transform(PerConnection(conn_handler)),
+        )
+        .run(|_| Ok(()));
 }

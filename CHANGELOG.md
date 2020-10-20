@@ -11,6 +11,19 @@
 * Remove doc comments in build from `StructOpt` things, to work around problem
   in `structopt`.
 
+# spirit-reqwest-0.4.0
+
+* Update to reqwest 0.10.
+
+# spirit-hyper
+
+* Upgrade to spirit-hyper to 0.13.
+
+# spirit-tokio-unreleased
+
+* Upgrade to tokio 0.2. Hopefully not much functionality lost on the way. API
+  changed, unfortunately.
+
 # spirit-unreleased
 
 * Fix `--version` (taken from the application, not from spirit).
@@ -18,10 +31,9 @@
 * Clearer error message if config loading fails and there was no config passed
   in at all.
 * Remove links to the guide. There's nothing in it right now anyway :-(.
-
-# spirit-reqwest-0.4.0
-
-* Update to reqwest 0.10.
+* `Extensible::around_hooks` to support wrapping hooks/callbacks/pipelines
+  inside a context similar to `Extensible::run_around`.
+TODO: Bump required version of spirit inside spirit-tokio.
 
 # spirit-0.4.5
 # spirit-daemonize-0.3.2

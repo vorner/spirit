@@ -1,234 +1,278 @@
-//! Handlers of connections and sockets.
+//! Various [`Transformation`]s for working with resources in async contexts.
 //!
-//! The [`Fragment`]s provided by this crate are not directly useful on their own. Unlike for
-//! example logging, a listening TCP socket doesn't *do* anything on its own.
-//!
-//! This module provides [`Transformation`]s that bind the sockets with some useful action
-//! (different handlers represent different abstractions from the actions). In general, these
-//! actions should return a [`Future`] and that one can in turn be installed.
-//!
-//! See the [crate example](../index.html#examples) for the usage.
-//!
-//! [`Fragment`]: spirit::Fragment
-//! [`Transformation`]: spirit::fragment::Transformation
-//! [`Future`]: futures::Future
-use std::fmt::Debug;
-use std::io::Error as IoError;
+//! Oftentimes, one needs to transform some resource into a future and spawn it into the runtime.
+//! While possible to do manually, the types here might be a bit more comfortable.
 
-use err_context::prelude::*;
-use futures::{try_ready, Async, Future, IntoFuture, Poll, Stream};
-use log::{trace, warn};
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+use err_context::AnyError;
+use log::{error, trace};
 use spirit::fragment::Transformation;
-use spirit::AnyError;
 
-use crate::installer::FutureInstaller;
-use crate::net::IntoIncoming;
+#[cfg(feature = "net")]
+use super::net::Accept;
+use super::FutureInstaller;
 
-/// A [`Transformation`] to handle the whole socket.
-///
-/// This is a newtype that turns a closure taking a socket and the [`Fragment`] describing it and
-/// returns a future of something that can be done with it.
-///
-/// This is appropriate for UDP-like sockets and if you want to accept the connections on a
-/// TCP-like socket manually.
-///
-/// If you want to handle separate connections from a TCP listening socket but don't want to care
-/// about accepting them (and want to leave some other bookkeeping, like the limits of connections,
-/// to this crate), then you want the [`HandleListener`] instead.
-///
-/// [`Fragment`]: spirit::Fragment
-#[derive(Clone, Debug)]
-pub struct HandleSocket<F>(pub F);
+/// A [`Transformation`] to take a resource, turn it into a future and install it.
+pub struct ToFuture<F>(pub F);
 
-impl<Socket, InputInstaller, SubFragment, F, R> Transformation<Socket, InputInstaller, SubFragment>
-    for HandleSocket<F>
+impl<F, Fut, R, II, SF> Transformation<R, II, SF> for ToFuture<F>
 where
-    F: FnMut(Socket, &SubFragment) -> Result<R, AnyError>,
-    R: IntoFuture<Item = (), Error = ()> + 'static,
-    SubFragment: Debug,
+    F: FnMut(R, &SF) -> Result<Fut, AnyError>,
+    Fut: Future<Output = ()> + 'static,
 {
-    type OutputResource = R;
-    type OutputInstaller = FutureInstaller<R>;
-    fn installer(&mut self, _: InputInstaller, name: &str) -> Self::OutputInstaller {
-        trace!("Creating future installer for {}", name);
+    type OutputResource = Fut;
+    type OutputInstaller = FutureInstaller;
+    fn installer(&mut self, _: II, _: &str) -> FutureInstaller {
         FutureInstaller::default()
     }
-    fn transform(&mut self, sock: Socket, cfg: &SubFragment, name: &str) -> Result<R, AnyError> {
-        trace!("Creating a future out of socket {} on {:?}", name, cfg);
-        (self.0)(sock, cfg)
+    fn transform(&mut self, r: R, cfg: &SF, name: &str) -> Result<Fut, AnyError> {
+        trace!("Wrapping {} into a future", name);
+        (self.0)(r, cfg)
     }
 }
 
-#[doc(hidden)]
-pub trait ConnectionHandler<Conn, Ctx> {
-    type Output;
-    fn execute(&self, conn: Conn, ctx: &mut Ctx) -> Self::Output;
-}
+/// A [`Transformation`] to take a resource, turn it into a future and install it.
+///
+/// Unlike [`ToFuture`], this one doesn't pass the configuration to the closure.
+///
+/// # Examples
+///
+/// This is mostly the same example as the one at the crate root, but done slightly differently.
+/// The future is created later on, during the transformation phase. While a little bit more
+/// verbose here, this comes with two advantages:
+///
+/// * Works with already provided fragments, like the network primitives in [`net`][crate::net]. In
+///   that case you might want to prefer the [`ToFuture`], as it also gives access to the original
+///   configuration fragment, including any extra configuration for the future.
+/// * The future can be an arbitrary anonymous/unnameable type (eg. `impl Future` or an `async`
+///   function), there's no need for boxing. This might have slight positive effect on performance.
+///
+/// ```rust
+/// use std::time::Duration;
+///
+/// use err_context::AnyError;
+/// use serde::{Deserialize, Serialize};
+/// use spirit::{Empty, Pipeline, Spirit};
+/// use spirit::prelude::*;
+/// use spirit::fragment::driver::CacheEq;
+/// use spirit_tokio::handlers::ToFutureUnconfigured;
+/// use structdoc::StructDoc;
+///
+/// #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, StructDoc)]
+/// #[serde(default)]
+/// struct MsgCfg {
+///     /// A message to print now and then.
+///     msg: String,
+///     /// Time between printing the message.
+///     interval: Duration,
+/// }
+///
+/// impl MsgCfg {
+///     async fn run(self) {
+///         loop {
+///             println!("{}", self.msg);
+///             tokio::time::delay_for(self.interval).await;
+///         }
+///     }
+/// }
+///
+/// impl Default for MsgCfg {
+///     fn default() -> Self {
+///         MsgCfg {
+///             msg: "Hello".to_owned(),
+///             interval: Duration::from_secs(1),
+///         }
+///     }
+/// }
+///
+/// spirit::simple_fragment! {
+///     impl Fragment for MsgCfg {
+///         type Driver = CacheEq<MsgCfg>;
+///         // We simply send the configuration forward
+///         type Resource = Self;
+///         type Installer = ();
+///         fn create(&self, _: &'static str) -> Result<Self::Resource, AnyError> {
+///             Ok(self.clone())
+///         }
+///     }
+/// }
+///
+/// /// An application.
+/// #[derive(Default, Deserialize, Serialize, StructDoc)]
+/// struct AppConfig {
+///     #[serde(flatten)]
+///     msg: MsgCfg,
+/// }
+///
+/// impl AppConfig {
+///     fn msg(&self) -> &MsgCfg {
+///         &self.msg
+///     }
+/// }
+///
+/// fn main() {
+///     Spirit::<Empty, AppConfig>::new()
+///         // Will install and possibly cancel and replace the future if the config changes.
+///         .with(
+///             Pipeline::new("Msg")
+///                 .extract_cfg(AppConfig::msg)
+///                 // This thing turns it into the future and sets how to install it.
+///                 .transform(ToFutureUnconfigured(MsgCfg::run))
+///         )
+///         // Just an empty body here.
+///         .run(|spirit| {
+///             // Usually, one would terminate by CTRL+C, but we terminate from here to make sure
+///             // the example finishes.
+///             spirit.terminate();
+///             Ok(())
+///         })
+/// }
+/// ```
+pub struct ToFutureUnconfigured<F>(pub F);
 
-impl<F, Conn, Ctx, R> ConnectionHandler<Conn, Ctx> for F
+impl<F, Fut, R, II, SF> Transformation<R, II, SF> for ToFutureUnconfigured<F>
 where
-    F: Fn(Conn, &mut Ctx) -> R,
+    F: FnMut(R) -> Fut,
+    Fut: Future<Output = ()> + 'static,
 {
-    type Output = R;
-    fn execute(&self, conn: Conn, ctx: &mut Ctx) -> R {
-        self(conn, ctx)
+    type OutputResource = Fut;
+    type OutputInstaller = FutureInstaller;
+    fn installer(&mut self, _: II, _: &str) -> FutureInstaller {
+        FutureInstaller::default()
+    }
+    fn transform(&mut self, r: R, _: &SF, name: &str) -> Result<Fut, AnyError> {
+        trace!("Wrapping {} into a future", name);
+        Ok((self.0)(r))
     }
 }
 
-#[doc(hidden)]
-#[derive(Debug, Clone)]
-pub struct ConfigAdaptor<F>(F);
-
-impl<F, Conn, Cfg, R> ConnectionHandler<Conn, Cfg> for ConfigAdaptor<F>
-where
-    F: Fn(Conn, &Cfg) -> R,
-{
-    type Output = R;
-    fn execute(&self, conn: Conn, cfg: &mut Cfg) -> R {
-        (self.0)(conn, cfg)
-    }
-}
-
-#[doc(hidden)]
-pub struct Acceptor<Incoming, Ctx, Handler> {
+/// A plumbing type for [`PerConnection`].
+#[cfg(feature = "net")]
+pub struct Acceptor<A, F, C> {
+    accept: A,
+    f: F,
+    cfg: C,
     name: &'static str,
-    incoming: Incoming,
-    ctx: Ctx,
-    handler: Handler,
 }
 
-impl<Incoming, Ctx, Handler> Future for Acceptor<Incoming, Ctx, Handler>
+#[cfg(feature = "net")]
+impl<A, F, C, Fut> Future for Acceptor<A, F, C>
 where
-    Incoming: Stream<Error = IoError>,
-    Handler: ConnectionHandler<Incoming::Item, Ctx>,
-    Handler::Output: IntoFuture<Item = ()>,
-    <<Handler as ConnectionHandler<Incoming::Item, Ctx>>::Output as IntoFuture>::Future:
-        Send + 'static,
-    <<Handler as ConnectionHandler<Incoming::Item, Ctx>>::Output as IntoFuture>::Error:
-        Into<AnyError>,
+    A: Accept,
+    F: FnMut(A::Connection, &C) -> Fut,
+    Fut: Future<Output = ()> + Send + 'static,
+    Self: Unpin,
 {
-    type Item = ();
-    type Error = ();
-    fn poll(&mut self) -> Poll<(), ()> {
+    type Output = ();
+    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<()> {
         loop {
-            let incoming = self.incoming.poll().map_err(|e| {
-                let e = e.context("Listening socket terminated unexpectedly").into();
-                spirit::log_error!(multi Error, e);
-            });
-            let connection = try_ready!(incoming);
-            if let Some(conn) = connection {
-                let name = self.name;
-                let future = self
-                    .handler
-                    .execute(conn, &mut self.ctx)
-                    .into_future()
-                    .map_err(move |e| {
-                        let e = e
-                            .into()
-                            .context(format!("Failed to handle connection on {}", name));
-                        spirit::log_error!(multi Error, e.into());
-                    });
-                tokio::spawn(future);
-            } else {
-                warn!("The listening socket on {} terminated", self.name);
-                return Ok(Async::Ready(()));
+            match self.accept.poll_accept(ctx) {
+                Poll::Ready(Err(e)) => {
+                    error!("Giving up acceptor {}: {}", self.name, e);
+                    return Poll::Ready(());
+                }
+                Poll::Ready(Ok(conn)) => {
+                    trace!("Got a new connection on {}", self.name);
+                    // Poking the borrow checker around the un-pinning, otherwise it is unhappy
+                    let me: &mut Self = &mut self;
+                    let fut = (me.f)(conn, &me.cfg);
+                    tokio::spawn(fut);
+                }
+                Poll::Pending => return Poll::Pending,
             }
         }
     }
 }
 
-/// A handler of incoming connections with per-listener initialization.
+/// A [`Transformation`] that creates a new future from each accepted connection.
 ///
-/// This is a more complex version of the [`HandleListener`]. This one contains two closures. The
-/// first one (`I`) is called for each *listening* socket and produces an arbitrary context. The
-/// second one (`F`) is called for each connection accepted on that listening socket. The context
-/// is provided to the closure.
+/// For each connection yielded from the acceptor (passed in as the input resource), the function
+/// is used to create a new future. That new future is spawned into [`tokio`] runtime. Note that
+/// even when this resource gets uninstalled, the spawned futures from the connections are left
+/// running.
 ///
-/// This approach allows certain initialization to happen for each separate listening socket.
-#[derive(Clone, Debug)]
-pub struct HandleListenerInit<I, F>(pub I, pub F);
+/// In case the acceptor yields an error, it is dropped and not used any more. Note that some
+/// primitives, like [`TcpListenWithLimits`][crate::net::TcpListenWithLimits] handles errors
+/// internally and never returns any, therefore it might be a good candidate for long-running
+/// servers.
+///
+/// # Examples
+#[cfg(feature = "net")]
+pub struct PerConnection<F>(pub F);
 
-impl<Listener, InputInstaller, SubFragment, I, Ctx, F, Fut>
-    Transformation<Listener, InputInstaller, SubFragment> for HandleListenerInit<I, F>
+#[cfg(feature = "net")]
+impl<F, Fut, A, II, SF> Transformation<A, II, SF> for PerConnection<F>
 where
-    Listener: IntoIncoming,
-    I: FnMut(&mut Listener, &SubFragment) -> Result<Ctx, AnyError>,
-    F: Fn(Listener::Connection, &mut Ctx) -> Fut + Clone + 'static,
-    Fut: IntoFuture<Item = ()>,
-    Fut::Error: Into<AnyError>,
-    SubFragment: Debug,
-    Ctx: 'static,
+    A: Accept,
+    F: Clone + FnMut(A::Connection, &SF) -> Fut + 'static,
+    Fut: Future<Output = ()> + 'static,
+    SF: Clone + 'static,
 {
-    type OutputResource = Acceptor<Listener::Incoming, Ctx, F>;
-    type OutputInstaller = FutureInstaller<Self::OutputResource>;
-    fn installer(&mut self, _: InputInstaller, name: &str) -> Self::OutputInstaller {
-        trace!("Creating future installer for listener {}", name);
+    type OutputResource = Acceptor<A, F, SF>;
+    type OutputInstaller = FutureInstaller;
+    fn installer(&mut self, _: II, _: &str) -> FutureInstaller {
         FutureInstaller::default()
     }
     fn transform(
         &mut self,
-        mut listener: Listener,
-        cfg: &SubFragment,
+        accept: A,
+        cfg: &SF,
         name: &'static str,
-    ) -> Result<Self::OutputResource, AnyError> {
-        trace!("Creating acceptor for {} on {:?}", name, cfg);
-        let ctx = (self.0)(&mut listener, cfg)?;
-        let incoming = listener.into_incoming();
+    ) -> Result<Acceptor<A, F, SF>, AnyError> {
+        trace!("Creating new acceptor for {}", name);
+        let f = self.0.clone();
+        let cfg = cfg.clone();
         Ok(Acceptor {
-            incoming,
+            accept,
+            f,
+            cfg,
             name,
-            ctx,
-            handler: self.1.clone(),
         })
     }
 }
 
-/// A handler newtype to handle each separate connection.
+/// A more flexible (and mind-bending) version of [`PerConnection`].
 ///
-/// If this handler is used (wrapping a closure taking the connection and the [`Fragment`] that
-/// created the relevant listening socket it comes from), the closure is called for already
-/// accepted connection. It shall produce a future and that future is spawned onto a runtime.
+/// The [`PerConnection`] applies a closure to each accepted connection. To share the closure
+/// between all listeners, the closure is cloned.
 ///
-/// Most of the time this is what you want if you just want to serve some requests over TCP or
-/// something similar that has accepting semantics (one socket that listens and produces more
-/// sockets).
-///
-/// For slightly more complex situation, you might want to also consider the
-/// [`HandleListenerInit`].
-///
-/// [`Fragment`]: spirit::Fragment
-#[derive(Clone, Debug)]
-pub struct HandleListener<F>(pub F);
+/// This version's closure is higher-level closure. It is called once for each listener to produce
+/// a per-listener closure to handle its connections. In effect, it allows for custom „cloning“ of
+/// the closure.
+#[cfg(feature = "net")]
+pub struct PerConnectionInit<F>(pub F);
 
-impl<Listener, InputInstaller, SubFragment, F, Fut>
-    Transformation<Listener, InputInstaller, SubFragment> for HandleListener<F>
+#[cfg(feature = "net")]
+impl<FA, FC, Fut, A, II, SF> Transformation<A, II, SF> for PerConnectionInit<FA>
 where
-    Listener: IntoIncoming,
-    F: Fn(Listener::Connection, &SubFragment) -> Fut + Clone + 'static,
-    Fut: IntoFuture<Item = ()>,
-    Fut::Error: Into<AnyError>,
-    SubFragment: Clone + Debug + 'static,
+    A: Accept,
+    FA: FnMut(&A, &SF) -> FC + 'static,
+    FC: FnMut(A::Connection, &SF) -> Fut + 'static,
+    Fut: Future<Output = ()> + 'static,
+    SF: Clone + 'static,
 {
-    type OutputResource = Acceptor<Listener::Incoming, SubFragment, ConfigAdaptor<F>>;
-    type OutputInstaller = FutureInstaller<Self::OutputResource>;
-    fn installer(&mut self, _: InputInstaller, name: &str) -> Self::OutputInstaller {
-        trace!("Creating future installer for listener {}", name);
+    type OutputResource = Acceptor<A, FC, SF>;
+    type OutputInstaller = FutureInstaller;
+    fn installer(&mut self, _: II, _: &str) -> FutureInstaller {
         FutureInstaller::default()
     }
     fn transform(
         &mut self,
-        listener: Listener,
-        cfg: &SubFragment,
+        accept: A,
+        cfg: &SF,
         name: &'static str,
-    ) -> Result<Self::OutputResource, AnyError> {
-        trace!("Creating acceptor for {} on {:?}", name, cfg);
+    ) -> Result<Acceptor<A, FC, SF>, AnyError> {
+        trace!("Creating new acceptor for {}", name);
+        let f = (self.0)(&accept, cfg);
         let cfg = cfg.clone();
-        let incoming = listener.into_incoming();
         Ok(Acceptor {
-            incoming,
+            accept,
+            f,
+            cfg,
             name,
-            ctx: cfg,
-            handler: ConfigAdaptor(self.0.clone()),
         })
     }
 }

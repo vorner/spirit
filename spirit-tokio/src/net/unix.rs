@@ -10,20 +10,22 @@
 //! [`Either`]: crate::either::Either
 
 use std::fmt::Debug;
+use std::io::Error as IoError;
 use std::os::unix::net::{UnixDatagram as StdUnixDatagram, UnixListener as StdUnixListener};
 use std::path::PathBuf;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use err_context::prelude::*;
+use err_context::AnyError;
 use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};
-use spirit::AnyError;
 use spirit::Empty;
-use tokio::net::unix::{Incoming, UnixDatagram, UnixListener, UnixStream};
-use tokio::reactor::Handle;
+use tokio::net::{UnixDatagram, UnixListener, UnixStream};
 
-use crate::net::limits::WithLimits;
-use crate::net::{ConfiguredStreamListener, IntoIncoming};
+use super::limits::WithLimits;
+use super::{Accept, ConfiguredListener};
 
 /// Configuration of where to bind a unix domain socket.
 ///
@@ -46,9 +48,10 @@ use crate::net::{ConfiguredStreamListener, IntoIncoming};
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub struct Listen {
     /// The path on the FS where to create the unix domain socket.
-    path: PathBuf,
+    pub path: PathBuf,
     // TODO: Permissions
     // TODO: Remove
 }
@@ -78,11 +81,13 @@ impl Listen {
 /// If you want to always have no additional configuration, use [`Empty`] explicitly.
 pub type UnixConfig = Empty;
 
-impl IntoIncoming for UnixListener {
+impl Accept for UnixListener {
     type Connection = UnixStream;
-    type Incoming = Incoming;
-    fn into_incoming(self) -> Incoming {
-        self.incoming()
+    fn poll_accept(&mut self, ctx: &mut Context) -> Poll<Result<Self::Connection, IoError>> {
+        let mut inc = self.incoming();
+        // Unlike the TcpListener, this forces us to go through the incoming :-( But for what it
+        // looks inside, this should still work
+        Pin::new(&mut inc).poll_accept(ctx)
     }
 }
 
@@ -136,7 +141,7 @@ where
     type Driver = CacheSimilar<Self>;
     type Installer = ();
     type Seed = StdUnixListener;
-    type Resource = ConfiguredStreamListener<UnixListener, UnixStreamConfig>;
+    type Resource = ConfiguredListener<UnixListener, UnixStreamConfig>;
     fn make_seed(&self, name: &str) -> Result<StdUnixListener, AnyError> {
         self.listen
             .create_listener()
@@ -147,7 +152,7 @@ where
         let config = self.unix_config.clone();
         seed.try_clone() // Another copy of the listener
             // std → tokio socket conversion
-            .and_then(|listener| UnixListener::from_std(listener, &Handle::default()))
+            .and_then(UnixListener::from_std)
             .with_context(|_| {
                 format!(
                     "Failed to make unix streamsocket {}/{:?} asynchronous",
@@ -155,7 +160,7 @@ where
                 )
             })
             .map_err(AnyError::from)
-            .map(|listener| ConfiguredStreamListener::new(listener, config))
+            .map(|listener| ConfiguredListener::new(listener, config))
     }
 }
 
@@ -173,14 +178,16 @@ pub type UnixListenWithLimits<ExtraCfg = Empty, UnixStreamConfig = UnixConfig> =
 /// apply here except that the base configuration fields are taken from [`unix::Listen`] instead of
 /// [`net::Listen`].
 ///
-/// [`UdpListen`]: crate::UdpListen
+/// [`UdpListen`]: crate::net::UdpListen
 /// [`unix::Listen`]: Listen
 /// [`net::Listen`]: crate::net::Listen
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
+#[non_exhaustive]
 pub struct DatagramListen<ExtraCfg = Empty> {
+    /// The listening address.
     #[serde(flatten)]
-    listen: Listen,
+    pub listen: Listen,
 
     /// Arbitrary application-specific configuration that doesn't influence the socket itself.
     ///
@@ -220,7 +227,7 @@ where
     fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<UnixDatagram, AnyError> {
         seed.try_clone() // Another copy of the socket
             // std → tokio socket conversion
-            .and_then(|socket| UnixDatagram::from_std(socket, &Handle::default()))
+            .and_then(UnixDatagram::from_std)
             .with_context(|_| {
                 format!(
                     "Failed to make unix datagram socket {}/{:?} asynchronous",

@@ -1,21 +1,33 @@
 //! Support for alternative choices of configuration.
 
-use std::io::{BufRead, Error as IoError, Read, Seek, SeekFrom, Write};
+use std::future::Future;
+use std::io::{Error as IoError, SeekFrom};
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
-use futures::future::Either as FutEither;
-use futures::{Async, Future, Poll, Sink, StartSend, Stream};
+#[cfg(feature = "either")]
+use either::Either as OtherEither;
+use err_context::AnyError;
+#[cfg(feature = "futures")]
+use futures_util::future::Either as FutEither;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use spirit::extension::Extensible;
 use spirit::fragment::driver::{Comparable, Comparison, Driver, Instruction};
 use spirit::fragment::{Fragment, Installer, Stackable, Transformation};
-use spirit::AnyError;
 #[cfg(feature = "cfg-help")]
 use structdoc::StructDoc;
 use structopt::StructOpt;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek, AsyncWrite};
+#[cfg(feature = "stream")]
+use tokio::stream::Stream;
 
-use crate::net::IntoIncoming;
+#[cfg(feature = "net")]
+use crate::net::Accept;
+
+// TODO: A lot of things here require Unpin. Intuitively, they just pin the inner field right away,
+// so it should be fine to allow !Unpin types here too and use a bit of unsafe to do that. But we
+// would need to allow unsafe ( :-( ) and prove that the intuition is right.
 
 /// The [`Either`] type allows to wrap two similar [`Fragment`]s and let the user choose
 /// which one will be used.
@@ -25,7 +37,7 @@ use crate::net::IntoIncoming;
 /// type `Either<TcpListener, UnixListener>`.
 ///
 /// Many traits are delegated through to one or the other instance inside (in case both implement
-/// it). So, the above resource will implement the [`IntoIncoming`] trait that will accept
+/// it). So, the above resource will implement the [`Accept`] trait that will accept
 /// instances of `Either<TcpStream, UnixStream>`. These'll in turn implement [`AsyncRead`] and
 /// [`AsyncWrite`], therefore can be handled uniformly just as connections.
 ///
@@ -54,11 +66,7 @@ use crate::net::IntoIncoming;
 ///
 /// This is not the only `Either` type around. Unfortunately, none of the available ones was just
 /// right for the use case here, so this crate rolls its own. But it provides [`From`]/[`Into`]
-/// conversions between them:
-///
-/// * [`futures::future::Either`]
-/// * The [`either`](https://crates.io/crates/either) crate (under the `either` feature flag, off
-///   by default).
+/// conversions between them, if the corresponding feature on this crate is enabled.
 ///
 /// # More than two options
 ///
@@ -84,7 +92,7 @@ use crate::net::IntoIncoming;
 /// use spirit::prelude::*;
 /// #[cfg(unix)]
 /// use spirit_tokio::either::Either;
-/// use spirit_tokio::handlers::HandleListener;
+/// use spirit_tokio::handlers::PerConnection;
 /// use spirit_tokio::net::TcpListen;
 /// #[cfg(unix)]
 /// use spirit_tokio::net::unix::UnixListen;
@@ -114,14 +122,18 @@ use crate::net::IntoIncoming;
 ///     }
 /// }
 ///
-/// fn connection<C: AsyncRead + AsyncWrite>(conn: C) -> impl Future<Item = (), Error = AnyError> {
-///     tokio::io::write_all(conn, "Hello\n")
-///         .map(|_| ())
-///         .map_err(AnyError::from)
+/// async fn handle_connection<C: AsyncWrite + Unpin>(mut conn: C) -> Result<(), AnyError> {
+///     conn.write_all(b"hello world").await?;
+///     conn.shutdown().await?;
+///     Ok(())
 /// }
 ///
 /// fn main() {
-///     let handler = HandleListener(|conn, _cfg: &_| connection(conn));
+///     let handler = PerConnection(|conn, _cfg: &_| async {
+///         if let Err(e) = handle_connection(conn).await {
+///             eprintln!("Error: {}", e);
+///         }
+///     });
 ///     Spirit::<Empty, Config>::new()
 ///         .config_defaults(DEFAULT_CONFIG)
 ///         .with(Pipeline::new("listen").extract_cfg(Config::listen).transform(handler))
@@ -149,184 +161,172 @@ pub enum Either<A, B> {
 
 use self::Either::{A, B};
 
+macro_rules! either_unwrap {
+    ($either: expr, $pat: pat => $res: expr) => {
+        match $either {
+            A($pat) => $res,
+            B($pat) => $res,
+        }
+    };
+}
+
 impl<T> Either<T, T> {
     /// Extracts the inner value in case both have the same type.
     ///
     /// Sometimes, a series of operations produces an `Either` with both types the same. In such
     /// case, `Either` plays no role anymore and this method can be used to get to the inner value.
     pub fn into_inner(self) -> T {
-        match self {
-            A(a) => a,
-            B(b) => b,
-        }
+        either_unwrap!(self, v => v)
     }
 }
 
+#[cfg(feature = "futures")]
 impl<A, B> From<FutEither<A, B>> for Either<A, B> {
     fn from(e: FutEither<A, B>) -> Self {
         match e {
-            FutEither::A(a) => A(a),
-            FutEither::B(b) => B(b),
+            FutEither::Left(a) => A(a),
+            FutEither::Right(b) => B(b),
         }
     }
 }
 
+#[cfg(feature = "futures")]
 impl<A, B> Into<FutEither<A, B>> for Either<A, B> {
     fn into(self) -> FutEither<A, B> {
         match self {
-            A(a) => FutEither::A(a),
-            B(b) => FutEither::B(b),
+            A(a) => FutEither::Left(a),
+            B(b) => FutEither::Right(b),
         }
     }
 }
 
 #[cfg(feature = "either")]
-mod other_either {
-    extern crate either;
-
-    use self::either::Either as OtherEither;
-    use super::*;
-
-    impl<A, B> From<OtherEither<A, B>> for Either<A, B> {
-        fn from(e: OtherEither<A, B>) -> Self {
-            match e {
-                OtherEither::Left(a) => A(a),
-                OtherEither::Right(b) => B(b),
-            }
-        }
-    }
-
-    impl<A, B> Into<OtherEither<A, B>> for Either<A, B> {
-        fn into(self) -> OtherEither<A, B> {
-            match self {
-                A(a) => OtherEither::Left(a),
-                B(b) => OtherEither::Right(b),
-            }
+impl<A, B> From<OtherEither<A, B>> for Either<A, B> {
+    fn from(e: OtherEither<A, B>) -> Self {
+        match e {
+            OtherEither::Left(a) => A(a),
+            OtherEither::Right(b) => B(b),
         }
     }
 }
 
-macro_rules! either {
-    ($either: expr, $pat: pat => $res: expr) => {
-        match $either {
-            A($pat) => A($res),
-            B($pat) => B($res),
+#[cfg(feature = "either")]
+impl<A, B> Into<OtherEither<A, B>> for Either<A, B> {
+    fn into(self) -> OtherEither<A, B> {
+        match self {
+            A(a) => OtherEither::Left(a),
+            B(b) => OtherEither::Right(b),
         }
-    };
+    }
 }
 
-impl<A, B> IntoIncoming for Either<A, B>
+#[cfg(feature = "net")]
+impl<A, B> Accept for Either<A, B>
 where
-    A: IntoIncoming,
-    B: IntoIncoming,
+    A: Accept,
+    B: Accept,
 {
     type Connection = Either<A::Connection, B::Connection>;
-    type Incoming = Either<A::Incoming, B::Incoming>;
-    fn into_incoming(self) -> Self::Incoming {
-        either!(self, v => v.into_incoming())
+    fn poll_accept(&mut self, ctx: &mut Context) -> Poll<Result<Self::Connection, IoError>> {
+        match self {
+            A(a) => a.poll_accept(ctx).map(|r| r.map(A)),
+            B(b) => b.poll_accept(ctx).map(|r| r.map(B)),
+        }
     }
 }
 
 impl<A, B> Future for Either<A, B>
 where
-    A: Future,
-    B: Future<Error = A::Error>,
+    A: Future + Unpin,
+    B: Future + Unpin,
 {
-    type Item = Either<A::Item, B::Item>;
-    type Error = A::Error;
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        match self {
-            A(a) => a.poll().map(|a| a.map(A)),
-            B(b) => b.poll().map(|a| a.map(B)),
+    type Output = Either<A::Output, B::Output>;
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+        match self.get_mut() {
+            A(a) => Pin::new(a).poll(ctx).map(A),
+            B(b) => Pin::new(b).poll(ctx).map(B),
         }
     }
 }
 
-impl<A, B> Sink for Either<A, B>
-where
-    A: Sink,
-    B: Sink<SinkError = A::SinkError, SinkItem = A::SinkItem>,
-{
-    type SinkItem = A::SinkItem;
-    type SinkError = A::SinkError;
-    fn start_send(&mut self, item: Self::SinkItem) -> StartSend<Self::SinkItem, Self::SinkError> {
-        either!(self, v => v.start_send(item)).into_inner()
-    }
-    fn poll_complete(&mut self) -> Poll<(), Self::SinkError> {
-        either!(self, v => v.poll_complete()).into_inner()
-    }
-}
-
+#[cfg(feature = "stream")]
 impl<A, B> Stream for Either<A, B>
 where
-    A: Stream,
-    B: Stream<Error = A::Error>,
+    A: Stream + Unpin,
+    B: Stream + Unpin,
 {
     type Item = Either<A::Item, B::Item>;
-    type Error = A::Error;
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        match self {
-            A(a) => a.poll().map(|a| a.map(|o| o.map(A))),
-            B(b) => b.poll().map(|a| a.map(|o| o.map(B))),
+    fn poll_next(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
+        match self.get_mut() {
+            A(a) => Pin::new(a).poll_next(ctx).map(|i| i.map(A)),
+            B(b) => Pin::new(b).poll_next(ctx).map(|i| i.map(B)),
         }
     }
 }
 
-impl<A, B> Read for Either<A, B>
+impl<A, B> AsyncBufRead for Either<A, B>
 where
-    A: Read,
-    B: Read,
+    A: AsyncBufRead + Unpin,
+    B: AsyncBufRead + Unpin,
 {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, IoError> {
-        either!(self, v => v.read(buf)).into_inner()
+    fn poll_fill_buf(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Result<&[u8], IoError>> {
+        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_fill_buf(ctx))
+    }
+    fn consume(self: Pin<&mut Self>, amt: usize) {
+        either_unwrap!(self.get_mut(), v => Pin::new(v).consume(amt))
     }
 }
 
-impl<A, B> BufRead for Either<A, B>
+impl<A, B> AsyncRead for Either<A, B>
 where
-    A: BufRead,
-    B: BufRead,
+    A: AsyncRead + Unpin,
+    B: AsyncRead + Unpin,
 {
-    fn fill_buf(&mut self) -> Result<&[u8], IoError> {
-        either!(self, v => v.fill_buf()).into_inner()
-    }
-    fn consume(&mut self, amt: usize) {
-        either!(self, v => v.consume(amt));
+    fn poll_read(
+        self: Pin<&mut Self>,
+        ctx: &mut Context,
+        buf: &mut [u8],
+    ) -> Poll<Result<usize, IoError>> {
+        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_read(ctx, buf))
     }
 }
 
-impl<A, B> Seek for Either<A, B>
+impl<A, B> AsyncSeek for Either<A, B>
 where
-    A: Seek,
-    B: Seek,
+    A: AsyncSeek + Unpin,
+    B: AsyncSeek + Unpin,
 {
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, IoError> {
-        either!(self, v => v.seek(pos)).into_inner()
+    fn start_seek(
+        self: Pin<&mut Self>,
+        ctx: &mut Context,
+        position: SeekFrom,
+    ) -> Poll<Result<(), IoError>> {
+        either_unwrap!(self.get_mut(), v => Pin::new(v).start_seek(ctx, position))
+    }
+    fn poll_complete(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<u64, IoError>> {
+        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_complete(ctx))
     }
 }
-
-impl<A, B> Write for Either<A, B>
-where
-    A: Write,
-    B: Write,
-{
-    fn write(&mut self, buf: &[u8]) -> Result<usize, IoError> {
-        either!(self, v => v.write(buf)).into_inner()
-    }
-    fn flush(&mut self) -> Result<(), IoError> {
-        either!(self, v => v.flush()).into_inner()
-    }
-}
-
-impl<A: AsyncRead, B: AsyncRead> AsyncRead for Either<A, B> {}
 
 impl<A, B> AsyncWrite for Either<A, B>
 where
-    A: AsyncWrite,
-    B: AsyncWrite,
+    A: AsyncWrite + Unpin,
+    B: AsyncWrite + Unpin,
 {
-    fn shutdown(&mut self) -> Result<Async<()>, IoError> {
-        either!(self, v => v.shutdown()).into_inner()
+    fn poll_write(
+        self: Pin<&mut Self>,
+        ctx: &mut Context,
+        buf: &[u8],
+    ) -> Poll<Result<usize, IoError>> {
+        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_write(ctx, buf))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<(), IoError>> {
+        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_flush(ctx))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<(), IoError>> {
+        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_shutdown(ctx))
     }
 }
 
@@ -531,19 +531,13 @@ where
         if let Some(new) = self.new_driver.take() {
             self.driver = new;
         }
-        match &mut self.driver {
-            Either::A(a) => a.confirm(name),
-            Either::B(b) => b.confirm(name),
-        }
+        either_unwrap!(&mut self.driver, v => v.confirm(name))
     }
     fn abort(&mut self, name: &'static str) {
         if self.new_driver.is_some() {
             self.new_driver.take();
         } else {
-            match &mut self.driver {
-                Either::A(a) => a.abort(name),
-                Either::B(b) => b.abort(name),
-            }
+            either_unwrap!(&mut self.driver, v => v.abort(name))
         }
     }
     fn maybe_cached(&self, fragment: &Either<A, B>, name: &'static str) -> bool {

@@ -1,22 +1,22 @@
 //! Autoconfiguration of network primitives of [tokio]
 //!
-//! This is where the „meat“ of this crate lives. It contains various configuration [`Fragment`]s
-//! and utilities to manage network primitives. However, currently only listening (bound) sockets
-//! are present. Keeping a set of connecting socket (eg. a connection pool or something like that)
-//! is vaguely planned, though it is not clear how it'll look exactly. Input is welcome.
-//!
-//! Note that many common types are reexported to the root of the crate.
+//! Available only with the `net` feature. This contains several [`Fragment`]s for configuring
+//! network primitives.
 //!
 //! [`Fragment`]: spirit::Fragment
 
 use std::cmp;
 use std::fmt::Debug;
+use std::future::Future;
 use std::io::Error as IoError;
 use std::net::{IpAddr, TcpListener as StdTcpListener, UdpSocket as StdUdpSocket};
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use err_context::prelude::*;
-use futures::{Async, Poll, Stream};
+use err_context::AnyError;
+#[cfg(not(unix))]
 use log::warn;
 #[cfg(unix)]
 use net2::unix::{UnixTcpBuilderExt, UnixUdpBuilderExt};
@@ -26,234 +26,19 @@ use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};
-use spirit::AnyError;
 use spirit::Empty;
 #[cfg(feature = "cfg-help")]
 use structdoc::StructDoc;
-use tokio::net::tcp::Incoming;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
-use tokio::reactor::Handle;
+#[cfg(feature = "stream")]
+use tokio::stream::Stream;
 
 pub mod limits;
 #[cfg(unix)]
 pub mod unix;
 
-/// Abstraction over endpoints that accept connections.
-///
-/// The [`TcpListener`] has the [`incoming`] method that produces a stream of incoming
-/// connections. This abstracts over types with similar functionality ‒ either wrapped
-/// [`TcpListener`], [`UnixListener`] on unix, types that provide encryption on top of these, etc.
-///
-/// [`TcpListener`]: tokio::net::TcpListener
-/// [`incoming`]: tokio::net::TcpListener::incoming
-/// [`UnixListener`]: tokio::net::unix::UnixListener
-pub trait IntoIncoming: Send + Sync + 'static {
-    /// The type of one accepted connection.
-    type Connection: Send + Sync + 'static;
-
-    /// The stream produced.
-    type Incoming: Stream<Item = Self::Connection, Error = IoError> + Send + Sync + 'static;
-
-    /// Turns the given resource into the stream of incoming connections.
-    fn into_incoming(self) -> Self::Incoming;
-}
-
-impl IntoIncoming for TcpListener {
-    type Connection = TcpStream;
-    type Incoming = Incoming;
-    fn into_incoming(self) -> Self::Incoming {
-        self.incoming()
-    }
-}
-
-fn default_host() -> IpAddr {
-    "::".parse().unwrap()
-}
-
-fn default_backlog() -> u32 {
-    128 // Number taken from rust standard library implementation
-}
-
-/// A description of listening interface and port.
-///
-/// This can be used as part of configuration to describe a socket.
-///
-/// Note that the `Default` implementation is there to provide something on creation of `Spirit`,
-/// but isn't very useful. It'll listen on a OS-assigned port on all the interfaces.
-///
-/// This is used as the base of the [`TcpListen`] and [`UdpListen`] configuration fragments.
-///
-/// # Configuration options
-///
-/// * `port` (mandatory)
-/// * `host` (optional, if not present, `::` is used)
-/// * `reuse-addr` (optional, boolean, if not present the OS default is used)
-/// * `reuse-port` (optional, boolean, if not present the OS default is used, does something only
-///   on unix).
-/// * `only-v6` (optional, boolean, if not present the OS default is used, does nothing for IPv4
-///   sockets).
-/// * `backlog` (optional, number of waiting connections to be accepted in the OS queue, defaults
-///   to 128)
-/// * `ttl` (TTL of the listening/UDP socket).
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
-#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
-#[serde(rename_all = "kebab-case")]
-pub struct Listen {
-    /// The port to bind to.
-    port: u16,
-
-    /// The interface to bind to.
-    ///
-    /// Defaults to `::` (IPv6 any).
-    #[serde(default = "default_host")]
-    host: IpAddr,
-
-    /// The SO_REUSEADDR socket option.
-    ///
-    /// Usually, the OS reserves the host-port pair for a short time after it has been released, so
-    /// leftovers of old connections don't confuse the new application. The SO_REUSEADDR option
-    /// asks the OS not to do this reservation.
-    ///
-    /// If not set, it is left on the OS default (which is likely off = doing the reservation).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reuse_addr: Option<bool>,
-
-    /// The SO_REUSEPORT socket option.
-    ///
-    /// Setting this to true allows multiple applications to *simultaneously* bind to the same
-    /// port.
-    ///
-    /// If not set, it is left on the OS default (which is likely off).
-    ///
-    /// This option is not available on Windows and has no effect there.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reuse_port: Option<bool>,
-
-    /// The IP_V6ONLY option.
-    ///
-    /// This has no effect on IPv4 sockets.
-    ///
-    /// On IPv6 sockets, this restricts the socket to sending and receiving only IPv6 packets. This
-    /// allows another socket to bind the same port on IPv4. If it is set to false, the socket can
-    /// communicate with both IPv6 and IPv4 endpoints under some circumstances.
-    ///
-    /// Due to platform differences, the generally accepted best practice is to bind IPv4 and IPv6
-    /// as two separate sockets, the IPv6 one with setting IP_V6ONLY explicitly to true.
-    ///
-    /// If not set, it is left on the OS default (which differs from OS to OS).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    only_v6: Option<bool>,
-
-    /// The accepting backlog.
-    ///
-    /// Has no effect for UDP sockets.
-    ///
-    /// This specifies how many connections can wait in the kernel before being accepted. If more
-    /// than this limit are queued, the kernel starts refusing them with connection reset packets.
-    ///
-    /// The default is 128.
-    #[serde(default = "default_backlog")]
-    backlog: u32,
-
-    /// The TTL field of IP packets sent from this socket.
-    ///
-    /// If not set, it defaults to the OS value.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ttl: Option<u32>,
-}
-
-impl Default for Listen {
-    fn default() -> Self {
-        Listen {
-            port: 0,
-            host: default_host(),
-            reuse_addr: None,
-            reuse_port: None,
-            only_v6: None,
-            backlog: default_backlog(),
-            ttl: None,
-        }
-    }
-}
-
-impl Listen {
-    /// Creates a TCP socket described by the loaded configuration.
-    ///
-    /// This is the synchronous socket from standard library. See [`TcpListener::from_std`].
-    pub fn create_tcp(&self) -> Result<StdTcpListener, AnyError> {
-        let builder = match self.host {
-            IpAddr::V4(_) => TcpBuilder::new_v4(),
-            IpAddr::V6(_) => TcpBuilder::new_v6(),
-        }?;
-        if let Some(only_v6) = self.only_v6 {
-            builder.only_v6(only_v6)?;
-        }
-        if let Some(reuse_addr) = self.reuse_addr {
-            builder.reuse_address(reuse_addr)?;
-        }
-        if let Some(reuse_port) = self.reuse_port {
-            if cfg!(unix) {
-                builder.reuse_port(reuse_port)?;
-            } else {
-                warn!("reuse-port does nothing on this platform");
-            }
-        }
-        if let Some(ttl) = self.ttl {
-            builder.ttl(ttl)?;
-        }
-        builder.bind((self.host, self.port))?;
-        Ok(builder.listen(cmp::min(self.backlog, i32::max_value() as u32) as i32)?)
-    }
-
-    /// Creates a UDP socket described by the loaded configuration.
-    ///
-    /// This is the synchronous socket from standard library. See [`UdpSocket::from_std`].
-    pub fn create_udp(&self) -> Result<StdUdpSocket, AnyError> {
-        let builder = match self.host {
-            IpAddr::V4(_) => UdpBuilder::new_v4(),
-            IpAddr::V6(_) => UdpBuilder::new_v6(),
-        }?;
-        if let Some(only_v6) = self.only_v6 {
-            builder.only_v6(only_v6)?;
-        }
-        if let Some(reuse_addr) = self.reuse_addr {
-            builder.reuse_address(reuse_addr)?;
-        }
-        if let Some(reuse_port) = self.reuse_port {
-            if cfg!(unix) {
-                builder.reuse_port(reuse_port)?;
-            } else {
-                warn!("reuse-port does nothing on this platform");
-            }
-        }
-        if let Some(ttl) = self.ttl {
-            builder.ttl(ttl)?;
-        }
-        Ok(builder.bind((self.host, self.port))?)
-    }
-}
-
-/// Abstracts over a configuration subfragment that applies further settings to an already accepted
-/// stream.
-///
-/// The fragments that accept connections can apply some configuration to them after they have been
-/// accepted but before handling them to the rest of the application. The trait is generic over the
-/// type of connections accepted.
-///
-/// The [`Empty`] fragment provides a default configuration that does nothing.
-pub trait StreamConfig<S> {
-    /// Applies the configuration to the stream.
-    ///
-    /// If the configuration fails and error is returned, the connection is dropped (and the error
-    /// is logged).
-    fn configure(&self, stream: &mut S) -> Result<(), IoError>;
-}
-
-impl<S> StreamConfig<S> for Empty {
-    fn configure(&self, _: &mut S) -> Result<(), IoError> {
-        Ok(())
-    }
-}
+// TODO: Unix domain sockets
+// TODO: Either?
 
 /// Configuration that can be unset, explicitly turned off or set to a duration.
 ///
@@ -302,17 +87,18 @@ impl<'de> Deserialize<'de> for MaybeDuration {
         #[serde(untagged)]
         enum Raw {
             Duration(#[serde(deserialize_with = "spirit::utils::deserialize_duration")] Duration),
-            Off(bool),
+            Off(Option<bool>),
         }
 
         let raw = Raw::deserialize(deserializer)?;
         match raw {
             Raw::Duration(duration) => Ok(MaybeDuration::Duration(duration)),
-            Raw::Off(false) => Ok(MaybeDuration::Off),
-            Raw::Off(true) => Err(D::Error::invalid_value(
+            Raw::Off(Some(false)) => Ok(MaybeDuration::Off),
+            Raw::Off(Some(true)) => Err(D::Error::invalid_value(
                 Unexpected::Bool(true),
                 &"false or duration string",
             )),
+            Raw::Off(None) => Ok(MaybeDuration::Unset),
         }
     }
 }
@@ -320,12 +106,242 @@ impl<'de> Deserialize<'de> for MaybeDuration {
 impl Serialize for MaybeDuration {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         match self {
-            MaybeDuration::Unset => unreachable!("Unset must be filtered with skip_serializing_if"),
+            MaybeDuration::Unset => s.serialize_none(),
             MaybeDuration::Off => s.serialize_bool(false),
             MaybeDuration::Duration(d) => {
-                s.serialize_str(&::humantime::format_duration(*d).to_string())
+                s.serialize_str(&humantime::format_duration(*d).to_string())
             }
         }
+    }
+}
+
+/// A plumbing type, return value of [`Accept::accept`].
+pub struct AcceptFuture<'a, A: ?Sized>(&'a mut A);
+
+impl<A: Accept> Future for AcceptFuture<'_, A> {
+    type Output = Result<A::Connection, IoError>;
+
+    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+        self.0.poll_accept(ctx)
+    }
+}
+
+/// Abstraction over endpoints that accept connections.
+pub trait Accept: Send + Sync + 'static {
+    /// The type of the accepted connection.
+    type Connection: Send + Sync + 'static;
+
+    /// Poll for availability of the next connection.
+    ///
+    /// In case there's none ready, it returns [`Poll::Pending`] and the current task will be
+    /// notified by a waker.
+    fn poll_accept(&mut self, ctx: &mut Context) -> Poll<Result<Self::Connection, IoError>>;
+
+    /// Accept the next connection.
+    ///
+    /// Returns a future that will yield the next connection.
+    fn accept(&mut self) -> AcceptFuture<Self> {
+        AcceptFuture(self)
+    }
+}
+
+impl Accept for TcpListener {
+    type Connection = TcpStream;
+
+    fn poll_accept(&mut self, ctx: &mut Context) -> Poll<Result<TcpStream, IoError>> {
+        match self.poll_accept(ctx) {
+            Poll::Ready(Ok((stream, _addr))) => Poll::Ready(Ok(stream)),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+fn default_host() -> IpAddr {
+    "::".parse().unwrap()
+}
+
+fn default_backlog() -> u32 {
+    128 // Number taken from rust standard library implementation
+}
+
+/// A description of listening interface and port.
+///
+/// This can be used as part of configuration to describe a socket.
+///
+/// Note that the `Default` implementation is there to provide something on creation of `Spirit`,
+/// but isn't very useful. It'll listen on a OS-assigned port on all the interfaces.
+///
+/// This is used as the base of the [`TcpListen`] and [`UdpListen`] configuration fragments.
+///
+/// # Configuration options
+///
+/// * `port` (mandatory)
+/// * `host` (optional, if not present, `::` is used)
+/// * `reuse-addr` (optional, boolean, if not present the OS default is used)
+/// * `reuse-port` (optional, boolean, if not present the OS default is used, does something only
+///   on unix).
+/// * `only-v6` (optional, boolean, if not present the OS default is used, does nothing for IPv4
+///   sockets).
+/// * `backlog` (optional, number of waiting connections to be accepted in the OS queue, defaults
+///   to 128)
+/// * `ttl` (TTL of the listening/UDP socket).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
+#[cfg_attr(feature = "cfg-help", derive(StructDoc))]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub struct Listen {
+    /// The port to bind to.
+    pub port: u16,
+
+    /// The interface to bind to.
+    ///
+    /// Defaults to `::` (IPv6 any).
+    #[serde(default = "default_host")]
+    pub host: IpAddr,
+
+    /// The SO_REUSEADDR socket option.
+    ///
+    /// Usually, the OS reserves the host-port pair for a short time after it has been released, so
+    /// leftovers of old connections don't confuse the new application. The SO_REUSEADDR option
+    /// asks the OS not to do this reservation.
+    ///
+    /// If not set, it is left on the OS default (which is likely off = doing the reservation).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reuse_addr: Option<bool>,
+
+    /// The SO_REUSEPORT socket option.
+    ///
+    /// Setting this to true allows multiple applications to *simultaneously* bind to the same
+    /// port.
+    ///
+    /// If not set, it is left on the OS default (which is likely off).
+    ///
+    /// This option is not available on Windows and has no effect there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reuse_port: Option<bool>,
+
+    /// The IP_V6ONLY option.
+    ///
+    /// This has no effect on IPv4 sockets.
+    ///
+    /// On IPv6 sockets, this restricts the socket to sending and receiving only IPv6 packets. This
+    /// allows another socket to bind the same port on IPv4. If it is set to false, the socket can
+    /// communicate with both IPv6 and IPv4 endpoints under some circumstances.
+    ///
+    /// Due to platform differences, the generally accepted best practice is to bind IPv4 and IPv6
+    /// as two separate sockets, the IPv6 one with setting IP_V6ONLY explicitly to true.
+    ///
+    /// If not set, it is left on the OS default (which differs from OS to OS).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub only_v6: Option<bool>,
+
+    /// The accepting backlog.
+    ///
+    /// Has no effect for UDP sockets.
+    ///
+    /// This specifies how many connections can wait in the kernel before being accepted. If more
+    /// than this limit are queued, the kernel starts refusing them with connection reset packets.
+    ///
+    /// The default is 128.
+    #[serde(default = "default_backlog")]
+    pub backlog: u32,
+
+    /// The TTL field of IP packets sent from this socket.
+    ///
+    /// If not set, it defaults to the OS value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttl: Option<u32>,
+}
+
+impl Default for Listen {
+    fn default() -> Self {
+        Listen {
+            port: 0,
+            host: default_host(),
+            reuse_addr: None,
+            reuse_port: None,
+            only_v6: None,
+            backlog: default_backlog(),
+            ttl: None,
+        }
+    }
+}
+
+impl Listen {
+    /// Creates a TCP socket described by the loaded configuration.
+    ///
+    /// This is the synchronous socket from standard library. See [`TcpListener::from_std`].
+    pub fn create_tcp(&self) -> Result<StdTcpListener, AnyError> {
+        let builder = match self.host {
+            IpAddr::V4(_) => TcpBuilder::new_v4(),
+            IpAddr::V6(_) => TcpBuilder::new_v6(),
+        }?;
+        if let Some(only_v6) = self.only_v6 {
+            builder.only_v6(only_v6)?;
+        }
+        if let Some(reuse_addr) = self.reuse_addr {
+            builder.reuse_address(reuse_addr)?;
+        }
+        if let Some(reuse_port) = self.reuse_port {
+            #[cfg(unix)]
+            builder.reuse_port(reuse_port)?;
+            #[cfg(not(unix))]
+            warn!("reuse-port does nothing on this platform");
+        }
+        if let Some(ttl) = self.ttl {
+            builder.ttl(ttl)?;
+        }
+        builder.bind((self.host, self.port))?;
+        Ok(builder.listen(cmp::min(self.backlog, i32::max_value() as u32) as i32)?)
+    }
+
+    /// Creates a UDP socket described by the loaded configuration.
+    ///
+    /// This is the synchronous socket from standard library. See [`UdpSocket::from_std`].
+    pub fn create_udp(&self) -> Result<StdUdpSocket, AnyError> {
+        let builder = match self.host {
+            IpAddr::V4(_) => UdpBuilder::new_v4(),
+            IpAddr::V6(_) => UdpBuilder::new_v6(),
+        }?;
+        if let Some(only_v6) = self.only_v6 {
+            builder.only_v6(only_v6)?;
+        }
+        if let Some(reuse_addr) = self.reuse_addr {
+            builder.reuse_address(reuse_addr)?;
+        }
+        if let Some(reuse_port) = self.reuse_port {
+            #[cfg(unix)]
+            builder.reuse_port(reuse_port)?;
+            #[cfg(not(unix))]
+            warn!("reuse-port does nothing on this platform");
+        }
+        if let Some(ttl) = self.ttl {
+            builder.ttl(ttl)?;
+        }
+        Ok(builder.bind((self.host, self.port))?)
+    }
+}
+
+/// Abstracts over a configuration subfragment that applies further settings to an already accepted
+/// stream.
+///
+/// The fragments that accept connections can apply some configuration to them after they have been
+/// accepted but before handling them to the rest of the application. The trait is generic over the
+/// type of connections accepted.
+///
+/// The [`Empty`] fragment provides a default configuration that does nothing.
+pub trait StreamConfig<S> {
+    /// Applies the configuration to the stream.
+    ///
+    /// If the configuration fails and error is returned, the connection is dropped (and the error
+    /// is logged).
+    fn configure(&self, stream: &mut S) -> Result<(), IoError>;
+}
+
+impl<S> StreamConfig<S> for Empty {
+    fn configure(&self, _: &mut S) -> Result<(), IoError> {
+        Ok(())
     }
 }
 
@@ -346,6 +362,7 @@ impl Serialize for MaybeDuration {
 /// * `accepted-ttl` (optional, uses OS default if not set)
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
+#[non_exhaustive]
 pub struct TcpConfig {
     /// The TCP_NODELAY option.
     ///
@@ -358,19 +375,19 @@ pub struct TcpConfig {
     ///
     /// Left to OS default if not set.
     #[serde(rename = "tcp-nodelay", skip_serializing_if = "Option::is_none")]
-    nodelay: Option<bool>,
+    pub nodelay: Option<bool>,
 
     /// The receive buffer size of the connection, in bytes.
     ///
     /// Left to OS default if not set.
     #[serde(rename = "tcp-recv-buf-size", skip_serializing_if = "Option::is_none")]
-    recv_buf_size: Option<usize>,
+    pub recv_buf_size: Option<usize>,
 
     /// The send buffer size of the connection, in bytes.
     ///
     /// Left to the OS default if not set.
     #[serde(rename = "tcp-send-buf-size", skip_serializing_if = "Option::is_none")]
-    send_buf_size: Option<usize>,
+    pub send_buf_size: Option<usize>,
 
     /// The TCP keepalive time.
     ///
@@ -384,13 +401,13 @@ pub struct TcpConfig {
         skip_serializing_if = "MaybeDuration::is_unset"
     )]
     #[cfg_attr(feature = "cfg-help", structdoc(leaf = "Time interval/false"))]
-    keepalive: MaybeDuration,
+    pub keepalive: MaybeDuration,
 
     /// The IP TTL field of packets sent through an accepted connection.
     ///
     /// Left to the OS default if not set.
     #[serde(rename = "accepted-ttl", skip_serializing_if = "Option::is_none")]
-    accepted_ttl: Option<u32>,
+    pub accepted_ttl: Option<u32>,
 }
 
 impl StreamConfig<TcpStream> for TcpConfig {
@@ -416,78 +433,61 @@ impl StreamConfig<TcpStream> for TcpConfig {
     }
 }
 
-/// A wrapper around an [`IntoIncoming`] that applies configuration.
-///
-/// This is produced by [`Fragment`]s that produce listeners which configure the accepted
-/// connections. Usually doesn't need to be used directly (this is more of a plumbing type).
+/// A wrapper that applies configuration to each accepted connection.
 #[derive(Debug)]
-pub struct ConfiguredStreamListener<Listener, Config> {
-    listener: Listener,
-    config: Config,
+pub struct ConfiguredListener<A, C> {
+    accept: A,
+    config: C,
 }
 
-impl<Listener, Config> ConfiguredStreamListener<Listener, Config> {
+impl<A, C> ConfiguredListener<A, C> {
     /// Creates a new instance from parts.
-    pub fn new(listener: Listener, config: Config) -> Self {
-        Self { listener, config }
+    pub fn new(accept: A, config: C) -> Self {
+        Self { accept, config }
     }
 
     /// Disassembles it into the components.
-    pub fn into_parts(self) -> (Listener, Config) {
-        (self.listener, self.config)
+    pub fn into_parts(self) -> (A, C) {
+        (self.accept, self.config)
     }
 }
 
-impl<Listener, Config> IntoIncoming for ConfiguredStreamListener<Listener, Config>
+impl<A, C> Accept for ConfiguredListener<A, C>
 where
-    Listener: IntoIncoming + Send + Sync + 'static,
-    Config: StreamConfig<Listener::Connection> + Send + Sync + 'static,
+    A: Accept,
+    C: StreamConfig<A::Connection> + Send + Sync + 'static,
 {
-    type Connection = Listener::Connection;
-    type Incoming = ConfiguredIncoming<Listener::Incoming, Config>;
-    fn into_incoming(self) -> Self::Incoming {
-        ConfiguredIncoming {
-            incoming: self.listener.into_incoming(),
-            config: self.config,
-        }
-    }
-}
-
-/// A stream wrapper that applies configuration to each item.
-///
-/// This is produced by the [`ConfiguredStreamListener`]. It applies the configuration to each
-/// connection just before yielding it.
-///
-/// Can't be directly constructed and probably isn't something to interact with directly (this is
-/// more of a plumbing type).
-#[derive(Debug)]
-pub struct ConfiguredIncoming<Incoming, Config> {
-    incoming: Incoming,
-    config: Config,
-}
-
-impl<Incoming, Config> Stream for ConfiguredIncoming<Incoming, Config>
-where
-    Incoming: Stream<Error = IoError> + Send + Sync + 'static,
-    Config: StreamConfig<Incoming::Item>,
-{
-    type Item = Incoming::Item;
-    type Error = IoError;
-    fn poll(&mut self) -> Poll<Option<Incoming::Item>, IoError> {
-        match self.incoming.poll() {
-            Ok(Async::Ready(Some(mut stream))) => {
-                self.config.configure(&mut stream)?;
-                Ok(Async::Ready(Some(stream)))
+    type Connection = A::Connection;
+    fn poll_accept(&mut self, ctx: &mut Context) -> Poll<Result<A::Connection, IoError>> {
+        match self.accept.poll_accept(ctx) {
+            Poll::Ready(Ok(mut conn)) => {
+                if let Err(e) = self.config.configure(&mut conn) {
+                    return Poll::Ready(Err(e));
+                }
+                Poll::Ready(Ok(conn))
             }
-            other => other,
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+            Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+#[cfg(feature = "stream")]
+impl<A, C> Stream for ConfiguredListener<A, C>
+where
+    A: Accept + Unpin,
+    C: StreamConfig<A::Connection> + Unpin + Send + Sync + 'static,
+{
+    type Item = Result<A::Connection, IoError>;
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
+        self.poll_accept(ctx).map(Some)
     }
 }
 
 /// A configuration fragment of a TCP listening socket.
 ///
-/// The [`Fragment`] creates a [`TcpListener`] (wrapped in [`ConfiguredIncoming`]). It can be
-/// handled directly, or through [`Pipeline`]s and [`handlers`].
+/// The [`Fragment`] creates a [`TcpListener`] (wrapped in [`ConfiguredListener`]). It can be
+/// handled directly, or through [`Pipeline`]s.
 ///
 /// Note that this stream sometimes returns errors „in the middle“, but most stream consumers
 /// terminate on the first error. You might be interested in the [`WithListenLimits`] wrapper to
@@ -511,11 +511,15 @@ where
 /// [`WithListenLimits`]: crate::net::limits::WithListenLimits
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
+#[non_exhaustive]
 pub struct TcpListen<ExtraCfg = Empty, TcpStreamConfigure = TcpConfig> {
+    /// The actual listener socket address.
     #[serde(flatten)]
-    listen: Listen,
+    pub listen: Listen,
+
+    /// Configuration to be applied to the accepted connections.
     #[serde(flatten)]
-    tcp_config: TcpStreamConfigure,
+    pub tcp_config: TcpStreamConfigure,
 
     /// Arbitrary application specific configuration that doesn't influence the sockets created.
     #[serde(flatten)]
@@ -544,7 +548,7 @@ where
     type Driver = CacheSimilar<Self>;
     type Installer = ();
     type Seed = StdTcpListener;
-    type Resource = ConfiguredStreamListener<TcpListener, TcpConfig>;
+    type Resource = ConfiguredListener<TcpListener, TcpConfig>;
     fn make_seed(&self, name: &str) -> Result<StdTcpListener, AnyError> {
         self.listen
             .create_tcp()
@@ -555,10 +559,10 @@ where
         let config = self.tcp_config.clone();
         seed.try_clone() // Another copy of the listener
             // std → tokio socket conversion
-            .and_then(|listener| TcpListener::from_std(listener, &Handle::default()))
+            .and_then(TcpListener::from_std)
             .with_context(|_| format!("Failed to make socket {}/{:?} asynchronous", name, self))
             .map_err(AnyError::from)
-            .map(|listener| ConfiguredStreamListener::new(listener, config))
+            .map(|listener| ConfiguredListener::new(listener, config))
     }
 }
 
@@ -589,9 +593,11 @@ pub type TcpListenWithLimits<ExtraCfg = Empty, TcpStreamConfigure = TcpConfig> =
 /// prestent.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
+#[non_exhaustive]
 pub struct UdpListen<ExtraCfg = Empty> {
+    /// Configuration for the address to bind to.
     #[serde(flatten)]
-    listen: Listen,
+    pub listen: Listen,
 
     /// Arbitrary application specific configuration that doesn't influence the created socket, but
     /// can be examined in the [`handlers`].
@@ -632,7 +638,7 @@ where
     fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<UdpSocket, AnyError> {
         seed.try_clone() // Another copy of the socket
             // std → tokio socket conversion
-            .and_then(|socket| UdpSocket::from_std(socket, &Handle::default()))
+            .and_then(UdpSocket::from_std)
             .with_context(|_| format!("Failed to make socket {}/{:?} async", name, self))
             .map_err(AnyError::from)
     }
@@ -640,9 +646,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    extern crate serde_json;
-
-    use self::serde_json::error::Error as JsonError;
+    use serde_json::error::Error as JsonError;
 
     use super::*;
 
@@ -677,5 +681,13 @@ mod tests {
     #[test]
     fn maybe_duration_default() {
         assert_eq!(MaybeDuration::Unset, MaybeDuration::load(r#"{}"#).unwrap());
+    }
+
+    #[test]
+    fn maybe_duration_nil() {
+        assert_eq!(
+            MaybeDuration::Unset,
+            MaybeDuration::load(r#"{"maybe": null}"#).unwrap()
+        );
     }
 }

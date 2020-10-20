@@ -232,7 +232,7 @@ impl CfgDump {
     ///
     /// This can be used manually. However, the common way is to register the
     /// [`extension`][CfgDump::extension] within an [`Extensible`] (either [`spirit::Spirit`] or
-    /// [`spirit::Buidler`]) and let it do everything automatically.
+    /// [`spirit::Builder`]) and let it do everything automatically.
     pub fn dump<C: Serialize>(&self, cfg: &C) {
         if let Some(format) = self.dump_config_as {
             format.dump(cfg);

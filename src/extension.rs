@@ -5,8 +5,8 @@
 //!
 //! Furthermore, [`Extensible`] is also implemented for `Result`s containing them. This allows
 //! chaining the building without manually handling the errors. The error then can be handled by
-//! [`SpiritBuilder::run`] and logged, without making a distinction if it comes from the setup or
-//! application run.
+//! [`Builder::run`][crate::Builder::run] and logged, without making a distinction if it comes from
+//! the setup or application run.
 //!
 //! Some libraries might want to provide bits of functionality that need to register several
 //! different callbacks at once to work properly. This is described by the [`Extension`] trait.
@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use log::warn;
 
-use crate::bodies::InnerBody;
+use crate::bodies::{HookWrapper, InnerBody};
 use crate::validation::Action;
 use crate::{AnyError, Spirit};
 
@@ -358,6 +358,51 @@ pub trait Extensible: Sized {
             + Send
             + 'static;
 
+    /// Wrap the hooks inside the provided closure.
+    ///
+    /// This is in a sense similar to the principle of [`run_around`][Extensible::run_around], but
+    /// for all the hooks that are plugged into the spirit and run in the spirit thread. The other
+    /// difference is, these may be run multiple times (eg. there may be multiple enters and leaves
+    /// of the wrappers).
+    ///
+    /// * This is run during the initial configuration load from [`build`][crate::Builder::build].
+    /// * This is run during configuration reloading and signal handling from the background
+    ///   thread.
+    /// * If a new one is added to an already configured and running spirit, it'll become effective
+    ///   during the next event handled by the background thread.
+    /// * This is *not* run as part of the/around the usual [`run`][crate::Builder::run] (it is run
+    ///   as part of the initial configuration loading, but not around the actual application body;
+    ///   that one has its own [`run_around`][Extensible::run_around]).
+    /// * This is *not* run as part of user-invoked methods such as
+    ///   [`config_reload`][crate::Spirit::config_reload].
+    ///
+    /// This is meant to set up global/thread local context for the hooks in a similar way as
+    /// [`run_around`][Extensible::run_around] is for the application itself. It is expected
+    /// similar setup will go into both in case the context is needed not only for the application,
+    /// but for the callbacks/hooks/pipelines.
+    ///
+    /// Same as with [`run_around`][Extensible::run_around], later submitted wrappers are inserted
+    /// inside the older ones.
+    ///
+    /// # Expected functionality
+    ///
+    /// * The wrapper is a function/closure of the form `FnMut(Box<dyn FnOnce() + '_>)`.
+    ///   That is, it is passed an inner closure without parameters or return value. The lifetime
+    ///   of the inner closure may be arbitrarily short (it's impossible to store it for later).
+    /// * The wrapper must call the inner closure. Failing to call it will lead to panics during
+    ///   runtime.
+    /// * The wrapper must be prepared to survive a panic from the inner body. It may be called
+    ///   again even after such panic happened.
+    ///
+    /// # Warning
+    ///
+    /// * Calling this from within a callback might cause a deadlock.
+    /// * These are *not* dropped at [`terminate`][crate::Spirit::terminate], like most other
+    ///   callbacks.
+    fn around_hooks<W>(self, wrapper: W) -> Self
+    where
+        W: HookWrapper;
+
     /// Apply an [`Extension`].
     ///
     /// An extension is allowed to register arbitrary amount of callbacks.
@@ -508,6 +553,13 @@ where
             + 'static,
     {
         self.and_then(|c| c.run_around(wrapper))
+    }
+
+    fn around_hooks<W>(self, wrapper: W) -> Self
+    where
+        W: HookWrapper,
+    {
+        self.map(|c| c.around_hooks(wrapper))
     }
 
     fn with<E>(self, ext: E) -> Result<<Self as Extensible>::Ok, AnyError>
