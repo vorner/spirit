@@ -29,7 +29,7 @@
 //!
 //! const DEFAULT_CONFIG: &str = r#"
 //! [server]
-//! port = 1234
+//! port = 2234
 //! "#;
 //!
 //! #[derive(Default, Deserialize)]
@@ -506,7 +506,7 @@ where
 ///
 /// const DEFAULT_CONFIG: &str = r#"
 /// [server]
-/// port = 1234
+/// port = 2235
 /// "#;
 ///
 /// #[derive(Default, Deserialize)]
