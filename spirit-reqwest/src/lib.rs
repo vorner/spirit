@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-reqwest/0.4.0/",
+    html_root_url = "https://docs.rs/spirit-reqwest/0.4.1/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -194,30 +194,33 @@ fn is_false(b: &bool) -> bool {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 #[serde(rename_all = "kebab-case", default)]
+#[non_exhaustive]
 pub struct ReqwestClient {
     /// Set the user agent header.
     #[serde(skip_serializing_if = "Option::is_none")]
-    user_agent: Option<String>,
+    pub user_agent: Option<String>,
 
     /// Timeout for connections sitting unused in the pool.
     #[serde(
         deserialize_with = "spirit::utils::deserialize_opt_duration",
         serialize_with = "spirit::utils::serialize_opt_duration"
     )]
-    pool_idle_timeout: Option<Duration>,
+    pub pool_idle_timeout: Option<Duration>,
 
+    /// Initial HTTP2 window size.
     #[serde(skip_serializing_if = "Option::is_none")]
-    http2_initial_stream_window_size: Option<u32>,
+    pub http2_initial_stream_window_size: Option<u32>,
 
+    /// Initial HTTP2 connection window size.
     #[serde(skip_serializing_if = "Option::is_none")]
-    http2_initial_connection_window_size: Option<u32>,
+    pub http2_initial_connection_window_size: Option<u32>,
 
     /// Requires that all sockets used have the `SO_NODELAY` set.
     ///
     /// This improves latency in some cases at the cost of sending more packets.
     ///
     /// On by default.
-    tcp_nodelay: bool,
+    pub tcp_nodelay: bool,
 
     /// Additional certificates to add into the TLS trust store.
     ///
@@ -226,7 +229,7 @@ pub struct ReqwestClient {
     ///
     /// Accepts PEM and DER formats (autodetected).
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    tls_extra_root_certs: Vec<PathBuf>,
+    pub tls_extra_root_certs: Vec<PathBuf>,
 
     /// Client identity.
     ///
@@ -236,7 +239,7 @@ pub struct ReqwestClient {
     /// If not set, no client identity is used.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg(feature = "native-tls")]
-    tls_identity: Option<PathBuf>,
+    pub tls_identity: Option<PathBuf>,
 
     /// A password for the client identity file.
     ///
@@ -244,7 +247,7 @@ pub struct ReqwestClient {
     /// present, an empty password is attempted.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg(feature = "native-tls")]
-    tls_identity_password: Option<Hidden<String>>,
+    pub tls_identity_password: Option<Hidden<String>>,
 
     /// When validating the server certificate, accept even invalid or not matching hostnames.
     ///
@@ -255,7 +258,7 @@ pub struct ReqwestClient {
     ///
     /// Default is `false` (eg. invalid hostnames are not accepted).
     #[serde(skip_serializing_if = "is_false")]
-    tls_accept_invalid_hostnames: bool,
+    pub tls_accept_invalid_hostnames: bool,
 
     /// When validating the server certificate, accept even invalid or untrusted certificates.
     ///
@@ -266,19 +269,19 @@ pub struct ReqwestClient {
     ///
     /// Default is `false` (eg. invalid certificates are not accepted).
     #[serde(skip_serializing_if = "is_false")]
-    tls_accept_invalid_certs: bool,
+    pub tls_accept_invalid_certs: bool,
 
     /// Enables gzip transport compression.
     ///
     /// Default is on.
     #[cfg(feature = "gzip")]
-    enable_gzip: bool,
+    pub enable_gzip: bool,
 
     /// Enables brotli transport compression.
     ///
     /// Default is on.
     #[cfg(feature = "brotli")]
-    enable_brotli: bool,
+    pub enable_brotli: bool,
 
     /// Headers added to each request.
     ///
@@ -286,7 +289,7 @@ pub struct ReqwestClient {
     ///
     /// By default no headers are added.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    default_headers: HashMap<String, String>,
+    pub default_headers: HashMap<String, String>,
 
     /// A whole-request timeout.
     ///
@@ -297,7 +300,7 @@ pub struct ReqwestClient {
         deserialize_with = "spirit::utils::deserialize_opt_duration",
         serialize_with = "spirit::utils::serialize_opt_duration"
     )]
-    timeout: Option<Duration>,
+    pub timeout: Option<Duration>,
 
     /// A timeout for connecting to the server.
     ///
@@ -306,54 +309,54 @@ pub struct ReqwestClient {
         deserialize_with = "spirit::utils::deserialize_opt_duration",
         serialize_with = "spirit::utils::serialize_opt_duration"
     )]
-    connect_timeout: Option<Duration>,
+    pub connect_timeout: Option<Duration>,
 
     /// An URL for proxy to use on HTTP requests.
     ///
     /// No proxy is used if not set.
     #[structdoc(leaf = "URL")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    http_proxy: Option<Url>,
+    pub http_proxy: Option<Url>,
 
     /// An URL for proxy to use on HTTPS requests.
     ///
     /// No proxy is used if not set.
     #[structdoc(leaf = "URL")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    https_proxy: Option<Url>,
+    pub https_proxy: Option<Url>,
 
     /// How many redirects to allow for one request.
     ///
     /// The default value is 10. Support for redirects can be completely disabled by setting this
     /// to `nil`.
-    redirects: Option<usize>,
+    pub redirects: Option<usize>,
 
     /// Manages automatic setting of the Referer header.
     ///
     /// Default is on.
-    referer: bool,
+    pub referer: bool,
 
     /// Maximum number of idle connections per one host.
     ///
     /// Default is no limit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    max_idle_per_host: Option<usize>,
+    pub max_idle_per_host: Option<usize>,
 
     /// Use only HTTP/2.
     ///
     /// Default is false.
     #[serde(default)]
-    http2_only: bool,
+    pub http2_only: bool,
 
     /// Use HTTP/1 headers in case sensitive manner.
     #[serde(default)]
-    http1_case_sensitive_headers: bool,
+    pub http1_case_sensitive_headers: bool,
 
     /// The local address connections are made from.
     ///
     /// Default is no address (the OS will choose).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    local_address: Option<IpAddr>,
+    pub local_address: Option<IpAddr>,
 }
 
 impl Default for ReqwestClient {
@@ -487,7 +490,10 @@ impl ReqwestClient {
     /// Creates a blocking [`ClientBuilder`][BlockingBuilder].
     #[cfg(feature = "blocking")]
     pub fn blocking_builder(&self) -> Result<BlockingBuilder, AnyError> {
-        self.async_builder().map(BlockingBuilder::from)
+        self.async_builder()
+            .map(BlockingBuilder::from)
+            // It seems the blocking builder does not preserve the timeout. A bug there?
+            .map(|builder| builder.timeout(self.timeout))
     }
 
     /// Creates a [`Client`][BlockingClient] according to the configuration inside `self`.

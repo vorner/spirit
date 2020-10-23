@@ -1,3 +1,8 @@
+# spirit-reqwest-0.4.1
+
+* Workaround for bug in `reqwest` where `blocking::ClientBuilder::from` doesn't
+  preserve original timeout set in the async builder.
+
 # spirit-log-0.4.1
 # spirit-cfg-helpers-0.3.1
 
