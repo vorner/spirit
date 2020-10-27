@@ -1,3 +1,15 @@
+# spirit-hyper-0.7.1
+
+* Make the `h1_writev` optional, as there's an auto mode by default. We want to
+  have that, most of the time.
+  - Technically a breaking change, but very small one and at a place where
+    people are not really expected to touch. + We are still a 0. crate, so it
+    makes more sense this way.
+
+# spirit-tokio-0.7.1
+
+* Pass the `poll_read_buf`, `poll_write_buf` through, to keep performance.
+
 # spirit-reqwest-0.4.1
 
 * Workaround for bug in `reqwest` where `blocking::ClientBuilder::from` doesn't

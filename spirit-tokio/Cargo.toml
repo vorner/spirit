@@ -1,6 +1,6 @@
 [package]
 name = "spirit-tokio"
-version = "0.7.0"
+version = "0.7.1"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Tokio helpers for Spirit"
 documentation = "https://docs.rs/spirit-tokio"
@@ -32,6 +32,7 @@ travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
 [dependencies]
+bytes = "~0.5"
 either = { version = "~1", optional = true }
 futures-util = { version = "~0.3", optional = true, default-features = false }
 err-context = "~0.1"

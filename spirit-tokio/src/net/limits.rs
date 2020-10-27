@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use bytes::{Buf, BufMut};
 use err_context::AnyError;
 use log::trace;
 use serde::de::DeserializeOwned;
@@ -363,6 +364,17 @@ impl<C: AsyncRead + Unpin> AsyncRead for Tracked<C> {
     ) -> Poll<Result<usize, IoError>> {
         Pin::new(&mut self.inner).poll_read(ctx, buf)
     }
+
+    fn poll_read_buf<B: BufMut>(
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context,
+        buf: &mut B,
+    ) -> Poll<Result<usize, IoError>>
+    where
+        Self: Sized,
+    {
+        Pin::new(&mut self.inner).poll_read_buf(ctx, buf)
+    }
 }
 
 impl<C: AsyncSeek + Unpin> AsyncSeek for Tracked<C> {
@@ -393,6 +405,17 @@ impl<C: AsyncWrite + Unpin> AsyncWrite for Tracked<C> {
 
     fn poll_shutdown(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<(), IoError>> {
         Pin::new(&mut self.inner).poll_shutdown(ctx)
+    }
+
+    fn poll_write_buf<B: Buf>(
+        mut self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
+        buf: &mut B,
+    ) -> Poll<Result<usize, IoError>>
+    where
+        Self: Sized,
+    {
+        Pin::new(&mut self.inner).poll_write_buf(ctx, buf)
     }
 }
 

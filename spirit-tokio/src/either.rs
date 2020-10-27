@@ -5,6 +5,7 @@ use std::io::{Error as IoError, SeekFrom};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use bytes::{Buf, BufMut};
 #[cfg(feature = "either")]
 use either::Either as OtherEither;
 use err_context::AnyError;
@@ -289,6 +290,17 @@ where
     ) -> Poll<Result<usize, IoError>> {
         either_unwrap!(self.get_mut(), v => Pin::new(v).poll_read(ctx, buf))
     }
+
+    fn poll_read_buf<Bu: BufMut>(
+        self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
+        buf: &mut Bu,
+    ) -> Poll<Result<usize, IoError>>
+    where
+        Self: Sized,
+    {
+        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_read_buf(ctx, buf))
+    }
 }
 
 impl<A, B> AsyncSeek for Either<A, B>
@@ -327,6 +339,17 @@ where
 
     fn poll_shutdown(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<(), IoError>> {
         either_unwrap!(self.get_mut(), v => Pin::new(v).poll_shutdown(ctx))
+    }
+
+    fn poll_write_buf<BU: Buf>(
+        self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
+        buf: &mut BU,
+    ) -> Poll<Result<usize, IoError>>
+    where
+        Self: Sized,
+    {
+        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_write_buf(ctx, buf))
     }
 }
 

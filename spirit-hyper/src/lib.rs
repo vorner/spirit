@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-hyper/0.7.0/spirit_hyper/",
+    html_root_url = "https://docs.rs/spirit-hyper/0.7.1/spirit_hyper/",
     test(attr(deny(warnings)))
 )]
 // Our program-long snippets are more readable with main
@@ -150,7 +150,8 @@ pub struct HyperCfg {
     /// data around, but can be slower on some systems or transports.
     ///
     /// Default is on, can be turned off.
-    pub http1_writev: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http1_writev: Option<bool>,
 
     /// When a http1 client closes its write end, keep the connection open until the reply is sent.
     ///
@@ -212,7 +213,6 @@ impl HyperCfg {
 
         let mut builder = Server::builder(incoming)
             .http1_keepalive(self.http1_keepalive)
-            .http1_writev(self.http1_writev)
             .http1_half_close(self.http1_half_close)
             .http2_initial_connection_window_size(self.http2_initial_connection_window_size)
             .http2_initial_stream_window_size(self.http2_initial_stream_window_size)
@@ -226,6 +226,10 @@ impl HyperCfg {
             builder = builder.http1_max_buf_size(size);
         }
 
+        if let Some(writev) = self.http1_writev {
+            builder = builder.http1_writev(writev);
+        }
+
         builder
     }
 }
@@ -234,7 +238,7 @@ impl Default for HyperCfg {
     fn default() -> Self {
         HyperCfg {
             http1_keepalive: true,
-            http1_writev: true,
+            http1_writev: None,
             http1_half_close: true,
             http1_max_buf_size: None,
             http2_initial_connection_window_size: None,
