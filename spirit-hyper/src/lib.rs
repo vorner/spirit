@@ -103,6 +103,16 @@ fn is_default<T: Default + PartialEq>(v: &T) -> bool {
     v == &T::default()
 }
 
+fn is_true(v: &bool) -> bool {
+    *v
+}
+
+const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(20);
+
+fn is_default_timeout(t: &Duration) -> bool {
+    *t == KEEPALIVE_TIMEOUT
+}
+
 /// Configuration of the selected HTTP protocol version.
 #[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
@@ -142,6 +152,7 @@ pub struct HyperCfg {
     /// https://en.wikipedia.org/wiki/HTTP_persistent_connection.
     ///
     /// Default is on, can be turned off.
+    #[serde(skip_serializing_if = "is_true")]
     pub http1_keepalive: bool,
 
     /// Vectored writes of headers.
@@ -156,6 +167,7 @@ pub struct HyperCfg {
     /// When a http1 client closes its write end, keep the connection open until the reply is sent.
     ///
     /// If set to false, if the client closes its connection, server does too.
+    #[serde(skip_serializing_if = "is_true")]
     pub http1_half_close: bool,
 
     /// Maximum buffer size of HTTP1.
@@ -194,11 +206,12 @@ pub struct HyperCfg {
 
     /// Close connection if no response for ping in this time.
     ///
-    /// Defaults to 20s. Null disables.
+    /// Defaults to 20s.
+    #[serde(skip_serializing_if = "is_default_timeout")]
     pub http2_keep_alive_timeout: Duration,
 
     /// What protocols are enabled.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub http_mode: HttpMode,
 }
 
@@ -246,7 +259,7 @@ impl Default for HyperCfg {
             http2_adaptive_window: false,
             http2_max_concurrent_streams: None,
             http2_keep_alive_interval: None,
-            http2_keep_alive_timeout: Duration::from_secs(20),
+            http2_keep_alive_timeout: KEEPALIVE_TIMEOUT,
             http_mode: HttpMode::default(),
         }
     }

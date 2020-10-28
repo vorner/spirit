@@ -10,6 +10,7 @@
   - Technically a breaking change, but very small one and at a place where
     people are not really expected to touch. + We are still a 0. crate, so it
     makes more sense this way.
+* Hide some more default options from `--dump-config`.
 
 # spirit-tokio-0.7.1
 
