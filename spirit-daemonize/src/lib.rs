@@ -97,8 +97,8 @@ use structopt::StructOpt;
 
 /// Intermediate plumbing type.
 ///
-/// This is passed through the [`Pipeline`] as a way of signalling the next actions. Users are not
-/// expected to interact directly with this.
+/// This is passed through the [`Pipeline`][spirit::Pipeline] as a way of signalling the next
+/// actions. Users are not expected to interact directly with this.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Daemonize {
     daemonize: bool,
@@ -307,7 +307,7 @@ impl Daemon {
     /// Perform the daemonization according to the setup inside.
     ///
     /// This is the routine one would call if using the fragments manually, not through the spirit
-    /// management and [`Pipeline`]s.
+    /// management and [`Pipeline`][spirit::Pipeline]s.
     pub fn daemonize(&self) -> Result<(), AnyError> {
         self.prepare()?.daemonize()?;
         Ok(())
@@ -316,7 +316,7 @@ impl Daemon {
 
 /// An installer for [`Daemonize`].
 ///
-/// Mostly internal plumbing type, used through [`Pipeline`].
+/// Mostly internal plumbing type, used through [`Pipeline`][spirit::Pipeline].
 ///
 /// If the daemonization fails, the program aborts with a logged error.
 #[derive(Copy, Clone, Debug, Default)]
@@ -367,12 +367,12 @@ override whatever is written in configuration (if merged together with the confi
 
 This can be used to transform the [`Daemon`] before daemonization.
 
-The [`extension`] here can be used to automatically handle both configuration and command line.
+The [`Pipeline`] here can be used to automatically handle both configuration and command line.
 See the [crate example][index.html#examples].
 
 Flatten this into the top-level `StructOpt` structure.
 
-[`extension`]: Daemon::extension
+[`Pipeline`]: spirit::Pipeline
 "#
 )]
 #[derive(Clone, Debug, StructOpt)]
