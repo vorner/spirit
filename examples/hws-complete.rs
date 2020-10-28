@@ -19,6 +19,7 @@ use hyper::{Body, Request, Response};
 use log::{debug, trace};
 use serde::{Deserialize, Serialize};
 use spirit::prelude::*;
+use spirit::utils;
 use spirit::{Pipeline, Spirit};
 use spirit_cfg_helpers::Opts as CfgOpts;
 use spirit_daemonize::{Daemon, Opts as DaemonOpts};
@@ -277,6 +278,9 @@ fn main() {
         }
     };
     Spirit::<Opts, Cfg>::new()
+        // Do a forced shutdown on second CTRL+C if the shutdown after the first one takes too
+        // long.
+        .on_terminate(utils::cleanup_signals)
         // The baked in configuration.
         .config_defaults(DEFAULT_CONFIG)
         // In addition to specifying configuration in files and command line, also allow overriding

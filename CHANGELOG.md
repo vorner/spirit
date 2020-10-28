@@ -1,3 +1,8 @@
+# spirit-0.4.7
+
+* `spirit::utils::cleanup_signals` to support "Second CTRL?+C terminates
+  immediately".
+
 # spirit-hyper-0.7.1
 
 * Make the `h1_writev` optional, as there's an auto mode by default. We want to

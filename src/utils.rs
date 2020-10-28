@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
+use err_context::prelude::*;
 use log::warn;
 use serde::de::{Deserializer, Error as DeError, Unexpected};
 use serde::ser::Serializer;
@@ -275,6 +276,45 @@ pub fn serialize_opt_duration<S: Serializer>(
     match dur {
         Some(d) => serialize_duration(d, s),
         None => s.serialize_none(),
+    }
+}
+
+/// Remove the signals handling termination.
+///
+/// There's a common pattern of handling termination signals (`CTRL+C`, mostly). The first one
+/// initiates a graceful shutdown. But in case the shutdown takes a long time, the user can press
+/// `CTRL+C` again and expect to shut down immediately (in more unclean way, possibly).
+///
+/// On the application side, it is handled by resetting the signal handlers to their defaults after
+/// receiving the first one. This can be used to such thing (it resets the signal handlers for
+/// `SIGTERM`, `SIGINT`, `SIGQUIT`).
+///
+/// # Warning
+///
+/// This resets the signal handlers, but doesn't remove the *hooks*. Furthermore, this is a global
+/// action ‒ it doesn't reset only the ones of [`spirit`], but of everything in the application.
+///
+/// Also, this example runs the cleanup as part of the normal `spirit` background thread. If the
+/// shutdown is being slow (or stuck) in there before calling the `on_terminate` here, it won't
+/// have effect. Therefore it is a good idea to register this earlier than later.
+///
+/// # Examples
+///
+/// ```rust
+/// use spirit::{utils, Empty, Spirit};
+/// use spirit::prelude::*;
+///
+/// Spirit::<Empty, Empty>::new()
+///     .on_terminate(utils::cleanup_signals)
+///     .run(|_| {
+///         Ok(())
+///     })
+/// ```
+pub fn cleanup_signals() {
+    for i in &[libc::SIGTERM, libc::SIGINT, libc::SIGQUIT] {
+        if let Err(e) = signal_hook::cleanup::cleanup_signal(*i) {
+            warn!("Failed to remove signal handler {}: {}", i, e.display(": "));
+        }
     }
 }
 
