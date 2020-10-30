@@ -318,6 +318,20 @@ pub fn cleanup_signals() {
     }
 }
 
+/// Checks if value is default.
+///
+/// Useful in `#[serde(skip_serializing_if = "is_default")]`
+pub fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    v == &T::default()
+}
+
+/// Checks if value is set to true.
+///
+/// Useful in `#[serde(skip_serializing_if = "is_true")]`
+pub fn is_true(v: &bool) -> bool {
+    *v
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;

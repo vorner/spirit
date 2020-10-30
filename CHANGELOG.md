@@ -1,3 +1,11 @@
+# spirit-reqwest-0.4.2
+
+* Ability to disable proxy (including auto-detected one).
+
+# spirit-0.4.8
+
+* `is_default` and `is_true` utility functions for `skip_serializing_if`.
+
 # spirit-0.4.7
 
 * `spirit::utils::cleanup_signals` to support "Second CTRL?+C terminates

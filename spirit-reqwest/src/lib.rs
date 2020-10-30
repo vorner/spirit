@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-reqwest/0.4.1/",
+    html_root_url = "https://docs.rs/spirit-reqwest/0.4.2/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]
@@ -108,7 +108,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use err_context::prelude::*;
-use log::{debug, trace};
+use log::{debug, trace, warn};
 #[cfg(feature = "blocking")]
 use reqwest::blocking::{Client as BlockingClient, ClientBuilder as BlockingBuilder};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -116,6 +116,7 @@ use reqwest::redirect::Policy;
 use reqwest::{Certificate, Client, ClientBuilder, Proxy};
 use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::CacheEq;
+use spirit::utils::is_default;
 #[cfg(feature = "native-tls")]
 use spirit::utils::Hidden;
 use spirit::AnyError;
@@ -188,6 +189,8 @@ fn is_false(b: &bool) -> bool {
 ///   choose.
 /// * `http-proxy`: An URL of proxy that serves http requests.
 /// * `https-proxy`: An URL of proxy that servers https requests.
+/// * `disable-proxy`: If set to true, disables all use of proxy (including auto-detected system
+///   one).
 /// * `redirects`: Number of allowed redirects per one request, `nil` to disable. Defaults to `10`.
 /// * `referer`: Allow automatic setting of the referer header. Defaults to `true`.
 /// * `tcp-nodelay`: Use the `SO_NODELAY` flag on all connections.
@@ -325,6 +328,13 @@ pub struct ReqwestClient {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub https_proxy: Option<Url>,
 
+    /// Disable use of all proxies.
+    ///
+    /// This disables both the proxies configured here and proxy auto-detected from system.
+    /// Overrides both `http_proxy` and `https_proxy`.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub disable_proxy: bool,
+
     /// How many redirects to allow for one request.
     ///
     /// The default value is 10. Support for redirects can be completely disabled by setting this
@@ -380,6 +390,7 @@ impl Default for ReqwestClient {
             pool_idle_timeout: Some(Duration::from_secs(90)),
             http_proxy: None,
             https_proxy: None,
+            disable_proxy: false,
             redirects: Some(10),
             referer: true,
             http2_only: false,
@@ -471,17 +482,24 @@ impl ReqwestClient {
                 .with_context(|_| format!("Failed to load identity {:?}", identity_path))?;
             builder = builder.identity(identity);
         }
-        if let Some(proxy) = &self.http_proxy {
-            let proxy_url = proxy.clone();
-            let proxy = Proxy::http(proxy_url)
-                .with_context(|_| format!("Failed to configure http proxy to {:?}", proxy))?;
-            builder = builder.proxy(proxy);
-        }
-        if let Some(proxy) = &self.https_proxy {
-            let proxy_url = proxy.clone();
-            let proxy = Proxy::https(proxy_url)
-                .with_context(|_| format!("Failed to configure https proxy to {:?}", proxy))?;
-            builder = builder.proxy(proxy);
+        if self.disable_proxy {
+            builder = builder.no_proxy();
+            if self.http_proxy.is_some() || self.https_proxy.is_some() {
+                warn!("disable-proxy overrides manually set proxy");
+            }
+        } else {
+            if let Some(proxy) = &self.http_proxy {
+                let proxy_url = proxy.clone();
+                let proxy = Proxy::http(proxy_url)
+                    .with_context(|_| format!("Failed to configure http proxy to {:?}", proxy))?;
+                builder = builder.proxy(proxy);
+            }
+            if let Some(proxy) = &self.https_proxy {
+                let proxy_url = proxy.clone();
+                let proxy = Proxy::https(proxy_url)
+                    .with_context(|_| format!("Failed to configure https proxy to {:?}", proxy))?;
+                builder = builder.proxy(proxy);
+            }
         }
 
         Ok(builder)

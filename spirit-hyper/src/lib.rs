@@ -88,7 +88,7 @@ use log::{debug, trace};
 use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable, Transformation};
-use spirit::utils::{deserialize_opt_duration, serialize_opt_duration};
+use spirit::utils::{deserialize_opt_duration, is_default, is_true, serialize_opt_duration};
 use spirit::{log_error, Empty};
 use spirit_tokio::net::limits::WithLimits;
 use spirit_tokio::net::{Accept as SpiritAccept, TcpListen};
@@ -98,14 +98,6 @@ use structdoc::StructDoc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::oneshot::{self, Receiver, Sender};
 use tokio::task::JoinHandle;
-
-fn is_default<T: Default + PartialEq>(v: &T) -> bool {
-    v == &T::default()
-}
-
-fn is_true(v: &bool) -> bool {
-    *v
-}
 
 const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(20);
 
