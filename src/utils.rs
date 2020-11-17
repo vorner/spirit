@@ -292,7 +292,8 @@ pub fn serialize_opt_duration<S: Serializer>(
 /// # Warning
 ///
 /// This resets the signal handlers, but doesn't remove the *hooks*. Furthermore, this is a global
-/// action ‒ it doesn't reset only the ones of [`spirit`], but of everything in the application.
+/// action ‒ it doesn't reset only the ones of [`spirit`][crate], but of everything in the
+/// application.
 ///
 /// Also, this example runs the cleanup as part of the normal `spirit` background thread. If the
 /// shutdown is being slow (or stuck) in there before calling the `on_terminate` here, it won't

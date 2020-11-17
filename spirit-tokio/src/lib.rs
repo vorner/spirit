@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-tokio/0.7.1/",
+    html_root_url = "https://docs.rs/spirit-tokio/0.7.2/",
     test(attr(deny(warnings)))
 )]
 // Our program-long snippets are more readable with main
@@ -19,7 +19,7 @@
 //! # Features
 //!
 //! * `rt-from-cfg`: Allows creating runtime from configuration. Enables the [`Tokio::FromCfg`]
-//!   variant and [`Cfg`][crate::runtime::Cfg]. Enabled by default.
+//!   variant and [`Config`][crate::runtime::Config]. Enabled by default.
 //! * `cfg-help`: Support for generating help for the configuration options.
 //! * `net`: Network primitive configuration [`Fragment`]s in the [`net`] module.
 //! * `stream`: Implementations of [`tokio::stream::Stream`] on several types.

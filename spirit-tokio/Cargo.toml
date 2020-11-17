@@ -1,6 +1,6 @@
 [package]
 name = "spirit-tokio"
-version = "0.7.1"
+version = "0.7.2"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Tokio helpers for Spirit"
 documentation = "https://docs.rs/spirit-tokio"
@@ -52,7 +52,7 @@ default-features = false
 features = ["macros", "rt-core", "sync"]
 
 [dev-dependencies]
-arc-swap = "~0.4"
+arc-swap = "~1"
 version-sync = "~0.9"
 env_logger = "~0.7"
 serde_json = "~1"

@@ -1,5 +1,5 @@
 #![doc(
-    html_root_url = "https://docs.rs/spirit-cfg-helpers/0.3.1/spirit_cfg_helpers/",
+    html_root_url = "https://docs.rs/spirit-cfg-helpers/0.4.0/spirit_cfg_helpers/",
     test(attr(deny(warnings)))
 )]
 #![forbid(unsafe_code)]

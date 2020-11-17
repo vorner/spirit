@@ -119,9 +119,9 @@ pub enum Tokio<O, C> {
 
     /// Uses configuration for constructing the [`Runtime`].
     ///
-    /// This'll use the extractor (the first closure) to get a [`Cfg`], create a [`Builder`] based
-    /// on that. It'll explicitly enable all the drivers and enable threaded runtime. Then it calls
-    /// the postprocessor (the second closure) to turn it into the [`Runtime`].
+    /// This'll use the extractor (the first closure) to get a [`Config`], create a [`Builder`]
+    /// based on that. It'll explicitly enable all the drivers and enable threaded runtime. Then it
+    /// calls the postprocessor (the second closure) to turn it into the [`Runtime`].
     ///
     /// This is the more general form. If you're fine with just basing it on the configuration
     /// without much tweaking, you can use [`Tokio::from_cfg`] (which will create this variant with
