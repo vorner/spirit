@@ -231,6 +231,38 @@ where
     }
 }
 
+/// A [`Transformation`] that maps a [`Resource`] through a fallible closure.
+///
+/// This is used internally, to implement the [`and_then`][Pipeline::and_then] method. The user
+/// should not have to come into direct contact with this.
+///
+/// [`Resource`]: Fragment::Resource.
+pub struct AndThen<T, A>(T, A);
+
+impl<T, M, Rin, Rout, I, S> Transformation<Rin, I, S> for AndThen<T, M>
+where
+    T: Transformation<Rin, I, S>,
+    M: FnMut(T::OutputResource) -> Result<Rout, AnyError>,
+    Rout: 'static,
+{
+    type OutputResource = Rout;
+    type OutputInstaller = T::OutputInstaller;
+    fn installer(&mut self, installer: I, name: &'static str) -> T::OutputInstaller {
+        self.0.installer(installer, name)
+    }
+    fn transform(
+        &mut self,
+        resource: Rin,
+        fragment: &S,
+        name: &'static str,
+    ) -> Result<Rout, AnyError> {
+        let r = self.0.transform(resource, fragment, name)?;
+        trace!("Mapping resource {}", name);
+        let res = (self.1)(r)?;
+        Ok(res)
+    }
+}
+
 /// The [`Pipeline`] itself.
 ///
 /// The high-level idea behind the [`Pipeline`] is described as part of the [`fragment`][super]
@@ -452,6 +484,35 @@ where
             driver: self.driver,
             extractor: self.extractor,
             transformation: Map(self.transformation, m),
+        }
+    }
+
+    /// Maps the [`Resource`] through a fallible closure.
+    ///
+    /// This is somewhat similar to [`transform`] in that it can modify or replace the resource
+    /// while it goes through the pipeline. But it is much simpler ‒ only the [`Resource`] is
+    /// passed to the closure (not any configuration, names, etc).  This is mostly for convenience,
+    /// so in the simple case one does not have to build the full [`Transformation`].
+    ///
+    /// Unlike [`map`][Pipeline::map], this is allowed to fail.
+    ///
+    /// [`transform`]: Pipeline::transform
+    /// [`Resource`]: Fragment::Resource.
+    pub fn and_then<A, R>(self, a: A) -> Pipeline<F, E, D, AndThen<T, A>, (O, C)>
+    where
+        A: FnMut(T::OutputResource) -> Result<R, AnyError>,
+    {
+        trace!(
+            "Adding an and_then transformation to pipeline {}",
+            self.name
+        );
+        Pipeline {
+            name: self.name,
+            _fragment: PhantomData,
+            _spirit: PhantomData,
+            driver: self.driver,
+            extractor: self.extractor,
+            transformation: AndThen(self.transformation, a),
         }
     }
 

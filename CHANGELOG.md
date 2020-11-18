@@ -1,6 +1,7 @@
 # spirit-reqwest-0.4.2
 
 * Ability to disable proxy (including auto-detected one).
+* `Pipeline::and_then` to conveniently support fallible transformations.
 
 # spirit-0.4.8
 
