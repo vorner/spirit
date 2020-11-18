@@ -141,7 +141,7 @@ impl Default for HttpMode {
 pub struct HyperCfg {
     /// The HTTP keepalive.
     ///
-    /// https://en.wikipedia.org/wiki/HTTP_persistent_connection.
+    /// <https://en.wikipedia.org/wiki/HTTP_persistent_connection>.
     ///
     /// Default is on, can be turned off.
     #[serde(skip_serializing_if = "is_true")]
