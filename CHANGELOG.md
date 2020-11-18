@@ -1,7 +1,16 @@
+# spirit-cfg-helpers-0.4.0
+
+* Use arc-swap 1.0
+
+# spirit-0.4.9
+
+* `Pipeline::and_then` to conveniently support fallible transformations.
+* Use arc-swap 1.0
+* Some doc fixes
+
 # spirit-reqwest-0.4.2
 
 * Ability to disable proxy (including auto-detected one).
-* `Pipeline::and_then` to conveniently support fallible transformations.
 
 # spirit-0.4.8
 
