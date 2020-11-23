@@ -4,6 +4,11 @@
 )]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+#![allow(
+    unknown_lints,
+    clippy::unknown_clippy_lints,
+    clippy::needless_doctest_main
+)]
 
 //! A [`spirit`] fragments and helpers to configure and control logging.
 //!
