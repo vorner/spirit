@@ -1,9 +1,11 @@
-#![doc(
-    html_root_url = "https://docs.rs/spirit-log/0.4.1/spirit_log/",
-    test(attr(deny(warnings)))
-)]
+#![doc(test(attr(deny(warnings))))]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+#![allow(
+    unknown_lints,
+    clippy::unknown_clippy_lints,
+    clippy::needless_doctest_main
+)]
 
 //! A [`spirit`] fragments and helpers to configure and control logging.
 //!

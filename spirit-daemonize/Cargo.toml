@@ -34,6 +34,3 @@ spirit = { version = "~0.4", path = "..", default-features = false }
 # TODO: Proper versions, feature flag
 structdoc = { version = "~0.1", optional = true }
 structopt = { version = "~0.3", default-features = false }
-
-[dev-dependencies]
-version-sync = "~0.9"

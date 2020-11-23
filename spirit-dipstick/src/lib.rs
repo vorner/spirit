@@ -1,7 +1,4 @@
-#![doc(
-    html_root_url = "https://docs.rs/spirit-dipstick/0.3.0/spirit_dipstick/",
-    test(attr(deny(warnings)))
-)]
+#![doc(test(attr(deny(warnings))))]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
