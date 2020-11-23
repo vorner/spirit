@@ -1,7 +1,4 @@
-#![doc(
-    html_root_url = "https://docs.rs/spirit-hyper/0.7.1/spirit_hyper/",
-    test(attr(deny(warnings)))
-)]
+#![doc(test(attr(deny(warnings))))]
 // Our program-long snippets are more readable with main
 #![allow(clippy::needless_doctest_main)]
 #![forbid(unsafe_code)]

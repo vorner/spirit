@@ -1190,17 +1190,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pulldown-cmark"
-version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca36dea94d187597e104a5c8e4b07576a8a45aa5db48a65e12940d3eb7461f55"
-dependencies = [
- "bitflags",
- "memchr",
- "unicase",
-]
-
-[[package]]
 name = "quick-error"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1382,12 +1371,6 @@ dependencies = [
  "core-foundation-sys",
  "libc",
 ]
-
-[[package]]
-name = "semver-parser"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b46e1121e8180c12ff69a742aabc4f310542b6ccb69f1691689ac17fdf8618aa"
 
 [[package]]
 name = "serde"
@@ -1572,7 +1555,6 @@ dependencies = [
  "structdoc",
  "structopt",
  "toml",
- "version-sync",
 ]
 
 [[package]]
@@ -1587,7 +1569,6 @@ dependencies = [
  "spirit",
  "structdoc",
  "structopt",
- "version-sync",
 ]
 
 [[package]]
@@ -1601,7 +1582,6 @@ dependencies = [
  "serde 1.0.117",
  "spirit",
  "structdoc",
- "version-sync",
 ]
 
 [[package]]
@@ -1618,7 +1598,6 @@ dependencies = [
  "structdoc",
  "structopt",
  "tokio",
- "version-sync",
 ]
 
 [[package]]
@@ -1639,7 +1618,6 @@ dependencies = [
  "structdoc",
  "structopt",
  "syslog",
- "version-sync",
 ]
 
 [[package]]
@@ -1656,7 +1634,6 @@ dependencies = [
  "structdoc",
  "tokio",
  "url",
- "version-sync",
 ]
 
 [[package]]
@@ -1679,7 +1656,6 @@ dependencies = [
  "structdoc",
  "structopt",
  "tokio",
- "version-sync",
 ]
 
 [[package]]
@@ -2014,21 +1990,6 @@ name = "vcpkg"
 version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6454029bf181f092ad1b853286f23e2c507d8e8194d01d92da4a55c274a5508c"
-
-[[package]]
-name = "version-sync"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7b77d2a6f56988f7bb54102fe73ab963df4e7374b58298a7efa1361f681e0e2"
-dependencies = [
- "proc-macro2",
- "pulldown-cmark",
- "regex",
- "semver-parser",
- "syn",
- "toml",
- "url",
-]
 
 [[package]]
 name = "version_check"

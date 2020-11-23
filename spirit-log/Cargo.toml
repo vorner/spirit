@@ -42,8 +42,5 @@ structdoc = { version = "~0.1", optional = true }
 structopt = { version = "~0.3", default-features = false }
 syslog = { version = "~5", optional = true }
 
-[dev-dependencies]
-version-sync = "~0.9"
-
 [package.metadata.docs.rs]
 all-features = true

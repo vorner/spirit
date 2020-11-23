@@ -1,7 +1,4 @@
-#![doc(
-    html_root_url = "https://docs.rs/spirit-reqwest/0.4.3/",
-    test(attr(deny(warnings)))
-)]
+#![doc(test(attr(deny(warnings))))]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]

@@ -1,7 +1,4 @@
-#![doc(
-    html_root_url = "https://docs.rs/spirit/0.4.9/spirit/",
-    test(attr(deny(warnings)))
-)]
+#![doc(test(attr(deny(warnings))))]
 #![allow(
     unknown_lints,
     clippy::unknown_clippy_lints,

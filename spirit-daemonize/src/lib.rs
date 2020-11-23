@@ -1,7 +1,4 @@
-#![doc(
-    html_root_url = "https://docs.rs/spirit-daemonize/0.4.0/spirit_daemonize/",
-    test(attr(deny(warnings)))
-)]
+#![doc(test(attr(deny(warnings))))]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 

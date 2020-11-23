@@ -1,7 +1,4 @@
-#![doc(
-    html_root_url = "https://docs.rs/spirit-log/0.4.1/spirit_log/",
-    test(attr(deny(warnings)))
-)]
+#![doc(test(attr(deny(warnings))))]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![allow(
