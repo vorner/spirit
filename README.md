@@ -1,5 +1,9 @@
 # Spirit
 
+[![Actions Status](https://github.com/vorner/spirit/workflows/test/badge.svg)](https://github.com/vorner/spirit/actions)
+[![codecov](https://codecov.io/gh/vorner/spirit/branch/master/graph/badge.svg?token=3KA3R2D9fV)](https://codecov.io/gh/vorner/spirit)
+[![docs](https://docs.rs/spirit/badge.svg)](https://docs.rs/spirit)
+
 ## Looking for contributors and maintainers
 
 This library is too big project for me do in my spare time and I don't have a
@@ -12,8 +16,6 @@ and consulting.
 Alternatively, I may accept payment to do some development on it.
 
 ## The library
-
-[![Travis Build Status](https://api.travis-ci.org/vorner/spirit.png?branch=master)](https://travis-ci.org/vorner/spirit)
 
 (**[API Docs for master][docs]/[User Guide][user-guide]**)
 
