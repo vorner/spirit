@@ -1,3 +1,7 @@
+# 0.4.10
+
+* Migrate to signal-hook-0.2 (internal change)
+
 # spirit-cfg-helpers-0.4.0
 
 * Use arc-swap 1.0
