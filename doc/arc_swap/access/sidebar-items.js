@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Constant","Access to an constant."],["Map","An adaptor to provide access to a part of larger structure."]],"trait":[["Access","Abstracts over ways code can get access to a value of type `T`."],["DynAccess","An object-safe version of the [`Access`] trait."]]});

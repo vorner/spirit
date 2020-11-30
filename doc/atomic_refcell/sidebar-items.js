@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["AtomicRef","A wrapper type for an immutably borrowed value from an `AtomicRefCell<T>`."],["AtomicRefCell","A threadsafe analogue to RefCell."],["AtomicRefMut","A wrapper type for a mutably borrowed value from an `AtomicRefCell<T>`."]]});

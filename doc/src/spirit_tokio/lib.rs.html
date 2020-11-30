@@ -1,0 +1,280 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `spirit-tokio/src/lib.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>lib.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../../ayu.css" disabled ><script src="../../storage.js"></script><noscript><link rel="stylesheet" href="../../noscript.css"></noscript><link rel="icon" type="image/svg+xml" href="../../favicon.svg">
+<link rel="alternate icon" type="image/png" href="../../favicon-16x16.png">
+<link rel="alternate icon" type="image/png" href="../../favicon-32x32.png"><style type="text/css">#crate-search{background-image:url("../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../../spirit_tokio/index.html'><div class='logo-container rust-logo'><img src='../../rust-logo.png' alt='logo'></div></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><span class="help-button">?</span>
+                <a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
+<span id="2">  2</span>
+<span id="3">  3</span>
+<span id="4">  4</span>
+<span id="5">  5</span>
+<span id="6">  6</span>
+<span id="7">  7</span>
+<span id="8">  8</span>
+<span id="9">  9</span>
+<span id="10"> 10</span>
+<span id="11"> 11</span>
+<span id="12"> 12</span>
+<span id="13"> 13</span>
+<span id="14"> 14</span>
+<span id="15"> 15</span>
+<span id="16"> 16</span>
+<span id="17"> 17</span>
+<span id="18"> 18</span>
+<span id="19"> 19</span>
+<span id="20"> 20</span>
+<span id="21"> 21</span>
+<span id="22"> 22</span>
+<span id="23"> 23</span>
+<span id="24"> 24</span>
+<span id="25"> 25</span>
+<span id="26"> 26</span>
+<span id="27"> 27</span>
+<span id="28"> 28</span>
+<span id="29"> 29</span>
+<span id="30"> 30</span>
+<span id="31"> 31</span>
+<span id="32"> 32</span>
+<span id="33"> 33</span>
+<span id="34"> 34</span>
+<span id="35"> 35</span>
+<span id="36"> 36</span>
+<span id="37"> 37</span>
+<span id="38"> 38</span>
+<span id="39"> 39</span>
+<span id="40"> 40</span>
+<span id="41"> 41</span>
+<span id="42"> 42</span>
+<span id="43"> 43</span>
+<span id="44"> 44</span>
+<span id="45"> 45</span>
+<span id="46"> 46</span>
+<span id="47"> 47</span>
+<span id="48"> 48</span>
+<span id="49"> 49</span>
+<span id="50"> 50</span>
+<span id="51"> 51</span>
+<span id="52"> 52</span>
+<span id="53"> 53</span>
+<span id="54"> 54</span>
+<span id="55"> 55</span>
+<span id="56"> 56</span>
+<span id="57"> 57</span>
+<span id="58"> 58</span>
+<span id="59"> 59</span>
+<span id="60"> 60</span>
+<span id="61"> 61</span>
+<span id="62"> 62</span>
+<span id="63"> 63</span>
+<span id="64"> 64</span>
+<span id="65"> 65</span>
+<span id="66"> 66</span>
+<span id="67"> 67</span>
+<span id="68"> 68</span>
+<span id="69"> 69</span>
+<span id="70"> 70</span>
+<span id="71"> 71</span>
+<span id="72"> 72</span>
+<span id="73"> 73</span>
+<span id="74"> 74</span>
+<span id="75"> 75</span>
+<span id="76"> 76</span>
+<span id="77"> 77</span>
+<span id="78"> 78</span>
+<span id="79"> 79</span>
+<span id="80"> 80</span>
+<span id="81"> 81</span>
+<span id="82"> 82</span>
+<span id="83"> 83</span>
+<span id="84"> 84</span>
+<span id="85"> 85</span>
+<span id="86"> 86</span>
+<span id="87"> 87</span>
+<span id="88"> 88</span>
+<span id="89"> 89</span>
+<span id="90"> 90</span>
+<span id="91"> 91</span>
+<span id="92"> 92</span>
+<span id="93"> 93</span>
+<span id="94"> 94</span>
+<span id="95"> 95</span>
+<span id="96"> 96</span>
+<span id="97"> 97</span>
+<span id="98"> 98</span>
+<span id="99"> 99</span>
+<span id="100">100</span>
+<span id="101">101</span>
+<span id="102">102</span>
+<span id="103">103</span>
+<span id="104">104</span>
+<span id="105">105</span>
+<span id="106">106</span>
+<span id="107">107</span>
+<span id="108">108</span>
+<span id="109">109</span>
+<span id="110">110</span>
+<span id="111">111</span>
+<span id="112">112</span>
+<span id="113">113</span>
+<span id="114">114</span>
+<span id="115">115</span>
+<span id="116">116</span>
+<span id="117">117</span>
+<span id="118">118</span>
+<span id="119">119</span>
+<span id="120">120</span>
+<span id="121">121</span>
+<span id="122">122</span>
+<span id="123">123</span>
+<span id="124">124</span>
+<span id="125">125</span>
+<span id="126">126</span>
+<span id="127">127</span>
+<span id="128">128</span>
+<span id="129">129</span>
+<span id="130">130</span>
+<span id="131">131</span>
+<span id="132">132</span>
+<span id="133">133</span>
+<span id="134">134</span>
+<span id="135">135</span>
+<span id="136">136</span>
+<span id="137">137</span>
+</pre><div class="example-wrap"><pre class="rust ">
+<span class="attribute">#![<span class="ident">doc</span>(<span class="ident">test</span>(<span class="ident">attr</span>(<span class="ident">deny</span>(<span class="ident">warnings</span>))))]</span>
+<span class="comment">// Our program-long snippets are more readable with main</span>
+<span class="attribute">#![<span class="ident">allow</span>(<span class="ident">clippy</span>::<span class="ident">needless_doctest_main</span>)]</span>
+<span class="attribute">#![<span class="ident">forbid</span>(<span class="ident">unsafe_code</span>)]</span>
+<span class="attribute">#![<span class="ident">warn</span>(<span class="ident">missing_docs</span>)]</span>
+<span class="attribute">#![<span class="ident">cfg_attr</span>(<span class="ident">docsrs</span>, <span class="ident">feature</span>(<span class="ident">doc_cfg</span>))]</span>
+
+<span class="doccomment">//! Support for tokio inside spirit</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! This provides configuration of the tokio runtime and installer of futures.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! It also provides few configuration [`Fragment`]s for configuring network primitives.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Note that this enables several features of [`tokio`].</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! # Features</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! * `rt-from-cfg`: Allows creating runtime from configuration. Enables the [`Tokio::FromCfg`]</span>
+<span class="doccomment">//!   variant and [`Config`][crate::runtime::Config]. Enabled by default.</span>
+<span class="doccomment">//! * `cfg-help`: Support for generating help for the configuration options.</span>
+<span class="doccomment">//! * `net`: Network primitive configuration [`Fragment`]s in the [`net`] module.</span>
+<span class="doccomment">//! * `stream`: Implementations of [`tokio::stream::Stream`] on several types.</span>
+<span class="doccomment">//! * `futures`: Support for converting between [`futures`][futures_util]&#39; and ours</span>
+<span class="doccomment">//!   [`Either`][crate::either::Either].</span>
+<span class="doccomment">//! * `either`: Support for converting between our [`Either`][crate::either::Either] and the one</span>
+<span class="doccomment">//!   from the [`either`] crate.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! # Examples</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! ```rust</span>
+<span class="doccomment">//! use std::future::Future;</span>
+<span class="doccomment">//! use std::pin::Pin;</span>
+<span class="doccomment">//! use std::time::Duration;</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! use err_context::AnyError;</span>
+<span class="doccomment">//! use serde::{Deserialize, Serialize};</span>
+<span class="doccomment">//! use spirit::{Empty, Pipeline, Spirit};</span>
+<span class="doccomment">//! use spirit::prelude::*;</span>
+<span class="doccomment">//! use spirit::fragment::driver::CacheEq;</span>
+<span class="doccomment">//! use spirit_tokio::{FutureInstaller, Tokio};</span>
+<span class="doccomment">//! use spirit_tokio::runtime::Config as TokioCfg;</span>
+<span class="doccomment">//! use structdoc::StructDoc;</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, StructDoc)]</span>
+<span class="doccomment">//! #[serde(default)]</span>
+<span class="doccomment">//! struct MsgCfg {</span>
+<span class="doccomment">//!     /// A message to print now and then.</span>
+<span class="doccomment">//!     msg: String,</span>
+<span class="doccomment">//!     /// Time between printing the message.</span>
+<span class="doccomment">//!     interval: Duration,</span>
+<span class="doccomment">//! }</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! impl MsgCfg {</span>
+<span class="doccomment">//!     async fn run(self) {</span>
+<span class="doccomment">//!         loop {</span>
+<span class="doccomment">//!             println!(&quot;{}&quot;, self.msg);</span>
+<span class="doccomment">//!             tokio::time::delay_for(self.interval).await;</span>
+<span class="doccomment">//!         }</span>
+<span class="doccomment">//!     }</span>
+<span class="doccomment">//! }</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! impl Default for MsgCfg {</span>
+<span class="doccomment">//!     fn default() -&gt; Self {</span>
+<span class="doccomment">//!         MsgCfg {</span>
+<span class="doccomment">//!             msg: &quot;Hello&quot;.to_owned(),</span>
+<span class="doccomment">//!             interval: Duration::from_secs(1),</span>
+<span class="doccomment">//!         }</span>
+<span class="doccomment">//!     }</span>
+<span class="doccomment">//! }</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! spirit::simple_fragment! {</span>
+<span class="doccomment">//!     impl Fragment for MsgCfg {</span>
+<span class="doccomment">//!         type Driver = CacheEq&lt;MsgCfg&gt;;</span>
+<span class="doccomment">//!         type Resource = Pin&lt;Box&lt;dyn Future&lt;Output = ()&gt; + Send&gt;&gt;;</span>
+<span class="doccomment">//!         type Installer = FutureInstaller;</span>
+<span class="doccomment">//!         fn create(&amp;self, _: &amp;&#39;static str) -&gt; Result&lt;Self::Resource, AnyError&gt; {</span>
+<span class="doccomment">//!             let fut = self.clone().run();</span>
+<span class="doccomment">//!             Ok(Box::pin(fut))</span>
+<span class="doccomment">//!         }</span>
+<span class="doccomment">//!     }</span>
+<span class="doccomment">//! }</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! /// An application.</span>
+<span class="doccomment">//! #[derive(Default, Deserialize, Serialize, StructDoc)]</span>
+<span class="doccomment">//! struct AppConfig {</span>
+<span class="doccomment">//!     #[serde(flatten)]</span>
+<span class="doccomment">//!     msg: MsgCfg,</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//!     /// Configuration of the asynchronous tokio runtime.</span>
+<span class="doccomment">//!     #[serde(default)]</span>
+<span class="doccomment">//!     threadpool: TokioCfg,</span>
+<span class="doccomment">//! }</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! impl AppConfig {</span>
+<span class="doccomment">//!     fn threadpool(&amp;self) -&gt; TokioCfg {</span>
+<span class="doccomment">//!         self.threadpool.clone()</span>
+<span class="doccomment">//!     }</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//!     fn msg(&amp;self) -&gt; &amp;MsgCfg {</span>
+<span class="doccomment">//!         &amp;self.msg</span>
+<span class="doccomment">//!     }</span>
+<span class="doccomment">//! }</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! fn main() {</span>
+<span class="doccomment">//!     Spirit::&lt;Empty, AppConfig&gt;::new()</span>
+<span class="doccomment">//!         // Makes sure we have a runtime configured from the config.</span>
+<span class="doccomment">//!         // If we don&#39;t do this, the pipeline below would insert a default Tokio runtime to make</span>
+<span class="doccomment">//!         // it work. If you want to customize the runtime (like here), make sure to insert it</span>
+<span class="doccomment">//!         // before any pipelines requiring it (otherwise you get the default one from them).</span>
+<span class="doccomment">//!         .with_singleton(Tokio::from_cfg(AppConfig::threadpool))</span>
+<span class="doccomment">//!         // Will install and possibly cancel and replace the future if the config changes.</span>
+<span class="doccomment">//!         .with(Pipeline::new(&quot;Msg&quot;).extract_cfg(AppConfig::msg))</span>
+<span class="doccomment">//!         // Just an empty body here.</span>
+<span class="doccomment">//!         .run(|spirit| {</span>
+<span class="doccomment">//!             // Usually, one would terminate by CTRL+C, but we terminate from here to make sure</span>
+<span class="doccomment">//!             // the example finishes.</span>
+<span class="doccomment">//!             spirit.terminate();</span>
+<span class="doccomment">//!             Ok(())</span>
+<span class="doccomment">//!         })</span>
+<span class="doccomment">//! }</span>
+<span class="doccomment">//! ```</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! An alternative approach can be seen at [`handlers::ToFutureUnconfigured`].</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! [`Fragment`]: spirit::fragment::Fragment</span>
+
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">either</span>;
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">handlers</span>;
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">installer</span>;
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;net&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">net</span>;
+<span class="kw">pub</span> <span class="kw">mod</span> <span class="ident">runtime</span>;
+
+<span class="kw">pub</span> <span class="kw">use</span> <span class="kw">crate</span>::<span class="ident">installer</span>::<span class="ident">FutureInstaller</span>;
+<span class="attribute">#[<span class="ident">cfg</span>(<span class="ident">feature</span> <span class="op">=</span> <span class="string">&quot;net&quot;</span>)]</span>
+<span class="kw">pub</span> <span class="kw">use</span> <span class="kw">crate</span>::<span class="ident">net</span>::{<span class="ident">TcpListen</span>, <span class="ident">TcpListenWithLimits</span>, <span class="ident">UdpListen</span>};
+<span class="kw">pub</span> <span class="kw">use</span> <span class="kw">crate</span>::<span class="ident">runtime</span>::<span class="ident">Tokio</span>;
+</pre></div>
+</section><section id="search" class="content hidden"></section><section class="footer"></section><script>window.rootPath = "../../";window.currentCrate = "spirit_tokio";</script><script src="../../main.js"></script><script src="../../source-script.js"></script><script src="../../source-files.js"></script><script defer src="../../search-index.js"></script></body></html>

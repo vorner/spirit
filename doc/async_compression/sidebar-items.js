@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["Level","Level of compression data should be compressed with."]],"mod":[["stream","Types which operate over `Stream``<Item = ``io::Result``<``Bytes``>>` streams, both encoders and decoders for various formats."]]});

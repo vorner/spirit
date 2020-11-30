@@ -1,0 +1,6 @@
+(function() {var implementors = {};
+implementors["hyper"] = [{"text":"impl AsyncWrite for AddrStream","synthetic":false,"types":[]},{"text":"impl AsyncWrite for Upgraded","synthetic":false,"types":[]}];
+implementors["hyper_tls"] = [{"text":"impl&lt;T:&nbsp;AsyncWrite + AsyncRead + Unpin&gt; AsyncWrite for MaybeHttpsStream&lt;T&gt;","synthetic":false,"types":[]}];
+implementors["spirit_tokio"] = [{"text":"impl&lt;A, B&gt; AsyncWrite for Either&lt;A, B&gt; <span class=\"where fmt-newline\">where<br>&nbsp;&nbsp;&nbsp;&nbsp;A: AsyncWrite + Unpin,<br>&nbsp;&nbsp;&nbsp;&nbsp;B: AsyncWrite + Unpin,&nbsp;</span>","synthetic":false,"types":[]},{"text":"impl&lt;C:&nbsp;AsyncWrite + Unpin&gt; AsyncWrite for Tracked&lt;C&gt;","synthetic":false,"types":[]}];
+implementors["tokio_tls"] = [{"text":"impl&lt;S&gt; AsyncWrite for TlsStream&lt;S&gt; <span class=\"where fmt-newline\">where<br>&nbsp;&nbsp;&nbsp;&nbsp;S: AsyncRead + AsyncWrite + Unpin,&nbsp;</span>","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

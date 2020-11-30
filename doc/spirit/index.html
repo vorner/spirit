@@ -1,0 +1,416 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="API documentation for the Rust `spirit` crate."><meta name="keywords" content="rust, rustlang, rust-lang, spirit"><title>spirit - Rust</title><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../ayu.css" disabled ><script src="../storage.js"></script><noscript><link rel="stylesheet" href="../noscript.css"></noscript><link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<link rel="alternate icon" type="image/png" href="../favicon-16x16.png">
+<link rel="alternate icon" type="image/png" href="../favicon-32x32.png"><style type="text/css">#crate-search{background-image:url("../down-arrow.svg");}</style></head><body class="rustdoc mod"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../spirit/index.html'><div class='logo-container rust-logo'><img src='../rust-logo.png' alt='logo'></div></a><p class='location'>Crate spirit</p><div class='block version'><p>Version 0.4.10</p></div><div class="sidebar-elems"><a id='all-types' href='all.html'><p>See all spirit's items</p></a><div class="block items"><ul><li><a href="#reexports">Re-exports</a></li><li><a href="#modules">Modules</a></li><li><a href="#macros">Macros</a></li><li><a href="#structs">Structs</a></li><li><a href="#traits">Traits</a></li></ul></div><p class='location'></p><script>window.sidebarCurrent = {name: 'spirit', ty: 'mod', relpath: '../'};</script></div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../theme.js"></script><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><span class="help-button">?</span>
+                <a id="settings-menu" href="../settings.html"><img src="../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><h1 class='fqn'><span class='out-of-band'><span id='render-detail'><a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class='inner'>&#x2212;</span>]</a></span><a class='srclink' href='../src/spirit/lib.rs.html#1-507' title='goto source code'>[src]</a></span><span class='in-band'>Crate <a class="mod" href=''>spirit</a></span></h1><div class='docblock'><p>Helpers to cut down on boilerplate when writing services.</p>
+<p>When writing a service (in the unix terminology, a daemon), there are two parts of the job. One
+is the actual functionality of the service, the part that makes it different than all the other
+services out there ‒ in other words, the interesting part. And then there's the very boring
+part of turning the prototype implementation into a well-behaved service with configuration,
+logging, metrics, signal handling and whatever else one considers to be part of the deal.</p>
+<p>This crate is supposed to help with the latter. Surely, there's still something left to do but
+the aim is to provide reusable building blocks to get the boring stuff done as fast as minimal
+fuss as possible.</p>
+<h1 id="foreword" class="section-header"><a href="#foreword">Foreword</a></h1>
+<p>Before using this crate (or, family of crates), you should know few things:</p>
+<ul>
+<li>While there has been some experimentation how the API should look like and it is being used
+in production software, the API is probably not final. One one hand that means upgrading to
+next version might need some work. On the other hand, if it doesn't fit your needs or use
+case, this is a great time to discuss it now, it might be possible to amend it and make it do
+what you need in the next version.</li>
+<li>Also, there's a lot to be done still ‒ both in terms of documentation, tutorials, examples
+but missing functionality as well (eg. fragments for configuring more things). Help in that
+direction is welcome ‒ if you find yourself in the need to configure something and have to
+roll your own implementation, consider sharing it with others.</li>
+<li>It is being tested on unix, with unix-style daemons. Supporting Windows should be possible in
+theory, but I don't have it at hand. If you use Windows, consider trying it out and adding
+support.</li>
+<li>The crate is on the heavier spectrum when it comes to dependencies, with aim for
+functionality and ease of use. Think more about server-side or desktop services. While it is
+possible to cut down on them somewhat by tweaking the feature flags, you probably don't want
+to use this in embedded scenarios.</li>
+<li>The crate doesn't come with much original functionality. Mostly, it is a lot of other great
+crates glued together to create a cohesive whole. That means you can do most of the stuff
+without spirit (though the crates come with few little utilities or tiny workarounds for
+problems you would face if you started to glue the things together).</li>
+</ul>
+<h1 id="error-handling-conventions" class="section-header"><a href="#error-handling-conventions">Error handling conventions</a></h1>
+<p>In the area of interest of this library, quite a lot of things can go wrong. Some of these
+errors may come from the library, others from user-provided code in callbacks, extensions, etc.
+To make interaction possible, the library passes boxed errors around (see <a href="../spirit/error/type.AnyError.html"><code>AnyError</code></a>).</p>
+<p>It is expected that most of these errors can't be automatically handled by the application,
+therefore distinguishing types of the errors isn't really a concern most of the time, though it
+is possible to get away with downcasting. In practice, most of the errors will end up somewhere
+in logs or other places where users can read them.</p>
+<p>To make the errors more informative, the library constructs layered errors (or error chains).
+The outer layer is the high level problem, while the inner ones describe the causes of the
+problem. It is expected all the layers are presented to the user. When the errors are handled
+by the library (either in termination error or with unsuccessful configuration reload), the
+library prints all the layers. To replicate similar behaviour in user code, it is possible to
+use the <a href="../spirit/macro.log_error.html"><code>log_error</code></a> macro or <a href="../spirit/error/fn.log_error.html" title="crate::error::log_error()"><code>log_error</code></a> function.</p>
+<p>Internally, the library uses the <a href="https://crates.io/crates/err-context"><code>err-context</code></a> crate to construct such errors. In addition to
+constructing such errors, the crate also allows some limited examination of error chains.
+However, users are not forced to use that crate as the chains constructed are based directly on
+the <a href="https://doc.rust-lang.org/nightly/std/error/trait.Error.html" title="std::error::Error"><code>std::error::Error</code></a> trait and are therefore compatible with errors constructed in any
+other way.</p>
+<h2 id="porting-from-older-spirit" class="section-header"><a href="#porting-from-older-spirit">Porting from older spirit</a></h2>
+<p>Previously, <code>spirit</code> used the <a href="https://crates.io/crates/failure"><code>failure</code></a> crate for error handling. The
+<a href="https://docs.rs/failure/0.1.5/failure/struct.Error.html"><code>failure::Error</code></a> has
+the <a href="https://docs.rs/failure/0.1.5/failure/struct.Error.html#method.compat"><code>compat</code></a> method.
+However, that one <em>doesn't</em> preserve the inner chain of causes, only the top-level one.</p>
+<p>It should be, however, possible to port to the combination of <a href="https://crates.io/crates/err-context"><code>err-context</code></a> and
+<a href="https://crates.io/crates/err-derive"><code>err-derive</code></a> with minimal code changes.</p>
+<p>For further details about migration steps needed, have a look at the
+<a href="https://vorner.github.io/2019/10/19/migrate-spirit-to-0-4.html">blog post</a>.</p>
+<h1 id="choose-your-amount-of-magic" class="section-header"><a href="#choose-your-amount-of-magic">Choose your amount of magic</a></h1>
+<p>Sometimes, you need tight control over what happens and when. Sometimes, you just want all the
+<em>stuff</em> to happen and not care.</p>
+<p>For that reason the library is flexible and allows you to opt into tiers of functionality.
+In some cases, it is possible to combine the approaches cross-tiers too and having parts of
+your application fully managed, while others handled manually.</p>
+<h2 id="loading-of-configuration" class="section-header"><a href="#loading-of-configuration">Loading of configuration</a></h2>
+<p>The first tier helps with configuration loading. You specify the structures that should be
+filled with the configuration or command line options. Spirit reads the command line, finds the
+relevant configuration files (depending on both compiled-in values and values on the command
+line), scans configuration directories and hands the configuration to you.</p>
+<p>You can also ask it to reload the configuration later on, to see if it changed.</p>
+<p>This basic configuration loading lives in the <a href="../spirit/cfg_loader/index.html" title="crate::cfg_loader"><code>cfg_loader</code></a> module.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered">
+<span class="kw">use</span> <span class="ident">serde</span>::<span class="ident">Deserialize</span>;
+<span class="kw">use</span> <span class="ident">spirit</span>::{<span class="ident">AnyError</span>, <span class="ident">ConfigBuilder</span>, <span class="ident">Empty</span>};
+<span class="kw">use</span> <span class="ident">spirit</span>::<span class="ident">cfg_loader</span>::<span class="ident">Builder</span>;
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">Default</span>, <span class="ident">Deserialize</span>)]</span>
+<span class="kw">struct</span> <span class="ident">Cfg</span> {
+    <span class="ident">message</span>: <span class="ident">String</span>,
+}
+
+<span class="kw">static</span> <span class="ident">DEFAULT_CFG</span>: <span class="kw-2">&amp;</span><span class="ident">str</span> <span class="op">=</span> <span class="string">r#&quot;
+message = &quot;hello&quot;
+&quot;#</span>;
+
+<span class="kw">fn</span> <span class="ident">main</span>() <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">AnyError</span><span class="op">&gt;</span> {
+    <span class="comment">// Don&#39;t care about command line options - there are none in addition to specifying the</span>
+    <span class="comment">// configuration. If we wanted some more config options, we would use a StructOpt</span>
+    <span class="comment">// structure instead of Empty.</span>
+    <span class="comment">//</span>
+    <span class="comment">// If the user specifies invalid options, a help is printed and the application exits.</span>
+    <span class="kw">let</span> (<span class="ident">Empty</span> {}, <span class="kw-2">mut</span> <span class="ident">loader</span>) <span class="op">=</span> <span class="ident">Builder</span>::<span class="ident">new</span>()
+        .<span class="ident">config_defaults</span>(<span class="ident">DEFAULT_CFG</span>)
+        .<span class="ident">build</span>();
+
+    <span class="comment">// This can be done as many times as needed, to load fresh configuration.</span>
+    <span class="kw">let</span> <span class="ident">cfg</span>: <span class="ident">Cfg</span> <span class="op">=</span> <span class="ident">loader</span>.<span class="ident">load</span>()<span class="question-mark">?</span>;
+
+    <span class="comment">// The interesting stuff of your application.</span>
+    <span class="macro">println</span><span class="macro">!</span>(<span class="string">&quot;{}&quot;</span>, <span class="ident">cfg</span>.<span class="ident">message</span>);
+    <span class="prelude-val">Ok</span>(())
+}</pre></div>
+<h2 id="prefabricated-fragments-of-configuration" class="section-header"><a href="#prefabricated-fragments-of-configuration">Prefabricated fragments of configuration</a></h2>
+<p><em>Having</em> your configuration is not enough. You need to <em>do</em> something with the configuration.
+And if it is something specific to your service, then there's nothing much Spirit can do. But
+usually, there's a lot of the common functionality ‒ you want to configure logging, ports your
+service listens on, etc.</p>
+<p>For that reason, there are additional crates that each bring some little fragment you can reuse
+in your configuration. That fragment provides the configuration options that'll appear inside
+the configuration. But it also comes with functionality to create whatever it is being
+configured with just a method call.</p>
+<p>Most of them are described by the <a href="../spirit/fragment/trait.Fragment.html" title="crate::fragment::Fragment"><code>Fragment</code></a> trait which allows it
+to participate in some further tiers.</p>
+<p>Currently, there are these crates with fragments:</p>
+<ul>
+<li><a href="https://crates.io/crates/spirit-daemonize"><code>spirit-daemonize</code></a>: Configuration and routines to go into background and be a nice daemon.</li>
+<li><a href="https://crates.io/crates/spirit-dipstick"><code>spirit-dipstick</code></a>: Configuration of the dipstick metrics library.</li>
+<li><a href="https://crates.io/crates/spirit-log"><code>spirit-log</code></a>: Configuration of logging.</li>
+<li><a href="https://crates.io/crates/spirit-tokio"><code>spirit-tokio</code></a>: Integrates basic tokio primitives ‒ auto-reconfiguration for TCP and UDP
+sockets and starting the runtime.</li>
+<li><a href="https://crates.io/crates/spirit-hyper"><code>spirit-hyper</code></a>: Integrates the hyper web server.</li>
+<li><a href="https://crates.io/crates/spirit-reqwest"><code>spirit-reqwest</code></a>: Configuration for the reqwest HTTP <a href="https://docs.rs/reqwest/%7E0.9.5/reqwest/struct.Client.html"><code>Client</code></a>.</li>
+</ul>
+<p>Also, while this is not outright a configuration fragment, it comes close. When you build your
+configuration from the fragments, there's a lot of options. The <a href="https://crates.io/crates/spirit-cfg-helpers"><code>spirit-cfg-helpers</code></a> crate
+brings the <code>--help-config</code> and <code>--dump-config</code> command line options, that describe what options
+can be configured and what values would be used after combining all configuration sources
+together.</p>
+<p>You can create your own fragments and, if it's something others could use, share them.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered">
+<span class="kw">use</span> <span class="ident">log</span>::<span class="ident">info</span>;
+<span class="kw">use</span> <span class="ident">serde</span>::<span class="ident">Deserialize</span>;
+<span class="kw">use</span> <span class="ident">spirit</span>::<span class="ident">AnyError</span>;
+<span class="kw">use</span> <span class="ident">spirit</span>::<span class="ident">cfg_loader</span>::{<span class="ident">Builder</span>, <span class="ident">ConfigBuilder</span>};
+<span class="kw">use</span> <span class="ident">spirit</span>::<span class="ident">fragment</span>::<span class="ident">Fragment</span>;
+<span class="kw">use</span> <span class="ident">spirit_log</span>::{<span class="ident">Cfg</span> <span class="kw">as</span> <span class="ident">LogCfg</span>, <span class="ident">CfgAndOpts</span> <span class="kw">as</span> <span class="ident">Logging</span>, <span class="ident">Opts</span> <span class="kw">as</span> <span class="ident">LogOpts</span>};
+<span class="kw">use</span> <span class="ident">structopt</span>::<span class="ident">StructOpt</span>;
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">Default</span>, <span class="ident">Deserialize</span>)]</span>
+<span class="kw">struct</span> <span class="ident">Cfg</span> {
+    <span class="ident">message</span>: <span class="ident">String</span>,
+    <span class="comment">// Some configuration options to configure logging.</span>
+    <span class="attribute">#[<span class="ident">serde</span>(<span class="ident">default</span>, <span class="ident">skip_serializing_if</span> <span class="op">=</span> <span class="string">&quot;LogCfg::is_empty&quot;</span>)]</span>
+    <span class="ident">logging</span>: <span class="ident">LogCfg</span>,
+}
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Debug</span>, <span class="ident">StructOpt</span>)]</span>
+<span class="kw">struct</span> <span class="ident">Opts</span> {
+    <span class="comment">// And some command line switches to also interact with logging.</span>
+    <span class="attribute">#[<span class="ident">structopt</span>(<span class="ident">flatten</span>)]</span>
+    <span class="ident">logging</span>: <span class="ident">LogOpts</span>,
+}
+
+<span class="kw">static</span> <span class="ident">DEFAULT_CFG</span>: <span class="kw-2">&amp;</span><span class="ident">str</span> <span class="op">=</span> <span class="string">r#&quot;
+message = &quot;hello&quot;
+&quot;#</span>;
+
+<span class="kw">fn</span> <span class="ident">main</span>() <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">AnyError</span><span class="op">&gt;</span> {
+    <span class="comment">// Here we added</span>
+    <span class="kw">let</span> (<span class="ident">opts</span>, <span class="kw-2">mut</span> <span class="ident">loader</span>): (<span class="ident">Opts</span>, <span class="kw">_</span>) <span class="op">=</span> <span class="ident">Builder</span>::<span class="ident">new</span>()
+        .<span class="ident">config_defaults</span>(<span class="ident">DEFAULT_CFG</span>)
+        .<span class="ident">build</span>();
+    <span class="kw">let</span> <span class="ident">cfg</span>: <span class="ident">Cfg</span> <span class="op">=</span> <span class="ident">loader</span>.<span class="ident">load</span>()<span class="question-mark">?</span>;
+
+    <span class="comment">// We put them together (speciality of the logging fragments ‒ some other fragments come</span>
+    <span class="comment">// only in the configuration).</span>
+    <span class="kw">let</span> <span class="ident">logging</span> <span class="op">=</span> <span class="ident">Logging</span> {
+        <span class="ident">cfg</span>: <span class="ident">cfg</span>.<span class="ident">logging</span>,
+        <span class="ident">opts</span>: <span class="ident">opts</span>.<span class="ident">logging</span>,
+    };
+    <span class="comment">// And here we get ready-made top level logger we can use.</span>
+    <span class="comment">// (the &quot;logging&quot; string helps to identify fragments in logs ‒ when stuff gets complex,</span>
+    <span class="comment">// naming things helps).</span>
+    <span class="comment">//</span>
+    <span class="comment">// This can configure multiple loggers at once (STDOUT, files, network…).</span>
+    <span class="kw">let</span> <span class="ident">logger</span> <span class="op">=</span> <span class="ident">logging</span>.<span class="ident">create</span>(<span class="string">&quot;logging&quot;</span>)<span class="question-mark">?</span>;
+    <span class="comment">// This apply is from the fern crate. It&#39;s one-time initialization. If you want to update</span>
+    <span class="comment">// logging at runtime, see the next section.</span>
+    <span class="ident">logger</span>.<span class="ident">apply</span>()<span class="question-mark">?</span>;
+
+    <span class="comment">// The interesting stuff of your application.</span>
+    <span class="macro">info</span><span class="macro">!</span>(<span class="string">&quot;{}&quot;</span>, <span class="ident">cfg</span>.<span class="ident">message</span>);
+    <span class="prelude-val">Ok</span>(())
+}</pre></div>
+<h2 id="application-lifetime-management" class="section-header"><a href="#application-lifetime-management">Application lifetime management</a></h2>
+<p>There's the <a href="../spirit/struct.Spirit.html"><code>Spirit</code></a> object (and its <a href="../spirit/struct.Builder.html"><code>Builder</code></a>) you can use.
+It'll start by loading the configuration. It'll also wait for signals (like <code>SIGHUP</code> or
+<code>SIGTERM</code>) and reload configuration as needed, terminate the application, provide access to the
+currently loaded configuration, etc. This is done in a background thread which registers the
+signals using <a href="../signal_hook/index.html" title="signal_hook"><code>signal_hook</code></a>.</p>
+<p>You can attach callbacks to it that'll get called at appropriate times ‒ when the configuration
+is being loaded (and you can refuse the configuration as invalid) or when the application
+should terminate.</p>
+<p>The callbacks can be added both to the <a href="../spirit/struct.Builder.html"><code>Builder</code></a> and to already started <a href="../spirit/struct.Spirit.html"><code>Spirit</code></a>.</p>
+<p>You also can have your main body of the application wrapped in the
+<a href="../spirit/prelude/trait._.html#tymethod.run" title="crate::SpiritBuilder::run"><code>Spirit::run</code></a> method. That way any errors returned are properly
+logged and the application terminates with non-zero exit status.</p>
+<p>Note that the functionality of these is provided through several traits. It is recommended to
+import the <a href="../spirit/prelude/index.html" title="crate::prelude"><code>spirit::prelude::*</code></a> to get all the relevant traits.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered">
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">time</span>::<span class="ident">Duration</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">thread</span>;
+
+<span class="kw">use</span> <span class="ident">log</span>::{<span class="ident">debug</span>, <span class="ident">info</span>};
+<span class="kw">use</span> <span class="ident">serde</span>::<span class="ident">Deserialize</span>;
+<span class="kw">use</span> <span class="ident">spirit</span>::<span class="ident">Spirit</span>;
+<span class="kw">use</span> <span class="ident">spirit</span>::<span class="ident">prelude</span>::<span class="kw-2">*</span>;
+<span class="kw">use</span> <span class="ident">spirit</span>::<span class="ident">validation</span>::<span class="ident">Action</span>;
+<span class="kw">use</span> <span class="ident">spirit_log</span>::{<span class="ident">Cfg</span> <span class="kw">as</span> <span class="ident">LogCfg</span>, <span class="ident">CfgAndOpts</span> <span class="kw">as</span> <span class="ident">Logging</span>, <span class="ident">Opts</span> <span class="kw">as</span> <span class="ident">LogOpts</span>};
+<span class="kw">use</span> <span class="ident">structopt</span>::<span class="ident">StructOpt</span>;
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">Default</span>, <span class="ident">Deserialize</span>)]</span>
+<span class="kw">struct</span> <span class="ident">Cfg</span> {
+    <span class="ident">message</span>: <span class="ident">String</span>,
+    <span class="ident">sleep</span>: <span class="ident">u64</span>,
+    <span class="attribute">#[<span class="ident">serde</span>(<span class="ident">default</span>, <span class="ident">skip_serializing_if</span> <span class="op">=</span> <span class="string">&quot;LogCfg::is_empty&quot;</span>)]</span>
+    <span class="ident">logging</span>: <span class="ident">LogCfg</span>,
+}
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Debug</span>, <span class="ident">StructOpt</span>)]</span>
+<span class="kw">struct</span> <span class="ident">Opts</span> {
+    <span class="comment">// And some command line switches to also interact with logging.</span>
+    <span class="attribute">#[<span class="ident">structopt</span>(<span class="ident">flatten</span>)]</span>
+    <span class="ident">logging</span>: <span class="ident">LogOpts</span>,
+}
+
+<span class="kw">static</span> <span class="ident">DEFAULT_CFG</span>: <span class="kw-2">&amp;</span><span class="ident">str</span> <span class="op">=</span> <span class="string">r#&quot;
+message = &quot;hello&quot;
+sleep = 2
+&quot;#</span>;
+
+<span class="kw">fn</span> <span class="ident">main</span>() {
+    <span class="comment">// Sets up spirit_log ‒ it will register panic handler to log panics. It will also prepare</span>
+    <span class="comment">// the global logger so the actual logger can be replaced multiple times, using the</span>
+    <span class="comment">// spirit_log::install</span>
+    <span class="ident">spirit_log</span>::<span class="ident">init</span>();
+    <span class="ident">Spirit</span>::<span class="op">&lt;</span><span class="ident">Opts</span>, <span class="ident">Cfg</span><span class="op">&gt;</span>::<span class="ident">new</span>()
+        <span class="comment">// Provide default values for the configuration</span>
+        .<span class="ident">config_defaults</span>(<span class="ident">DEFAULT_CFG</span>)
+        <span class="comment">// If the program is passed a directory, load files with these extensions from there</span>
+        .<span class="ident">config_exts</span>(<span class="kw-2">&amp;</span>[<span class="string">&quot;toml&quot;</span>, <span class="string">&quot;ini&quot;</span>, <span class="string">&quot;json&quot;</span>])
+        .<span class="ident">on_terminate</span>(<span class="op">|</span><span class="op">|</span> <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;Asked to terminate&quot;</span>))
+        .<span class="ident">config_validator</span>(<span class="op">|</span><span class="ident">_old_cfg</span>, <span class="ident">cfg</span>, <span class="ident">opts</span><span class="op">|</span> {
+            <span class="kw">let</span> <span class="ident">logging</span> <span class="op">=</span> <span class="ident">Logging</span> {
+                <span class="ident">opts</span>: <span class="ident">opts</span>.<span class="ident">logging</span>.<span class="ident">clone</span>(),
+                <span class="ident">cfg</span>: <span class="ident">cfg</span>.<span class="ident">logging</span>.<span class="ident">clone</span>(),
+            };
+            <span class="comment">// Whenever there&#39;s a new configuration, create new logging</span>
+            <span class="kw">let</span> <span class="ident">logger</span> <span class="op">=</span> <span class="ident">logging</span>.<span class="ident">create</span>(<span class="string">&quot;logging&quot;</span>)<span class="question-mark">?</span>;
+            <span class="comment">// But postpone the installation until the whole config has been validated and</span>
+            <span class="comment">// accepted.</span>
+            <span class="prelude-val">Ok</span>(<span class="ident">Action</span>::<span class="ident">new</span>().<span class="ident">on_success</span>(<span class="op">|</span><span class="op">|</span> <span class="ident">spirit_log</span>::<span class="ident">install</span>(<span class="ident">logger</span>)))
+        })
+        <span class="comment">// Run the closure, logging the error nicely if it happens (note: no error happens</span>
+        <span class="comment">// here)</span>
+        .<span class="ident">run</span>(<span class="op">|</span><span class="ident">spirit</span>: <span class="kw-2">&amp;</span><span class="kw">_</span><span class="op">|</span> {
+            <span class="kw">while</span> <span class="op">!</span><span class="ident">spirit</span>.<span class="ident">is_terminated</span>() {
+                <span class="kw">let</span> <span class="ident">cfg</span> <span class="op">=</span> <span class="ident">spirit</span>.<span class="ident">config</span>(); <span class="comment">// Get a new version of config every round</span>
+                <span class="ident">thread</span>::<span class="ident">sleep</span>(<span class="ident">Duration</span>::<span class="ident">from_secs</span>(<span class="ident">cfg</span>.<span class="ident">sleep</span>));
+                <span class="macro">info</span><span class="macro">!</span>(<span class="string">&quot;{}&quot;</span>, <span class="ident">cfg</span>.<span class="ident">message</span>);
+            }
+            <span class="prelude-val">Ok</span>(())
+        });
+}</pre></div>
+<h2 id="extensions-and-pipelines" class="section-header"><a href="#extensions-and-pipelines">Extensions and pipelines</a></h2>
+<p>The crates with fragments actually allow their functionality to happen almost automatically.
+Instead of manually registering a callback when eg. the config is reloaded, each fragment can
+be either directly registered into the <a href="../spirit/struct.Spirit.html"><code>Spirit</code></a> (or <a href="../spirit/struct.Builder.html"><code>Builder</code></a>) to do its thing whenever
+appropriate, or allows building a <a href="../spirit/fragment/pipeline/struct.Pipeline.html" title="crate::Pipeline"><code>Pipeline</code></a> that handles loading and
+reloading the bit of configuration.</p>
+<p>As an example, if the application shall listen on a HTTP endpoint, instead of registering an
+<a href="../spirit/extension/trait.Extensible.html#tymethod.on_config" title="crate::Extensible::on_config"><code>on_config</code></a> callback and creating the server based on the new
+configuration (and shutting down the previous one as needed), you build a pipeline. You provide
+a function that extracts the HTTP endpoint configuration from the whole configuration, you
+provide a closure that attaches the actual service to the server and register the pipeline. The
+pipeline then takes care of creating the server (or servers, if the configuration contains eg.
+a <code>Vec</code> of them), removing stale ones, rolling back the configuration in case something in it
+is broken, etc.</p>
+<p>Note that some pipelines and extensions are better registered right away, into the <a href="../spirit/struct.Builder.html"><code>Builder</code></a>
+(daemonization, logging), you might want to register others only when you are ready for them ‒
+you may want to start listening on HTTP only once you've loaded all data. In that case you'd
+register it into the <a href="../spirit/struct.Spirit.html"><code>Spirit</code></a> inside the <a href="../spirit/prelude/trait._.html#tymethod.run" title="crate::SpiritBuilder::run"><code>run</code></a> method.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered">
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">time</span>::<span class="ident">Duration</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">thread</span>;
+
+<span class="kw">use</span> <span class="ident">log</span>::{<span class="ident">debug</span>, <span class="ident">info</span>};
+<span class="kw">use</span> <span class="ident">serde</span>::{<span class="ident">Serialize</span>, <span class="ident">Deserialize</span>};
+<span class="kw">use</span> <span class="ident">spirit</span>::{<span class="ident">Pipeline</span>, <span class="ident">Spirit</span>};
+<span class="kw">use</span> <span class="ident">spirit</span>::<span class="ident">prelude</span>::<span class="kw-2">*</span>;
+<span class="kw">use</span> <span class="ident">spirit_cfg_helpers</span>::<span class="ident">Opts</span> <span class="kw">as</span> <span class="ident">CfgOpts</span>;
+<span class="kw">use</span> <span class="ident">spirit_daemonize</span>::{<span class="ident">Daemon</span>, <span class="ident">Opts</span> <span class="kw">as</span> <span class="ident">DaemonOpts</span>};
+<span class="kw">use</span> <span class="ident">spirit_log</span>::{<span class="ident">Cfg</span> <span class="kw">as</span> <span class="ident">LogCfg</span>, <span class="ident">CfgAndOpts</span> <span class="kw">as</span> <span class="ident">Logging</span>, <span class="ident">Opts</span> <span class="kw">as</span> <span class="ident">LogOpts</span>};
+<span class="kw">use</span> <span class="ident">structdoc</span>::<span class="ident">StructDoc</span>;
+<span class="kw">use</span> <span class="ident">structopt</span>::<span class="ident">StructOpt</span>;
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">Default</span>, <span class="ident">Deserialize</span>, <span class="ident">Serialize</span>, <span class="ident">StructDoc</span>)]</span>
+<span class="kw">struct</span> <span class="ident">Cfg</span> {
+    <span class="doccomment">/// The message to print every now and then.</span>
+    <span class="ident">message</span>: <span class="ident">String</span>,
+
+    <span class="doccomment">/// How long to wait in between messages, in seconds.</span>
+    <span class="ident">sleep</span>: <span class="ident">u64</span>,
+
+    <span class="doccomment">/// How and where to log.</span>
+    <span class="attribute">#[<span class="ident">serde</span>(<span class="ident">default</span>, <span class="ident">skip_serializing_if</span> <span class="op">=</span> <span class="string">&quot;LogCfg::is_empty&quot;</span>)]</span>
+    <span class="ident">logging</span>: <span class="ident">LogCfg</span>,
+
+    <span class="doccomment">/// How to switch into the background.</span>
+    <span class="attribute">#[<span class="ident">serde</span>(<span class="ident">default</span>)]</span>
+    <span class="ident">daemon</span>: <span class="ident">Daemon</span>,
+}
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Debug</span>, <span class="ident">StructOpt</span>)]</span>
+<span class="kw">struct</span> <span class="ident">Opts</span> {
+    <span class="attribute">#[<span class="ident">structopt</span>(<span class="ident">flatten</span>)]</span>
+    <span class="ident">logging</span>: <span class="ident">LogOpts</span>,
+    <span class="attribute">#[<span class="ident">structopt</span>(<span class="ident">flatten</span>)]</span>
+    <span class="ident">daemon</span>: <span class="ident">DaemonOpts</span>,
+    <span class="attribute">#[<span class="ident">structopt</span>(<span class="ident">flatten</span>)]</span>
+    <span class="ident">cfg_opts</span>: <span class="ident">CfgOpts</span>,
+}
+
+<span class="kw">static</span> <span class="ident">DEFAULT_CFG</span>: <span class="kw-2">&amp;</span><span class="ident">str</span> <span class="op">=</span> <span class="string">r#&quot;
+message = &quot;hello&quot;
+sleep = 2
+&quot;#</span>;
+
+<span class="kw">fn</span> <span class="ident">main</span>() {
+    <span class="ident">Spirit</span>::<span class="op">&lt;</span><span class="ident">Opts</span>, <span class="ident">Cfg</span><span class="op">&gt;</span>::<span class="ident">new</span>()
+        <span class="comment">// Provide default values for the configuration</span>
+        .<span class="ident">config_defaults</span>(<span class="ident">DEFAULT_CFG</span>)
+        <span class="comment">// If the program is passed a directory, load files with these extensions from there</span>
+        .<span class="ident">config_exts</span>(<span class="kw-2">&amp;</span>[<span class="string">&quot;toml&quot;</span>, <span class="string">&quot;ini&quot;</span>, <span class="string">&quot;json&quot;</span>])
+        .<span class="ident">on_terminate</span>(<span class="op">|</span><span class="op">|</span> <span class="macro">debug</span><span class="macro">!</span>(<span class="string">&quot;Asked to terminate&quot;</span>))
+        <span class="comment">// All the validation, etc, is done for us behind the scene here.</span>
+        <span class="comment">// Even the spirit_log::init is not needed, the pipeline handles that.</span>
+        .<span class="ident">with</span>(<span class="ident">Pipeline</span>::<span class="ident">new</span>(<span class="string">&quot;logging&quot;</span>).<span class="ident">extract</span>(<span class="op">|</span><span class="ident">opts</span>: <span class="kw-2">&amp;</span><span class="ident">Opts</span>, <span class="ident">cfg</span>: <span class="kw-2">&amp;</span><span class="ident">Cfg</span><span class="op">|</span> <span class="ident">Logging</span> {
+            <span class="ident">cfg</span>: <span class="ident">cfg</span>.<span class="ident">logging</span>.<span class="ident">clone</span>(),
+            <span class="ident">opts</span>: <span class="ident">opts</span>.<span class="ident">logging</span>.<span class="ident">clone</span>(),
+        }))
+        <span class="comment">// Also add daemonization</span>
+        .<span class="ident">with</span>(
+            <span class="ident">Pipeline</span>::<span class="ident">new</span>(<span class="string">&quot;daemon&quot;</span>)
+                .<span class="ident">extract</span>(<span class="op">|</span><span class="ident">o</span>: <span class="kw-2">&amp;</span><span class="ident">Opts</span>, <span class="ident">c</span>: <span class="kw-2">&amp;</span><span class="ident">Cfg</span><span class="op">|</span> {
+                    <span class="ident">o</span>.<span class="ident">daemon</span>.<span class="ident">transform</span>(<span class="ident">c</span>.<span class="ident">daemon</span>.<span class="ident">clone</span>())
+                })
+        )
+        <span class="comment">// Let&#39;s provide some --config-help and --config-dump options. These get the</span>
+        <span class="comment">// information from the documentation strings we provided inside the structures. It</span>
+        <span class="comment">// also uses the `Serialize` trait to provide the dump.</span>
+        .<span class="ident">with</span>(<span class="ident">CfgOpts</span>::<span class="ident">extension</span>(<span class="op">|</span><span class="ident">opts</span>: <span class="kw-2">&amp;</span><span class="ident">Opts</span><span class="op">|</span> <span class="kw-2">&amp;</span><span class="ident">opts</span>.<span class="ident">cfg_opts</span>))
+        <span class="comment">// And some help</span>
+        <span class="comment">// Run the closure, logging the error nicely if it happens (note: no error happens</span>
+        <span class="comment">// here)</span>
+        .<span class="ident">run</span>(<span class="op">|</span><span class="ident">spirit</span>: <span class="kw-2">&amp;</span><span class="kw">_</span><span class="op">|</span> {
+            <span class="kw">while</span> <span class="op">!</span><span class="ident">spirit</span>.<span class="ident">is_terminated</span>() {
+                <span class="kw">let</span> <span class="ident">cfg</span> <span class="op">=</span> <span class="ident">spirit</span>.<span class="ident">config</span>(); <span class="comment">// Get a new version of config every round</span>
+                <span class="ident">thread</span>::<span class="ident">sleep</span>(<span class="ident">Duration</span>::<span class="ident">from_secs</span>(<span class="ident">cfg</span>.<span class="ident">sleep</span>));
+                <span class="macro">info</span><span class="macro">!</span>(<span class="string">&quot;{}&quot;</span>, <span class="ident">cfg</span>.<span class="ident">message</span>);
+            }
+            <span class="prelude-val">Ok</span>(())
+        });
+}</pre></div>
+<h1 id="features" class="section-header"><a href="#features">Features</a></h1>
+<p>There are several features that can tweak functionality. Currently, the <code>json</code>, <code>yaml</code> and
+<code>cfg-help</code> are on by default. All the other spirit crates depend only on the bare minimum of
+features they need (and may have their own features).</p>
+<ul>
+<li><code>ini</code>, <code>json</code>, <code>hjson</code>, <code>yaml</code>: support for given configuration formats.</li>
+<li><code>cfg-help</code>: support for adding documentation to the configuration fragmtents that can be used
+by the <a href="https://crates.io/crates/spirit-cfg-helpers"><code>spirit-cfg-helpers</code></a> crate to add the <code>--help-config</code> command line option. It is
+implemented by the <a href="../structdoc/index.html" title="structdoc"><code>structdoc</code></a> crate behind the scenes. On by default. This feature flag is
+actually available in all the other sub-crates too.</li>
+<li><code>color</code>: support for colored command line help (on by default).</li>
+<li><code>suggestions</code>: support for command line suggestions on errors (on by default).</li>
+</ul>
+<h1 id="other-documentation" class="section-header"><a href="#other-documentation">Other documentation</a></h1>
+<p>In this kind of library, only API documentation is not really enough.</p>
+<p>There are examples scattered through the <a href="https://github.com/vorner/spirit">repository</a> ‒ each subcrate has its own and there are
+some commons. Look at them and play with them a little (try running them, sending SIGHUP to
+them, etc).</p>
+<p>If you're upgrading from older version, you might be interested in the
+<a href="https://github.com/vorner/spirit/blob/master/CHANGELOG.md">CHANGELOG</a>.</p>
+<p>There's an <strong>outdated</strong> <a href="https://vorner.github.io/2018/12/09/Spirit-Tutorial.html">tutorial</a> ‒ while the API isn't the same any more, it might provide the
+feel of the library. Bringing it up to date is a TODO item (and help will be appreciated).</p>
+</div><h2 id='reexports' class='section-header'><a href="#reexports">Re-exports</a></h2>
+<table><tr><td><code>pub use crate::cfg_loader::<a class="trait" href="../spirit/cfg_loader/trait.ConfigBuilder.html" title="trait spirit::cfg_loader::ConfigBuilder">ConfigBuilder</a>;</code></td></tr><tr><td><code>pub use crate::error::<a class="type" href="../spirit/error/type.AnyError.html" title="type spirit::error::AnyError">AnyError</a>;</code></td></tr><tr><td><code>pub use crate::extension::<a class="trait" href="../spirit/extension/trait.Extensible.html" title="trait spirit::extension::Extensible">Extensible</a>;</code></td></tr><tr><td><code>pub use crate::fragment::pipeline::<a class="struct" href="../spirit/fragment/pipeline/struct.Pipeline.html" title="struct spirit::fragment::pipeline::Pipeline">Pipeline</a>;</code></td></tr><tr><td><code>pub use crate::fragment::<a class="trait" href="../spirit/fragment/trait.Fragment.html" title="trait spirit::fragment::Fragment">Fragment</a>;</code></td></tr></table><h2 id='modules' class='section-header'><a href="#modules">Modules</a></h2>
+<table><tr class='module-item'><td><a class="mod" href="app/index.html" title='spirit::app mod'>app</a></td><td class='docblock-short'><p>The running application part.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="cfg_loader/index.html" title='spirit::cfg_loader mod'>cfg_loader</a></td><td class='docblock-short'><p>Configuration loading.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="error/index.html" title='spirit::error mod'>error</a></td><td class='docblock-short'><p>Error handling utilities.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="extension/index.html" title='spirit::extension mod'>extension</a></td><td class='docblock-short'><p>Interfaces for extending the <a href="../spirit/struct.Spirit.html"><code>Spirit</code></a> and <a href="../spirit/struct.Builder.html"><code>Builder</code></a> with callbacks.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="fragment/index.html" title='spirit::fragment mod'>fragment</a></td><td class='docblock-short'><p>Fragments of configuration.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="prelude/index.html" title='spirit::prelude mod'>prelude</a></td><td class='docblock-short'><p>The prelude.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="utils/index.html" title='spirit::utils mod'>utils</a></td><td class='docblock-short'><p>Various utilities.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="validation/index.html" title='spirit::validation mod'>validation</a></td><td class='docblock-short'><p>Helpers for configuration validation.</p>
+</td></tr></table><h2 id='macros' class='section-header'><a href="#macros">Macros</a></h2>
+<table><tr class='module-item'><td><a class="macro" href="macro.log_error.html" title='spirit::log_error macro'>log_error</a></td><td class='docblock-short'><p>A convenience macro to log an <a href="../spirit/error/type.AnyError.html" title="AnyError"><code>AnyError</code></a>.</p>
+</td></tr><tr class='module-item'><td><a class="macro" href="macro.simple_fragment.html" title='spirit::simple_fragment macro'>simple_fragment</a></td><td class='docblock-short'><p>A helper macro to implement a simple <a href="../spirit/fragment/trait.Fragment.html"><code>Fragment</code></a>.</p>
+</td></tr></table><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
+<table><tr class='module-item'><td><a class="struct" href="struct.Builder.html" title='spirit::Builder struct'>Builder</a></td><td class='docblock-short'><p>The builder of <a href="../spirit/struct.Spirit.html" title="Spirit"><code>Spirit</code></a>.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Empty.html" title='spirit::Empty struct'>Empty</a></td><td class='docblock-short'><p>A struct that may be used when either configuration or command line options are not needed.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Spirit.html" title='spirit::Spirit struct'>Spirit</a></td><td class='docblock-short'><p>The main manipulation handle/struct of the library.</p>
+</td></tr></table><h2 id='traits' class='section-header'><a href="#traits">Traits</a></h2>
+<table><tr class='module-item'><td><a class="trait" href="trait.SpiritBuilder.html" title='spirit::SpiritBuilder trait'>SpiritBuilder</a></td><td class='docblock-short'><p>An interface to turn the spirit <a href="../spirit/struct.Builder.html" title="Builder"><code>Builder</code></a> into a <a href="../spirit/struct.Spirit.html" title="Spirit"><code>Spirit</code></a> and possibly run it.</p>
+</td></tr></table></section><section id="search" class="content hidden"></section><section class="footer"></section><script>window.rootPath = "../";window.currentCrate = "spirit";</script><script src="../main.js"></script><script defer src="../search-index.js"></script></body></html>

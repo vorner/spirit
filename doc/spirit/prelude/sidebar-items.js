@@ -1,0 +1,1 @@
+initSidebarItems({"trait":[["_","An interface to turn the spirit [`Builder`] into a [`Spirit`] and possibly run it."]]});

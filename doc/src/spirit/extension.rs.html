@@ -1,0 +1,1578 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `src/extension.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>extension.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../../ayu.css" disabled ><script src="../../storage.js"></script><noscript><link rel="stylesheet" href="../../noscript.css"></noscript><link rel="icon" type="image/svg+xml" href="../../favicon.svg">
+<link rel="alternate icon" type="image/png" href="../../favicon-16x16.png">
+<link rel="alternate icon" type="image/png" href="../../favicon-32x32.png"><style type="text/css">#crate-search{background-image:url("../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../../spirit/index.html'><div class='logo-container rust-logo'><img src='../../rust-logo.png' alt='logo'></div></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><span class="help-button">?</span>
+                <a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1">  1</span>
+<span id="2">  2</span>
+<span id="3">  3</span>
+<span id="4">  4</span>
+<span id="5">  5</span>
+<span id="6">  6</span>
+<span id="7">  7</span>
+<span id="8">  8</span>
+<span id="9">  9</span>
+<span id="10"> 10</span>
+<span id="11"> 11</span>
+<span id="12"> 12</span>
+<span id="13"> 13</span>
+<span id="14"> 14</span>
+<span id="15"> 15</span>
+<span id="16"> 16</span>
+<span id="17"> 17</span>
+<span id="18"> 18</span>
+<span id="19"> 19</span>
+<span id="20"> 20</span>
+<span id="21"> 21</span>
+<span id="22"> 22</span>
+<span id="23"> 23</span>
+<span id="24"> 24</span>
+<span id="25"> 25</span>
+<span id="26"> 26</span>
+<span id="27"> 27</span>
+<span id="28"> 28</span>
+<span id="29"> 29</span>
+<span id="30"> 30</span>
+<span id="31"> 31</span>
+<span id="32"> 32</span>
+<span id="33"> 33</span>
+<span id="34"> 34</span>
+<span id="35"> 35</span>
+<span id="36"> 36</span>
+<span id="37"> 37</span>
+<span id="38"> 38</span>
+<span id="39"> 39</span>
+<span id="40"> 40</span>
+<span id="41"> 41</span>
+<span id="42"> 42</span>
+<span id="43"> 43</span>
+<span id="44"> 44</span>
+<span id="45"> 45</span>
+<span id="46"> 46</span>
+<span id="47"> 47</span>
+<span id="48"> 48</span>
+<span id="49"> 49</span>
+<span id="50"> 50</span>
+<span id="51"> 51</span>
+<span id="52"> 52</span>
+<span id="53"> 53</span>
+<span id="54"> 54</span>
+<span id="55"> 55</span>
+<span id="56"> 56</span>
+<span id="57"> 57</span>
+<span id="58"> 58</span>
+<span id="59"> 59</span>
+<span id="60"> 60</span>
+<span id="61"> 61</span>
+<span id="62"> 62</span>
+<span id="63"> 63</span>
+<span id="64"> 64</span>
+<span id="65"> 65</span>
+<span id="66"> 66</span>
+<span id="67"> 67</span>
+<span id="68"> 68</span>
+<span id="69"> 69</span>
+<span id="70"> 70</span>
+<span id="71"> 71</span>
+<span id="72"> 72</span>
+<span id="73"> 73</span>
+<span id="74"> 74</span>
+<span id="75"> 75</span>
+<span id="76"> 76</span>
+<span id="77"> 77</span>
+<span id="78"> 78</span>
+<span id="79"> 79</span>
+<span id="80"> 80</span>
+<span id="81"> 81</span>
+<span id="82"> 82</span>
+<span id="83"> 83</span>
+<span id="84"> 84</span>
+<span id="85"> 85</span>
+<span id="86"> 86</span>
+<span id="87"> 87</span>
+<span id="88"> 88</span>
+<span id="89"> 89</span>
+<span id="90"> 90</span>
+<span id="91"> 91</span>
+<span id="92"> 92</span>
+<span id="93"> 93</span>
+<span id="94"> 94</span>
+<span id="95"> 95</span>
+<span id="96"> 96</span>
+<span id="97"> 97</span>
+<span id="98"> 98</span>
+<span id="99"> 99</span>
+<span id="100">100</span>
+<span id="101">101</span>
+<span id="102">102</span>
+<span id="103">103</span>
+<span id="104">104</span>
+<span id="105">105</span>
+<span id="106">106</span>
+<span id="107">107</span>
+<span id="108">108</span>
+<span id="109">109</span>
+<span id="110">110</span>
+<span id="111">111</span>
+<span id="112">112</span>
+<span id="113">113</span>
+<span id="114">114</span>
+<span id="115">115</span>
+<span id="116">116</span>
+<span id="117">117</span>
+<span id="118">118</span>
+<span id="119">119</span>
+<span id="120">120</span>
+<span id="121">121</span>
+<span id="122">122</span>
+<span id="123">123</span>
+<span id="124">124</span>
+<span id="125">125</span>
+<span id="126">126</span>
+<span id="127">127</span>
+<span id="128">128</span>
+<span id="129">129</span>
+<span id="130">130</span>
+<span id="131">131</span>
+<span id="132">132</span>
+<span id="133">133</span>
+<span id="134">134</span>
+<span id="135">135</span>
+<span id="136">136</span>
+<span id="137">137</span>
+<span id="138">138</span>
+<span id="139">139</span>
+<span id="140">140</span>
+<span id="141">141</span>
+<span id="142">142</span>
+<span id="143">143</span>
+<span id="144">144</span>
+<span id="145">145</span>
+<span id="146">146</span>
+<span id="147">147</span>
+<span id="148">148</span>
+<span id="149">149</span>
+<span id="150">150</span>
+<span id="151">151</span>
+<span id="152">152</span>
+<span id="153">153</span>
+<span id="154">154</span>
+<span id="155">155</span>
+<span id="156">156</span>
+<span id="157">157</span>
+<span id="158">158</span>
+<span id="159">159</span>
+<span id="160">160</span>
+<span id="161">161</span>
+<span id="162">162</span>
+<span id="163">163</span>
+<span id="164">164</span>
+<span id="165">165</span>
+<span id="166">166</span>
+<span id="167">167</span>
+<span id="168">168</span>
+<span id="169">169</span>
+<span id="170">170</span>
+<span id="171">171</span>
+<span id="172">172</span>
+<span id="173">173</span>
+<span id="174">174</span>
+<span id="175">175</span>
+<span id="176">176</span>
+<span id="177">177</span>
+<span id="178">178</span>
+<span id="179">179</span>
+<span id="180">180</span>
+<span id="181">181</span>
+<span id="182">182</span>
+<span id="183">183</span>
+<span id="184">184</span>
+<span id="185">185</span>
+<span id="186">186</span>
+<span id="187">187</span>
+<span id="188">188</span>
+<span id="189">189</span>
+<span id="190">190</span>
+<span id="191">191</span>
+<span id="192">192</span>
+<span id="193">193</span>
+<span id="194">194</span>
+<span id="195">195</span>
+<span id="196">196</span>
+<span id="197">197</span>
+<span id="198">198</span>
+<span id="199">199</span>
+<span id="200">200</span>
+<span id="201">201</span>
+<span id="202">202</span>
+<span id="203">203</span>
+<span id="204">204</span>
+<span id="205">205</span>
+<span id="206">206</span>
+<span id="207">207</span>
+<span id="208">208</span>
+<span id="209">209</span>
+<span id="210">210</span>
+<span id="211">211</span>
+<span id="212">212</span>
+<span id="213">213</span>
+<span id="214">214</span>
+<span id="215">215</span>
+<span id="216">216</span>
+<span id="217">217</span>
+<span id="218">218</span>
+<span id="219">219</span>
+<span id="220">220</span>
+<span id="221">221</span>
+<span id="222">222</span>
+<span id="223">223</span>
+<span id="224">224</span>
+<span id="225">225</span>
+<span id="226">226</span>
+<span id="227">227</span>
+<span id="228">228</span>
+<span id="229">229</span>
+<span id="230">230</span>
+<span id="231">231</span>
+<span id="232">232</span>
+<span id="233">233</span>
+<span id="234">234</span>
+<span id="235">235</span>
+<span id="236">236</span>
+<span id="237">237</span>
+<span id="238">238</span>
+<span id="239">239</span>
+<span id="240">240</span>
+<span id="241">241</span>
+<span id="242">242</span>
+<span id="243">243</span>
+<span id="244">244</span>
+<span id="245">245</span>
+<span id="246">246</span>
+<span id="247">247</span>
+<span id="248">248</span>
+<span id="249">249</span>
+<span id="250">250</span>
+<span id="251">251</span>
+<span id="252">252</span>
+<span id="253">253</span>
+<span id="254">254</span>
+<span id="255">255</span>
+<span id="256">256</span>
+<span id="257">257</span>
+<span id="258">258</span>
+<span id="259">259</span>
+<span id="260">260</span>
+<span id="261">261</span>
+<span id="262">262</span>
+<span id="263">263</span>
+<span id="264">264</span>
+<span id="265">265</span>
+<span id="266">266</span>
+<span id="267">267</span>
+<span id="268">268</span>
+<span id="269">269</span>
+<span id="270">270</span>
+<span id="271">271</span>
+<span id="272">272</span>
+<span id="273">273</span>
+<span id="274">274</span>
+<span id="275">275</span>
+<span id="276">276</span>
+<span id="277">277</span>
+<span id="278">278</span>
+<span id="279">279</span>
+<span id="280">280</span>
+<span id="281">281</span>
+<span id="282">282</span>
+<span id="283">283</span>
+<span id="284">284</span>
+<span id="285">285</span>
+<span id="286">286</span>
+<span id="287">287</span>
+<span id="288">288</span>
+<span id="289">289</span>
+<span id="290">290</span>
+<span id="291">291</span>
+<span id="292">292</span>
+<span id="293">293</span>
+<span id="294">294</span>
+<span id="295">295</span>
+<span id="296">296</span>
+<span id="297">297</span>
+<span id="298">298</span>
+<span id="299">299</span>
+<span id="300">300</span>
+<span id="301">301</span>
+<span id="302">302</span>
+<span id="303">303</span>
+<span id="304">304</span>
+<span id="305">305</span>
+<span id="306">306</span>
+<span id="307">307</span>
+<span id="308">308</span>
+<span id="309">309</span>
+<span id="310">310</span>
+<span id="311">311</span>
+<span id="312">312</span>
+<span id="313">313</span>
+<span id="314">314</span>
+<span id="315">315</span>
+<span id="316">316</span>
+<span id="317">317</span>
+<span id="318">318</span>
+<span id="319">319</span>
+<span id="320">320</span>
+<span id="321">321</span>
+<span id="322">322</span>
+<span id="323">323</span>
+<span id="324">324</span>
+<span id="325">325</span>
+<span id="326">326</span>
+<span id="327">327</span>
+<span id="328">328</span>
+<span id="329">329</span>
+<span id="330">330</span>
+<span id="331">331</span>
+<span id="332">332</span>
+<span id="333">333</span>
+<span id="334">334</span>
+<span id="335">335</span>
+<span id="336">336</span>
+<span id="337">337</span>
+<span id="338">338</span>
+<span id="339">339</span>
+<span id="340">340</span>
+<span id="341">341</span>
+<span id="342">342</span>
+<span id="343">343</span>
+<span id="344">344</span>
+<span id="345">345</span>
+<span id="346">346</span>
+<span id="347">347</span>
+<span id="348">348</span>
+<span id="349">349</span>
+<span id="350">350</span>
+<span id="351">351</span>
+<span id="352">352</span>
+<span id="353">353</span>
+<span id="354">354</span>
+<span id="355">355</span>
+<span id="356">356</span>
+<span id="357">357</span>
+<span id="358">358</span>
+<span id="359">359</span>
+<span id="360">360</span>
+<span id="361">361</span>
+<span id="362">362</span>
+<span id="363">363</span>
+<span id="364">364</span>
+<span id="365">365</span>
+<span id="366">366</span>
+<span id="367">367</span>
+<span id="368">368</span>
+<span id="369">369</span>
+<span id="370">370</span>
+<span id="371">371</span>
+<span id="372">372</span>
+<span id="373">373</span>
+<span id="374">374</span>
+<span id="375">375</span>
+<span id="376">376</span>
+<span id="377">377</span>
+<span id="378">378</span>
+<span id="379">379</span>
+<span id="380">380</span>
+<span id="381">381</span>
+<span id="382">382</span>
+<span id="383">383</span>
+<span id="384">384</span>
+<span id="385">385</span>
+<span id="386">386</span>
+<span id="387">387</span>
+<span id="388">388</span>
+<span id="389">389</span>
+<span id="390">390</span>
+<span id="391">391</span>
+<span id="392">392</span>
+<span id="393">393</span>
+<span id="394">394</span>
+<span id="395">395</span>
+<span id="396">396</span>
+<span id="397">397</span>
+<span id="398">398</span>
+<span id="399">399</span>
+<span id="400">400</span>
+<span id="401">401</span>
+<span id="402">402</span>
+<span id="403">403</span>
+<span id="404">404</span>
+<span id="405">405</span>
+<span id="406">406</span>
+<span id="407">407</span>
+<span id="408">408</span>
+<span id="409">409</span>
+<span id="410">410</span>
+<span id="411">411</span>
+<span id="412">412</span>
+<span id="413">413</span>
+<span id="414">414</span>
+<span id="415">415</span>
+<span id="416">416</span>
+<span id="417">417</span>
+<span id="418">418</span>
+<span id="419">419</span>
+<span id="420">420</span>
+<span id="421">421</span>
+<span id="422">422</span>
+<span id="423">423</span>
+<span id="424">424</span>
+<span id="425">425</span>
+<span id="426">426</span>
+<span id="427">427</span>
+<span id="428">428</span>
+<span id="429">429</span>
+<span id="430">430</span>
+<span id="431">431</span>
+<span id="432">432</span>
+<span id="433">433</span>
+<span id="434">434</span>
+<span id="435">435</span>
+<span id="436">436</span>
+<span id="437">437</span>
+<span id="438">438</span>
+<span id="439">439</span>
+<span id="440">440</span>
+<span id="441">441</span>
+<span id="442">442</span>
+<span id="443">443</span>
+<span id="444">444</span>
+<span id="445">445</span>
+<span id="446">446</span>
+<span id="447">447</span>
+<span id="448">448</span>
+<span id="449">449</span>
+<span id="450">450</span>
+<span id="451">451</span>
+<span id="452">452</span>
+<span id="453">453</span>
+<span id="454">454</span>
+<span id="455">455</span>
+<span id="456">456</span>
+<span id="457">457</span>
+<span id="458">458</span>
+<span id="459">459</span>
+<span id="460">460</span>
+<span id="461">461</span>
+<span id="462">462</span>
+<span id="463">463</span>
+<span id="464">464</span>
+<span id="465">465</span>
+<span id="466">466</span>
+<span id="467">467</span>
+<span id="468">468</span>
+<span id="469">469</span>
+<span id="470">470</span>
+<span id="471">471</span>
+<span id="472">472</span>
+<span id="473">473</span>
+<span id="474">474</span>
+<span id="475">475</span>
+<span id="476">476</span>
+<span id="477">477</span>
+<span id="478">478</span>
+<span id="479">479</span>
+<span id="480">480</span>
+<span id="481">481</span>
+<span id="482">482</span>
+<span id="483">483</span>
+<span id="484">484</span>
+<span id="485">485</span>
+<span id="486">486</span>
+<span id="487">487</span>
+<span id="488">488</span>
+<span id="489">489</span>
+<span id="490">490</span>
+<span id="491">491</span>
+<span id="492">492</span>
+<span id="493">493</span>
+<span id="494">494</span>
+<span id="495">495</span>
+<span id="496">496</span>
+<span id="497">497</span>
+<span id="498">498</span>
+<span id="499">499</span>
+<span id="500">500</span>
+<span id="501">501</span>
+<span id="502">502</span>
+<span id="503">503</span>
+<span id="504">504</span>
+<span id="505">505</span>
+<span id="506">506</span>
+<span id="507">507</span>
+<span id="508">508</span>
+<span id="509">509</span>
+<span id="510">510</span>
+<span id="511">511</span>
+<span id="512">512</span>
+<span id="513">513</span>
+<span id="514">514</span>
+<span id="515">515</span>
+<span id="516">516</span>
+<span id="517">517</span>
+<span id="518">518</span>
+<span id="519">519</span>
+<span id="520">520</span>
+<span id="521">521</span>
+<span id="522">522</span>
+<span id="523">523</span>
+<span id="524">524</span>
+<span id="525">525</span>
+<span id="526">526</span>
+<span id="527">527</span>
+<span id="528">528</span>
+<span id="529">529</span>
+<span id="530">530</span>
+<span id="531">531</span>
+<span id="532">532</span>
+<span id="533">533</span>
+<span id="534">534</span>
+<span id="535">535</span>
+<span id="536">536</span>
+<span id="537">537</span>
+<span id="538">538</span>
+<span id="539">539</span>
+<span id="540">540</span>
+<span id="541">541</span>
+<span id="542">542</span>
+<span id="543">543</span>
+<span id="544">544</span>
+<span id="545">545</span>
+<span id="546">546</span>
+<span id="547">547</span>
+<span id="548">548</span>
+<span id="549">549</span>
+<span id="550">550</span>
+<span id="551">551</span>
+<span id="552">552</span>
+<span id="553">553</span>
+<span id="554">554</span>
+<span id="555">555</span>
+<span id="556">556</span>
+<span id="557">557</span>
+<span id="558">558</span>
+<span id="559">559</span>
+<span id="560">560</span>
+<span id="561">561</span>
+<span id="562">562</span>
+<span id="563">563</span>
+<span id="564">564</span>
+<span id="565">565</span>
+<span id="566">566</span>
+<span id="567">567</span>
+<span id="568">568</span>
+<span id="569">569</span>
+<span id="570">570</span>
+<span id="571">571</span>
+<span id="572">572</span>
+<span id="573">573</span>
+<span id="574">574</span>
+<span id="575">575</span>
+<span id="576">576</span>
+<span id="577">577</span>
+<span id="578">578</span>
+<span id="579">579</span>
+<span id="580">580</span>
+<span id="581">581</span>
+<span id="582">582</span>
+<span id="583">583</span>
+<span id="584">584</span>
+<span id="585">585</span>
+<span id="586">586</span>
+<span id="587">587</span>
+<span id="588">588</span>
+<span id="589">589</span>
+<span id="590">590</span>
+<span id="591">591</span>
+<span id="592">592</span>
+<span id="593">593</span>
+<span id="594">594</span>
+<span id="595">595</span>
+<span id="596">596</span>
+<span id="597">597</span>
+<span id="598">598</span>
+<span id="599">599</span>
+<span id="600">600</span>
+<span id="601">601</span>
+<span id="602">602</span>
+<span id="603">603</span>
+<span id="604">604</span>
+<span id="605">605</span>
+<span id="606">606</span>
+<span id="607">607</span>
+<span id="608">608</span>
+<span id="609">609</span>
+<span id="610">610</span>
+<span id="611">611</span>
+<span id="612">612</span>
+<span id="613">613</span>
+<span id="614">614</span>
+<span id="615">615</span>
+<span id="616">616</span>
+<span id="617">617</span>
+<span id="618">618</span>
+<span id="619">619</span>
+<span id="620">620</span>
+<span id="621">621</span>
+<span id="622">622</span>
+<span id="623">623</span>
+<span id="624">624</span>
+<span id="625">625</span>
+<span id="626">626</span>
+<span id="627">627</span>
+<span id="628">628</span>
+<span id="629">629</span>
+<span id="630">630</span>
+<span id="631">631</span>
+<span id="632">632</span>
+<span id="633">633</span>
+<span id="634">634</span>
+<span id="635">635</span>
+<span id="636">636</span>
+<span id="637">637</span>
+<span id="638">638</span>
+<span id="639">639</span>
+<span id="640">640</span>
+<span id="641">641</span>
+<span id="642">642</span>
+<span id="643">643</span>
+<span id="644">644</span>
+<span id="645">645</span>
+<span id="646">646</span>
+<span id="647">647</span>
+<span id="648">648</span>
+<span id="649">649</span>
+<span id="650">650</span>
+<span id="651">651</span>
+<span id="652">652</span>
+<span id="653">653</span>
+<span id="654">654</span>
+<span id="655">655</span>
+<span id="656">656</span>
+<span id="657">657</span>
+<span id="658">658</span>
+<span id="659">659</span>
+<span id="660">660</span>
+<span id="661">661</span>
+<span id="662">662</span>
+<span id="663">663</span>
+<span id="664">664</span>
+<span id="665">665</span>
+<span id="666">666</span>
+<span id="667">667</span>
+<span id="668">668</span>
+<span id="669">669</span>
+<span id="670">670</span>
+<span id="671">671</span>
+<span id="672">672</span>
+<span id="673">673</span>
+<span id="674">674</span>
+<span id="675">675</span>
+<span id="676">676</span>
+<span id="677">677</span>
+<span id="678">678</span>
+<span id="679">679</span>
+<span id="680">680</span>
+<span id="681">681</span>
+<span id="682">682</span>
+<span id="683">683</span>
+<span id="684">684</span>
+<span id="685">685</span>
+<span id="686">686</span>
+<span id="687">687</span>
+<span id="688">688</span>
+<span id="689">689</span>
+<span id="690">690</span>
+<span id="691">691</span>
+<span id="692">692</span>
+<span id="693">693</span>
+<span id="694">694</span>
+<span id="695">695</span>
+<span id="696">696</span>
+<span id="697">697</span>
+<span id="698">698</span>
+<span id="699">699</span>
+<span id="700">700</span>
+<span id="701">701</span>
+<span id="702">702</span>
+<span id="703">703</span>
+<span id="704">704</span>
+<span id="705">705</span>
+<span id="706">706</span>
+<span id="707">707</span>
+<span id="708">708</span>
+<span id="709">709</span>
+<span id="710">710</span>
+<span id="711">711</span>
+<span id="712">712</span>
+<span id="713">713</span>
+<span id="714">714</span>
+<span id="715">715</span>
+<span id="716">716</span>
+<span id="717">717</span>
+<span id="718">718</span>
+<span id="719">719</span>
+<span id="720">720</span>
+<span id="721">721</span>
+<span id="722">722</span>
+<span id="723">723</span>
+<span id="724">724</span>
+<span id="725">725</span>
+<span id="726">726</span>
+<span id="727">727</span>
+<span id="728">728</span>
+<span id="729">729</span>
+<span id="730">730</span>
+<span id="731">731</span>
+<span id="732">732</span>
+<span id="733">733</span>
+<span id="734">734</span>
+<span id="735">735</span>
+<span id="736">736</span>
+<span id="737">737</span>
+<span id="738">738</span>
+<span id="739">739</span>
+<span id="740">740</span>
+<span id="741">741</span>
+<span id="742">742</span>
+<span id="743">743</span>
+<span id="744">744</span>
+<span id="745">745</span>
+<span id="746">746</span>
+<span id="747">747</span>
+<span id="748">748</span>
+<span id="749">749</span>
+<span id="750">750</span>
+<span id="751">751</span>
+<span id="752">752</span>
+<span id="753">753</span>
+<span id="754">754</span>
+<span id="755">755</span>
+<span id="756">756</span>
+<span id="757">757</span>
+<span id="758">758</span>
+<span id="759">759</span>
+<span id="760">760</span>
+<span id="761">761</span>
+<span id="762">762</span>
+<span id="763">763</span>
+<span id="764">764</span>
+<span id="765">765</span>
+<span id="766">766</span>
+<span id="767">767</span>
+<span id="768">768</span>
+<span id="769">769</span>
+<span id="770">770</span>
+<span id="771">771</span>
+<span id="772">772</span>
+<span id="773">773</span>
+<span id="774">774</span>
+<span id="775">775</span>
+<span id="776">776</span>
+<span id="777">777</span>
+<span id="778">778</span>
+<span id="779">779</span>
+<span id="780">780</span>
+<span id="781">781</span>
+<span id="782">782</span>
+<span id="783">783</span>
+<span id="784">784</span>
+<span id="785">785</span>
+<span id="786">786</span>
+</pre><div class="example-wrap"><pre class="rust ">
+<span class="doccomment">//! Interfaces for extending the [`Spirit`] and [`Builder`] with callbacks.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Both the [`Spirit`] and [`Builder`] types allow registering callbacks. The [`Extensible`] trait</span>
+<span class="doccomment">//! describes the interface for registering them.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Furthermore, [`Extensible`] is also implemented for `Result`s containing them. This allows</span>
+<span class="doccomment">//! chaining the building without manually handling the errors. The error then can be handled by</span>
+<span class="doccomment">//! [`Builder::run`][crate::Builder::run] and logged, without making a distinction if it comes from</span>
+<span class="doccomment">//! the setup or application run.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! Some libraries might want to provide bits of functionality that need to register several</span>
+<span class="doccomment">//! different callbacks at once to work properly. This is described by the [`Extension`] trait.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! In addition, the module contains few useful extensions that may be plugged in.</span>
+<span class="doccomment">//!</span>
+<span class="doccomment">//! [`Spirit`]: crate::Spirit</span>
+<span class="doccomment">//! [`Builder`]: crate::Builder</span>
+<span class="doccomment">//! [`Extension`]: crate::extension::Extension</span>
+
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">any</span>::<span class="ident">Any</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">fmt</span>::<span class="ident">Display</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">sync</span>::<span class="ident">Arc</span>;
+
+<span class="kw">use</span> <span class="ident">log</span>::<span class="ident">warn</span>;
+
+<span class="kw">use</span> <span class="kw">crate</span>::<span class="ident">bodies</span>::{<span class="ident">HookWrapper</span>, <span class="ident">InnerBody</span>};
+<span class="kw">use</span> <span class="kw">crate</span>::<span class="ident">validation</span>::<span class="ident">Action</span>;
+<span class="kw">use</span> <span class="kw">crate</span>::{<span class="ident">AnyError</span>, <span class="ident">Spirit</span>};
+
+<span class="doccomment">/// An internal trait to make working uniformly with the [`Builder`] and `Result&lt;Builder, Error&gt;`</span>
+<span class="doccomment">/// possible.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// You should not need to interact with the trait directly.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The idea is that both the [`Builder`] and the `Result&lt;Builder, Error&gt;` can be turned into</span>
+<span class="doccomment">/// `Result&lt;Builder, Error&gt;`.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [`Builder`]: crate::Builder</span>
+<span class="kw">pub</span> <span class="kw">trait</span> <span class="ident">IntoResult</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>: <span class="ident">Sized</span> {
+    <span class="doccomment">/// Turns self into the result.</span>
+    <span class="kw">fn</span> <span class="ident">into_result</span>(<span class="self">self</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>;
+}
+
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">IntoResult</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">AnyError</span><span class="op">&gt;</span> {
+    <span class="kw">fn</span> <span class="ident">into_result</span>(<span class="self">self</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">AnyError</span><span class="op">&gt;</span> {
+        <span class="self">self</span>
+    }
+}
+
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="ident">IntoResult</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">T</span> {
+    <span class="kw">fn</span> <span class="ident">into_result</span>(<span class="self">self</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">T</span>, <span class="ident">AnyError</span><span class="op">&gt;</span> {
+        <span class="prelude-val">Ok</span>(<span class="self">self</span>)
+    }
+}
+
+<span class="doccomment">/// Selection of the way the background thread is handled at the end of the [`run`] method.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Note that this is a non-exhaustive enum. More variants may be added without considering it a</span>
+<span class="doccomment">/// breaking change.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [`run`]: crate::app::App::run</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">Debug</span>, <span class="ident">Eq</span>, <span class="ident">PartialEq</span>, <span class="ident">Ord</span>, <span class="ident">PartialOrd</span>, <span class="ident">Hash</span>)]</span>
+<span class="attribute">#[<span class="ident">non_exhaustive</span>]</span>
+<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">Autojoin</span> {
+    <span class="doccomment">/// Terminate the application and join the background thread.</span>
+    <span class="ident">TerminateAndJoin</span>,
+    <span class="doccomment">/// Only join the background thread.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// It is up to the caller to ensure the background thread will actually terminate, so the</span>
+    <span class="doccomment">/// program doesn&#39;t deadlock.</span>
+    <span class="ident">Join</span>,
+    <span class="doccomment">/// Leave the background thread running and proceed.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// It is up to the caller to either join the thread manually or to make sure not doing proper</span>
+    <span class="doccomment">/// shutdown is OK. In particular, if the thread is left running on application termination,</span>
+    <span class="doccomment">/// the [guards](trait.Extension.html#fn.keep_guard) need not to be dropped.</span>
+    <span class="ident">Abandon</span>,
+}
+
+<span class="doccomment">/// An interface allowing to extend something with callbacks.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This describes the interface to registering various callbacks. This unifies the interaction</span>
+<span class="doccomment">/// with [`Builder`] and [`Spirit`], so there&#39;s little difference between registering a callback</span>
+<span class="doccomment">/// when setting things up and when everything is already running (but see notes at various</span>
+<span class="doccomment">/// methods, sometimes there are subtle differences ‒ specifically, it is not possible to do some</span>
+<span class="doccomment">/// things when the application already started).</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// In addition, this is also implemented on `Result&lt;Extensible, AnyError&gt;`. This allows the caller</span>
+<span class="doccomment">/// to postpone all error handling for later or even leave it up to the</span>
+<span class="doccomment">/// [`Builder::run`][crate::SpiritBuilder::run`] to handle them.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Deadlocks</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// In general, it is not possible to register callbacks from within callbacks. Internally, the</span>
+<span class="doccomment">/// structures holding them are protected by a mutex which needs to be locked both when</span>
+<span class="doccomment">/// manipulating and running them. Such attempt to register a callback from within a callback will</span>
+<span class="doccomment">/// lead to a deadlock (this restriction might be lifted in the future).</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```rust</span>
+<span class="doccomment">/// use spirit::{Empty, Spirit};</span>
+<span class="doccomment">/// use spirit::prelude::*;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// // This creates a Builder</span>
+<span class="doccomment">/// Spirit::&lt;Empty, Empty&gt;::new()</span>
+<span class="doccomment">///     // This returns Result&lt;Builder, AnyError&gt;. But we don&#39;t handle the error here, it propagates</span>
+<span class="doccomment">///     // further in the call chain.</span>
+<span class="doccomment">///     .run_before(|_spirit| Ok(()))</span>
+<span class="doccomment">///     // This run_before is on the Result&lt;Builder, AnyError&gt;. If the first one returned an error,</span>
+<span class="doccomment">///     // nothing would happen and the error would thread on. So, this works like implicit .and_then,</span>
+<span class="doccomment">///     // but without the inconvenience.</span>
+<span class="doccomment">///     //</span>
+<span class="doccomment">///     // (This also returns Result&lt;Builder, AnyError&gt;, not Result&lt;Result&lt;Builder, AnyError&gt;,</span>
+<span class="doccomment">///     // AnyError&gt;).  .run_before(|_spirit| Ok(()))</span>
+<span class="doccomment">///     //</span>
+<span class="doccomment">///     // This .run can handle both the errors from above and from inside, logging them and</span>
+<span class="doccomment">///     // terminating if they happen.</span>
+<span class="doccomment">///     .run(|spirit| {</span>
+<span class="doccomment">///         // And this callback is registered onto the Spirit. Here, the run_before is started</span>
+<span class="doccomment">///         // right away.</span>
+<span class="doccomment">///         //</span>
+<span class="doccomment">///         // Here it is more convenient to just propagate the error, because the .run will handle</span>
+<span class="doccomment">///         // it.</span>
+<span class="doccomment">///         spirit.run_before(|_spirit| Ok(()))?;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">///         Ok(())</span>
+<span class="doccomment">///     });</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// [`Builder`]: crate::Builder</span>
+<span class="doccomment">/// [`Spirit`]: crate::Spirit</span>
+<span class="kw">pub</span> <span class="kw">trait</span> <span class="ident">Extensible</span>: <span class="ident">Sized</span> {
+    <span class="doccomment">/// The command line options structure tied to this instance.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// A lot of the callbacks take command line structure as specified by the caller. This makes</span>
+    <span class="doccomment">/// the type available for users of the trait.</span>
+    <span class="kw">type</span> <span class="ident">Opts</span>;
+
+    <span class="doccomment">/// The configuration structure.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Similar to [`Opts`][Extensible::Opts], this makes the type used to load configuration</span>
+    <span class="doccomment">/// available to the users of the trait.</span>
+    <span class="kw">type</span> <span class="ident">Config</span>;
+
+    <span class="doccomment">/// The Ok variant used when returning a result.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Part of the trick to treat both `Extensible` and `Result&lt;Extensible, AnyError&gt;` in an</span>
+    <span class="doccomment">/// uniform way. This specifies what the OK variant of a result is ‒ it is either the Ok</span>
+    <span class="doccomment">/// variant of `Self` if we are `Result`, or `Self` if we are the `Extensible` proper.</span>
+    <span class="kw">type</span> <span class="prelude-val">Ok</span>;
+
+    <span class="doccomment">/// Has the application already started?</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This makes it possible to distinguish between the [`Builder`][crate::Builder] and</span>
+    <span class="doccomment">/// [`Spirit`][crate::Spirit] in generic extension code.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// In general, this should not be needed as most of the method act in a sane way relevant to</span>
+    <span class="doccomment">/// the given type, but some special handling may be still needed.</span>
+    <span class="kw">const</span> <span class="ident">STARTED</span>: <span class="ident">bool</span>;
+
+    <span class="doccomment">/// A callback that is run after the building started and the command line is parsed, but even</span>
+    <span class="doccomment">/// before the first configuration is loaded. The configuration provided is either the one</span>
+    <span class="doccomment">/// provided to the builder, or a default one when called on the builder, but current</span>
+    <span class="doccomment">/// configuration when run on [`Spirit`].</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This is run right away if called on [`Spirit`], unless it is already terminated. In such</span>
+    <span class="doccomment">/// case, the callback is dropped.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// [`Spirit`]: crate::Spirit</span>
+    <span class="kw">fn</span> <span class="ident">before_config</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">cback</span>: <span class="ident">F</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="prelude-val">Ok</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+    <span class="kw">where</span>
+        <span class="ident">F</span>: <span class="ident">FnOnce</span>(<span class="kw-2">&amp;</span><span class="self">Self</span>::<span class="ident">Config</span>, <span class="kw-2">&amp;</span><span class="self">Self</span>::<span class="ident">Opts</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">AnyError</span><span class="op">&gt;</span> <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>;
+
+    <span class="doccomment">/// Adds another config validator to the chain.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The validators are there to check and possibly refuse a newly loaded configuration.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The callback is passed three parameters:</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// * The old configuration.</span>
+    <span class="doccomment">/// * The new configuration.</span>
+    <span class="doccomment">/// * The command line options.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The new configuration is handled in this order:</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// * First, [config mutators][Extensible::config_mutator] are called (in order of their</span>
+    <span class="doccomment">///   registration).</span>
+    <span class="doccomment">/// * Then all the config validators are called, in order of their registration. If any of them</span>
+    <span class="doccomment">///   fails, the configuration is refused and failure actions returned by the successful</span>
+    <span class="doccomment">///   validators are run.</span>
+    <span class="doccomment">/// * If successful, the success actions returned by validators are run.</span>
+    <span class="doccomment">/// * New configuration is stored.</span>
+    <span class="doccomment">/// * Config hooks are called, in order of registration.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # The actions</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Sometimes, the only way to validate a piece of config is to try it out ‒ like when you want</span>
+    <span class="doccomment">/// to open a listening socket, you don&#39;t know if the port is free. But you can&#39;t activate and</span>
+    <span class="doccomment">/// apply just yet, because something further down the configuration might still fail.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// So, you open the socket (or create an error result) and store it into the success action to</span>
+    <span class="doccomment">/// apply it later on. If something fails, the action is dropped and the socket closed.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The failure action lets you roll back (if it isn&#39;t done by simply dropping the thing).</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// If the validation and application steps can be separated (you can check if something is OK</span>
+    <span class="doccomment">/// by just „looking“ at it ‒ like with a regular expression and using it can&#39;t fail), you</span>
+    <span class="doccomment">/// don&#39;t have to use them, just use verification and [`on_config`](#method.on_config)</span>
+    <span class="doccomment">/// separately.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// If called on the already started [`Spirit`][crate::Spirit], it is run right away. If it is</span>
+    <span class="doccomment">/// called on terminated one, it is dropped.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Examples</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// TODO</span>
+    <span class="kw">fn</span> <span class="ident">config_validator</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">f</span>: <span class="ident">F</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="prelude-val">Ok</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+    <span class="kw">where</span>
+        <span class="ident">F</span>: <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="ident">Arc</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="ident">Config</span><span class="op">&gt;</span>, <span class="kw-2">&amp;</span><span class="ident">Arc</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="ident">Config</span><span class="op">&gt;</span>, <span class="kw-2">&amp;</span><span class="self">Self</span>::<span class="ident">Opts</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Action</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+            <span class="op">+</span> <span class="ident">Send</span>
+            <span class="op">+</span> <span class="lifetime">&#39;static</span>;
+
+    <span class="doccomment">/// Adds a callback able to mutate the configuration while being loaded.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Config mutators are run (in order of their registration) before [config</span>
+    <span class="doccomment">/// validators](#method.config_validator) and allow the callback to modify the configuration.</span>
+    <span class="doccomment">/// Note that by the time it is called it is not yet determined if this configuration is</span>
+    <span class="doccomment">/// valid. A config mutator should not use the configuration in any way, only tweak it (and</span>
+    <span class="doccomment">/// possibly warn about having done so), but the tweaked configuration should be used by</span>
+    <span class="doccomment">/// something else down the line.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// If run on an already started [`Spirit`][crate::Spirit], this only registers the callback</span>
+    <span class="doccomment">/// but doesn&#39;t call it. If run on terminated one, it is dropped.</span>
+    <span class="kw">fn</span> <span class="ident">config_mutator</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">f</span>: <span class="ident">F</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="self">Self</span>
+    <span class="kw">where</span>
+        <span class="ident">F</span>: <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">Self</span>::<span class="ident">Config</span>) <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>;
+
+    <span class="doccomment">/// Adds a callback for notification about new configurations.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The callback is called once a new configuration is loaded and successfully validated, so it</span>
+    <span class="doccomment">/// can be directly used.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// It is run right away on a started [`Spirit`][crate::Spirit], but it is dropped if it was</span>
+    <span class="doccomment">/// already terminated.</span>
+    <span class="kw">fn</span> <span class="ident">on_config</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">hook</span>: <span class="ident">F</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="self">Self</span>
+    <span class="kw">where</span>
+        <span class="ident">F</span>: <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="self">Self</span>::<span class="ident">Opts</span>, <span class="kw-2">&amp;</span><span class="ident">Arc</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="ident">Config</span><span class="op">&gt;</span>) <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>;
+
+    <span class="doccomment">/// Adds a callback for reacting to a signal.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The [`Spirit`][crate::Spirit] reacts to some signals itself, in its own service</span>
+    <span class="doccomment">/// thread. However, it is also possible to hook into any signals directly (well, any except</span>
+    <span class="doccomment">/// the ones that are [off limits][signal_hook::FORBIDDEN]).</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// These are not run inside the real signal handler, but are delayed and run in the service</span>
+    <span class="doccomment">/// thread. Therefore, restrictions about async-signal-safety don&#39;t apply to the hook.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// It is dropped if called on already terminated spirit.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Panics</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This may panic in case the application runs without the background signal thread. See</span>
+    <span class="doccomment">/// [`SpiritBuilder::build`][crate::SpiritBuilder::build].</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// TODO: Threads, deadlocks</span>
+    <span class="kw">fn</span> <span class="ident">on_signal</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">signal</span>: <span class="ident">libc</span>::<span class="ident">c_int</span>, <span class="ident">hook</span>: <span class="ident">F</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="prelude-val">Ok</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+    <span class="kw">where</span>
+        <span class="ident">F</span>: <span class="ident">FnMut</span>() <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>;
+
+    <span class="doccomment">/// Adds a callback executed once the [`Spirit`] decides to terminate.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This is called either when someone calls [`terminate`](struct.Spirit.html#method.terminate)</span>
+    <span class="doccomment">/// or when a termination signal is received.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Note that there are ways the application may terminate without calling these hooks ‒ for</span>
+    <span class="doccomment">/// example terminating the main thread, or aborting.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// If called on already started and *terminated* [`Spirit`], it is run right away.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// [`Spirit`]: crate::Spirit.</span>
+    <span class="kw">fn</span> <span class="ident">on_terminate</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">hook</span>: <span class="ident">F</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="self">Self</span>
+    <span class="kw">where</span>
+        <span class="ident">F</span>: <span class="ident">FnOnce</span>() <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>;
+
+    <span class="doccomment">/// Add a closure run before the main body.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The [`run`][crate::SpiritBuilder::run] will first execute all closures submitted through</span>
+    <span class="doccomment">/// this method before running the real body. They are run in the order of registration.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The purpose of this is mostly integration with extensions ‒ they often need some last minute</span>
+    <span class="doccomment">/// preparation.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// In case of using only [`build`][crate::SpiritBuilder::build], the bodies are composed into</span>
+    <span class="doccomment">/// one object and returned as part of the [`App`][crate::app::App].</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// If called on an already started [`Spirit`][crate::Spirit], it is run immediately and any</span>
+    <span class="doccomment">/// error returned from it is propagated.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// If submitted to the [`Builder`][crate::Builder], the first body to fail terminates the</span>
+    <span class="doccomment">/// processing and further bodies (including the main one) are skipped.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Examples</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// ```</span>
+    <span class="doccomment">/// # use spirit::{Empty, Spirit};</span>
+    <span class="doccomment">/// # use spirit::prelude::*;</span>
+    <span class="doccomment">/// Spirit::&lt;Empty, Empty&gt;::new()</span>
+    <span class="doccomment">///     .run_before(|_spirit| {</span>
+    <span class="doccomment">///         println!(&quot;Run first&quot;);</span>
+    <span class="doccomment">///         Ok(())</span>
+    <span class="doccomment">///     }).run(|_spirit| {</span>
+    <span class="doccomment">///         println!(&quot;Run second&quot;);</span>
+    <span class="doccomment">///         Ok(())</span>
+    <span class="doccomment">///     });</span>
+    <span class="doccomment">/// ```</span>
+    <span class="kw">fn</span> <span class="ident">run_before</span><span class="op">&lt;</span><span class="ident">B</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">body</span>: <span class="ident">B</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="prelude-val">Ok</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+    <span class="kw">where</span>
+        <span class="ident">B</span>: <span class="ident">FnOnce</span>(<span class="kw-2">&amp;</span><span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">Spirit</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="ident">Opts</span>, <span class="self">Self</span>::<span class="ident">Config</span><span class="op">&gt;</span><span class="op">&gt;</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">AnyError</span><span class="op">&gt;</span> <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>;
+
+    <span class="doccomment">/// Wrap the body run by the [`run`][crate::SpiritBuilder::run] into this closure.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// It is expected the wrapper executes the inner body as part of itself and propagates any</span>
+    <span class="doccomment">/// returned error.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// In case of multiple wrappers, the ones submitted later on are placed inside the sooner</span>
+    <span class="doccomment">/// ones ‒ the first one is the outermost.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// In case of using only [`build`][crate::SpiritBuilder::build], all the wrappers composed</span>
+    <span class="doccomment">/// together are returned as part of the result.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Panics</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// If called on the already started [`crate::Spirit`], this panics. It is part of the</span>
+    <span class="doccomment">/// interface to make it possible to write extensions that register a body wrapper as part of</span>
+    <span class="doccomment">/// an singleton, but assume the singleton would be plugged in by the time it is already</span>
+    <span class="doccomment">/// started.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Examples</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// ```rust</span>
+    <span class="doccomment">/// # use spirit::{Empty, Spirit};</span>
+    <span class="doccomment">/// # use spirit::prelude::*;</span>
+    <span class="doccomment">/// Spirit::&lt;Empty, Empty&gt;::new()</span>
+    <span class="doccomment">///     .run_around(|_spirit, inner| {</span>
+    <span class="doccomment">///         println!(&quot;Run first&quot;);</span>
+    <span class="doccomment">///         inner()?;</span>
+    <span class="doccomment">///         println!(&quot;Run third&quot;);</span>
+    <span class="doccomment">///         Ok(())</span>
+    <span class="doccomment">///     }).run(|_spirit| {</span>
+    <span class="doccomment">///         println!(&quot;Run second&quot;);</span>
+    <span class="doccomment">///         Ok(())</span>
+    <span class="doccomment">///     });</span>
+    <span class="doccomment">/// ```</span>
+    <span class="kw">fn</span> <span class="ident">run_around</span><span class="op">&lt;</span><span class="ident">W</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">wrapper</span>: <span class="ident">W</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="prelude-val">Ok</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+    <span class="kw">where</span>
+        <span class="ident">W</span>: <span class="ident">FnOnce</span>(<span class="kw-2">&amp;</span><span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">Spirit</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="ident">Opts</span>, <span class="self">Self</span>::<span class="ident">Config</span><span class="op">&gt;</span><span class="op">&gt;</span>, <span class="ident">InnerBody</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">AnyError</span><span class="op">&gt;</span>
+            <span class="op">+</span> <span class="ident">Send</span>
+            <span class="op">+</span> <span class="lifetime">&#39;static</span>;
+
+    <span class="doccomment">/// Wrap the hooks inside the provided closure.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This is in a sense similar to the principle of [`run_around`][Extensible::run_around], but</span>
+    <span class="doccomment">/// for all the hooks that are plugged into the spirit and run in the spirit thread. The other</span>
+    <span class="doccomment">/// difference is, these may be run multiple times (eg. there may be multiple enters and leaves</span>
+    <span class="doccomment">/// of the wrappers).</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// * This is run during the initial configuration load from [`build`][crate::Builder::build].</span>
+    <span class="doccomment">/// * This is run during configuration reloading and signal handling from the background</span>
+    <span class="doccomment">///   thread.</span>
+    <span class="doccomment">/// * If a new one is added to an already configured and running spirit, it&#39;ll become effective</span>
+    <span class="doccomment">///   during the next event handled by the background thread.</span>
+    <span class="doccomment">/// * This is *not* run as part of the/around the usual [`run`][crate::Builder::run] (it is run</span>
+    <span class="doccomment">///   as part of the initial configuration loading, but not around the actual application body;</span>
+    <span class="doccomment">///   that one has its own [`run_around`][Extensible::run_around]).</span>
+    <span class="doccomment">/// * This is *not* run as part of user-invoked methods such as</span>
+    <span class="doccomment">///   [`config_reload`][crate::Spirit::config_reload].</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This is meant to set up global/thread local context for the hooks in a similar way as</span>
+    <span class="doccomment">/// [`run_around`][Extensible::run_around] is for the application itself. It is expected</span>
+    <span class="doccomment">/// similar setup will go into both in case the context is needed not only for the application,</span>
+    <span class="doccomment">/// but for the callbacks/hooks/pipelines.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Same as with [`run_around`][Extensible::run_around], later submitted wrappers are inserted</span>
+    <span class="doccomment">/// inside the older ones.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Expected functionality</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// * The wrapper is a function/closure of the form `FnMut(Box&lt;dyn FnOnce() + &#39;_&gt;)`.</span>
+    <span class="doccomment">///   That is, it is passed an inner closure without parameters or return value. The lifetime</span>
+    <span class="doccomment">///   of the inner closure may be arbitrarily short (it&#39;s impossible to store it for later).</span>
+    <span class="doccomment">/// * The wrapper must call the inner closure. Failing to call it will lead to panics during</span>
+    <span class="doccomment">///   runtime.</span>
+    <span class="doccomment">/// * The wrapper must be prepared to survive a panic from the inner body. It may be called</span>
+    <span class="doccomment">///   again even after such panic happened.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Warning</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// * Calling this from within a callback might cause a deadlock.</span>
+    <span class="doccomment">/// * These are *not* dropped at [`terminate`][crate::Spirit::terminate], like most other</span>
+    <span class="doccomment">///   callbacks.</span>
+    <span class="kw">fn</span> <span class="ident">around_hooks</span><span class="op">&lt;</span><span class="ident">W</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">wrapper</span>: <span class="ident">W</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="self">Self</span>
+    <span class="kw">where</span>
+        <span class="ident">W</span>: <span class="ident">HookWrapper</span>;
+
+    <span class="doccomment">/// Apply an [`Extension`].</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// An extension is allowed to register arbitrary amount of callbacks.</span>
+    <span class="kw">fn</span> <span class="ident">with</span><span class="op">&lt;</span><span class="ident">E</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">ext</span>: <span class="ident">E</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="prelude-val">Ok</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+    <span class="kw">where</span>
+        <span class="ident">E</span>: <span class="ident">Extension</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="prelude-val">Ok</span><span class="op">&gt;</span>;
+
+    <span class="doccomment">/// Check if this is the first call with the given type.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Some helpers share common part. This common part makes sense to register just once, so this</span>
+    <span class="doccomment">/// can be used to check that. The first call with given type returns `true`, any future ones</span>
+    <span class="doccomment">/// with the same type return `false`.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The method has no direct effect on the future spirit constructed from the builder and</span>
+    <span class="doccomment">/// works only as a note for future helpers that want to manipulate the builder.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// A higher-level interface is the [`with_singleton`](#method.with_singleton) method.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Singletons registered into a [`Builder`][crate::Builder] are then inherited into the</span>
+    <span class="doccomment">/// [`Spirit`][crate::Spirit], therefore they can be registered once during the whole lifetime.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// # Examples</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// ```rust</span>
+    <span class="doccomment">/// use spirit::{Empty, Spirit};</span>
+    <span class="doccomment">/// use spirit::prelude::*;</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// let mut builder = Spirit::&lt;Empty, Empty&gt;::new();</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// struct X;</span>
+    <span class="doccomment">/// struct Y;</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// assert!(builder.singleton::&lt;X&gt;());</span>
+    <span class="doccomment">/// assert!(!builder.singleton::&lt;X&gt;());</span>
+    <span class="doccomment">/// assert!(builder.singleton::&lt;Y&gt;());</span>
+    <span class="doccomment">/// ```</span>
+    <span class="kw">fn</span> <span class="ident">singleton</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="lifetime">&#39;static</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">bool</span>;
+
+    <span class="doccomment">/// Applies the first [`Extension`] of the same type.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// This applies the passed extension, but only if an extension with the type same hasn&#39;t yet</span>
+    <span class="doccomment">/// been applied (or the [`singleton`](#method.singleton) called manually).</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Note that different instances of the same type of an extension can act differently, but are</span>
+    <span class="doccomment">/// still considered the same type. This means the first instance wins. This is considered a</span>
+    <span class="doccomment">/// feature ‒ many other extensions need some environment to run in (like `tokio` runtime). The</span>
+    <span class="doccomment">/// extensions try to apply a default configuration, but the user can apply a specific</span>
+    <span class="doccomment">/// configuration first.</span>
+    <span class="kw">fn</span> <span class="ident">with_singleton</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">singleton</span>: <span class="ident">T</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="prelude-val">Ok</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+    <span class="kw">where</span>
+        <span class="ident">T</span>: <span class="ident">Extension</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="prelude-val">Ok</span><span class="op">&gt;</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>;
+
+    <span class="doccomment">/// Keeps a guard object until destruction.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Sometimes, some things (like, a logger that needs flushing, metrics collector handle) need</span>
+    <span class="doccomment">/// a guard that is destroyed at the end of application lifetime.  However, the [`run`] body</span>
+    <span class="doccomment">/// may terminate sooner than the application, therefore destroying the guards too soon.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// By passing the ownership to [`Spirit`], the guard is destroyed together with the [`Spirit`]</span>
+    <span class="doccomment">/// itself.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// Note that you may need to [wait for the background thread] or [autojoin</span>
+    <span class="doccomment">/// it][Extensible::autojoin_bg_thread].</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The guards can be only added (there&#39;s no way to remove or overwrite them later on).</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// [`run`]: crate::SpiritBuilder::run</span>
+    <span class="doccomment">/// [`Spirit`]: crate::Spirit</span>
+    <span class="doccomment">/// [wait for the background thread]: crate::Spirit::join_bg_thread</span>
+    <span class="kw">fn</span> <span class="ident">keep_guard</span><span class="op">&lt;</span><span class="ident">G</span>: <span class="ident">Any</span> <span class="op">+</span> <span class="ident">Send</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">guard</span>: <span class="ident">G</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="self">Self</span>;
+
+    <span class="doccomment">/// Specifies if and when the background thread should be joined automatically.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// The default is to terminate and autojoin at the end of the [`run`] method.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// [`run`]: crate::SpiritBuilder::run</span>
+    <span class="kw">fn</span> <span class="ident">autojoin_bg_thread</span>(<span class="self">self</span>, <span class="ident">autojoin</span>: <span class="ident">Autojoin</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="self">Self</span>;
+}
+
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">C</span><span class="op">&gt;</span> <span class="ident">Extensible</span> <span class="kw">for</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">C</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+<span class="kw">where</span>
+    <span class="ident">C</span>: <span class="ident">Extensible</span><span class="op">&lt;</span><span class="prelude-val">Ok</span> <span class="op">=</span> <span class="ident">C</span><span class="op">&gt;</span>,
+{
+    <span class="kw">type</span> <span class="ident">Opts</span> <span class="op">=</span> <span class="ident">C</span>::<span class="ident">Opts</span>;
+    <span class="kw">type</span> <span class="ident">Config</span> <span class="op">=</span> <span class="ident">C</span>::<span class="ident">Config</span>;
+    <span class="kw">type</span> <span class="prelude-val">Ok</span> <span class="op">=</span> <span class="ident">C</span>;
+    <span class="kw">const</span> <span class="ident">STARTED</span>: <span class="ident">bool</span> <span class="op">=</span> <span class="ident">C</span>::<span class="ident">STARTED</span>;
+
+    <span class="kw">fn</span> <span class="ident">before_config</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">cback</span>: <span class="ident">F</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="op">&lt;</span><span class="self">Self</span> <span class="kw">as</span> <span class="ident">Extensible</span><span class="op">&gt;</span>::<span class="prelude-val">Ok</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+    <span class="kw">where</span>
+        <span class="ident">F</span>: <span class="ident">FnOnce</span>(<span class="kw-2">&amp;</span><span class="self">Self</span>::<span class="ident">Config</span>, <span class="kw-2">&amp;</span><span class="self">Self</span>::<span class="ident">Opts</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">AnyError</span><span class="op">&gt;</span> <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>,
+    {
+        <span class="self">self</span>.<span class="ident">and_then</span>(<span class="op">|</span><span class="ident">c</span><span class="op">|</span> <span class="ident">c</span>.<span class="ident">before_config</span>(<span class="ident">cback</span>))
+    }
+
+    <span class="kw">fn</span> <span class="ident">config_mutator</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">f</span>: <span class="ident">F</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="self">Self</span>
+    <span class="kw">where</span>
+        <span class="ident">F</span>: <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">Self</span>::<span class="ident">Config</span>) <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>,
+    {
+        <span class="self">self</span>.<span class="ident">map</span>(<span class="op">|</span><span class="ident">c</span><span class="op">|</span> <span class="ident">c</span>.<span class="ident">config_mutator</span>(<span class="ident">f</span>))
+    }
+
+    <span class="kw">fn</span> <span class="ident">config_validator</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">f</span>: <span class="ident">F</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="op">&lt;</span><span class="self">Self</span> <span class="kw">as</span> <span class="ident">Extensible</span><span class="op">&gt;</span>::<span class="prelude-val">Ok</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+    <span class="kw">where</span>
+        <span class="ident">F</span>: <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="ident">Arc</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="ident">Config</span><span class="op">&gt;</span>, <span class="kw-2">&amp;</span><span class="ident">Arc</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="ident">Config</span><span class="op">&gt;</span>, <span class="kw-2">&amp;</span><span class="self">Self</span>::<span class="ident">Opts</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">Action</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+            <span class="op">+</span> <span class="ident">Send</span>
+            <span class="op">+</span> <span class="lifetime">&#39;static</span>,
+    {
+        <span class="self">self</span>.<span class="ident">and_then</span>(<span class="op">|</span><span class="ident">c</span><span class="op">|</span> <span class="ident">c</span>.<span class="ident">config_validator</span>(<span class="ident">f</span>))
+    }
+
+    <span class="kw">fn</span> <span class="ident">on_config</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">hook</span>: <span class="ident">F</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="self">Self</span>
+    <span class="kw">where</span>
+        <span class="ident">F</span>: <span class="ident">FnMut</span>(<span class="kw-2">&amp;</span><span class="self">Self</span>::<span class="ident">Opts</span>, <span class="kw-2">&amp;</span><span class="ident">Arc</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="ident">Config</span><span class="op">&gt;</span>) <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>,
+    {
+        <span class="self">self</span>.<span class="ident">map</span>(<span class="op">|</span><span class="ident">c</span><span class="op">|</span> <span class="ident">c</span>.<span class="ident">on_config</span>(<span class="ident">hook</span>))
+    }
+
+    <span class="kw">fn</span> <span class="ident">on_signal</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(
+        <span class="self">self</span>,
+        <span class="ident">signal</span>: <span class="ident">libc</span>::<span class="ident">c_int</span>,
+        <span class="ident">hook</span>: <span class="ident">F</span>,
+    ) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="op">&lt;</span><span class="self">Self</span> <span class="kw">as</span> <span class="ident">Extensible</span><span class="op">&gt;</span>::<span class="prelude-val">Ok</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+    <span class="kw">where</span>
+        <span class="ident">F</span>: <span class="ident">FnMut</span>() <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>,
+    {
+        <span class="self">self</span>.<span class="ident">and_then</span>(<span class="op">|</span><span class="ident">c</span><span class="op">|</span> <span class="ident">c</span>.<span class="ident">on_signal</span>(<span class="ident">signal</span>, <span class="ident">hook</span>))
+    }
+
+    <span class="kw">fn</span> <span class="ident">on_terminate</span><span class="op">&lt;</span><span class="ident">F</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">hook</span>: <span class="ident">F</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="self">Self</span>
+    <span class="kw">where</span>
+        <span class="ident">F</span>: <span class="ident">FnOnce</span>() <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>,
+    {
+        <span class="self">self</span>.<span class="ident">map</span>(<span class="op">|</span><span class="ident">c</span><span class="op">|</span> <span class="ident">c</span>.<span class="ident">on_terminate</span>(<span class="ident">hook</span>))
+    }
+
+    <span class="kw">fn</span> <span class="ident">run_before</span><span class="op">&lt;</span><span class="ident">B</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">body</span>: <span class="ident">B</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="op">&lt;</span><span class="self">Self</span> <span class="kw">as</span> <span class="ident">Extensible</span><span class="op">&gt;</span>::<span class="prelude-val">Ok</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+    <span class="kw">where</span>
+        <span class="ident">B</span>: <span class="ident">FnOnce</span>(<span class="kw-2">&amp;</span><span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">Spirit</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="ident">Opts</span>, <span class="self">Self</span>::<span class="ident">Config</span><span class="op">&gt;</span><span class="op">&gt;</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">AnyError</span><span class="op">&gt;</span> <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>,
+    {
+        <span class="self">self</span>.<span class="ident">and_then</span>(<span class="op">|</span><span class="ident">c</span><span class="op">|</span> <span class="ident">c</span>.<span class="ident">run_before</span>(<span class="ident">body</span>))
+    }
+
+    <span class="kw">fn</span> <span class="ident">run_around</span><span class="op">&lt;</span><span class="ident">W</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">wrapper</span>: <span class="ident">W</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="op">&lt;</span><span class="self">Self</span> <span class="kw">as</span> <span class="ident">Extensible</span><span class="op">&gt;</span>::<span class="prelude-val">Ok</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+    <span class="kw">where</span>
+        <span class="ident">W</span>: <span class="ident">FnOnce</span>(<span class="kw-2">&amp;</span><span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">Spirit</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="ident">Opts</span>, <span class="self">Self</span>::<span class="ident">Config</span><span class="op">&gt;</span><span class="op">&gt;</span>, <span class="ident">InnerBody</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span>(), <span class="ident">AnyError</span><span class="op">&gt;</span>
+            <span class="op">+</span> <span class="ident">Send</span>
+            <span class="op">+</span> <span class="lifetime">&#39;static</span>,
+    {
+        <span class="self">self</span>.<span class="ident">and_then</span>(<span class="op">|</span><span class="ident">c</span><span class="op">|</span> <span class="ident">c</span>.<span class="ident">run_around</span>(<span class="ident">wrapper</span>))
+    }
+
+    <span class="kw">fn</span> <span class="ident">around_hooks</span><span class="op">&lt;</span><span class="ident">W</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">wrapper</span>: <span class="ident">W</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="self">Self</span>
+    <span class="kw">where</span>
+        <span class="ident">W</span>: <span class="ident">HookWrapper</span>,
+    {
+        <span class="self">self</span>.<span class="ident">map</span>(<span class="op">|</span><span class="ident">c</span><span class="op">|</span> <span class="ident">c</span>.<span class="ident">around_hooks</span>(<span class="ident">wrapper</span>))
+    }
+
+    <span class="kw">fn</span> <span class="ident">with</span><span class="op">&lt;</span><span class="ident">E</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">ext</span>: <span class="ident">E</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="op">&lt;</span><span class="self">Self</span> <span class="kw">as</span> <span class="ident">Extensible</span><span class="op">&gt;</span>::<span class="prelude-val">Ok</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+    <span class="kw">where</span>
+        <span class="ident">E</span>: <span class="ident">Extension</span><span class="op">&lt;</span><span class="op">&lt;</span><span class="self">Self</span> <span class="kw">as</span> <span class="ident">Extensible</span><span class="op">&gt;</span>::<span class="prelude-val">Ok</span><span class="op">&gt;</span>,
+    {
+        <span class="self">self</span>.<span class="ident">and_then</span>(<span class="op">|</span><span class="ident">c</span><span class="op">|</span> <span class="ident">c</span>.<span class="ident">with</span>(<span class="ident">ext</span>))
+    }
+
+    <span class="kw">fn</span> <span class="ident">singleton</span><span class="op">&lt;</span><span class="ident">T</span>: <span class="lifetime">&#39;static</span><span class="op">&gt;</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="self">self</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">bool</span> {
+        <span class="comment">// If we are errored out, this doesn&#39;t really matter, but usually false means less work to</span>
+        <span class="comment">// do.</span>
+        <span class="self">self</span>.<span class="ident">as_mut</span>()
+            .<span class="ident">map</span>(<span class="ident">Extensible</span>::<span class="ident">singleton</span>::<span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>)
+            .<span class="ident">unwrap_or_default</span>()
+    }
+
+    <span class="kw">fn</span> <span class="ident">with_singleton</span><span class="op">&lt;</span><span class="ident">T</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">singleton</span>: <span class="ident">T</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="op">&lt;</span><span class="self">Self</span> <span class="kw">as</span> <span class="ident">Extensible</span><span class="op">&gt;</span>::<span class="prelude-val">Ok</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>
+    <span class="kw">where</span>
+        <span class="ident">T</span>: <span class="ident">Extension</span><span class="op">&lt;</span><span class="op">&lt;</span><span class="self">Self</span> <span class="kw">as</span> <span class="ident">Extensible</span><span class="op">&gt;</span>::<span class="prelude-val">Ok</span><span class="op">&gt;</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>,
+    {
+        <span class="self">self</span>.<span class="ident">and_then</span>(<span class="op">|</span><span class="ident">c</span><span class="op">|</span> <span class="ident">c</span>.<span class="ident">with_singleton</span>(<span class="ident">singleton</span>))
+    }
+
+    <span class="kw">fn</span> <span class="ident">keep_guard</span><span class="op">&lt;</span><span class="ident">G</span>: <span class="ident">Any</span> <span class="op">+</span> <span class="ident">Send</span><span class="op">&gt;</span>(<span class="self">self</span>, <span class="ident">guard</span>: <span class="ident">G</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="self">Self</span> {
+        <span class="self">self</span>.<span class="ident">map</span>(<span class="op">|</span><span class="ident">s</span><span class="op">|</span> <span class="ident">s</span>.<span class="ident">keep_guard</span>(<span class="ident">guard</span>))
+    }
+
+    <span class="kw">fn</span> <span class="ident">autojoin_bg_thread</span>(<span class="self">self</span>, <span class="ident">autojoin</span>: <span class="ident">Autojoin</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="self">Self</span> {
+        <span class="self">self</span>.<span class="ident">map</span>(<span class="op">|</span><span class="ident">me</span><span class="op">|</span> <span class="ident">me</span>.<span class="ident">autojoin_bg_thread</span>(<span class="ident">autojoin</span>))
+    }
+}
+
+<span class="doccomment">/// The basic extension trait.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// It allows being plugged into a [`Builder`][crate::Builder] or [`Spirit`][crate::Spirit] and</span>
+<span class="doccomment">/// modifying it in an arbitrary way.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// It is more common to apply the helper by the</span>
+<span class="doccomment">/// [`with`][Extensible::with] or [`with_singleton`][Extensible::with_singleton] method than</span>
+<span class="doccomment">/// directly.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// There&#39;s an implementation of `Extension` for `FnOnce(Extensible) -&gt; Result&lt;Extensible, AnyError&gt;`,</span>
+<span class="doccomment">/// so extensions can be either custom types or just closures (which are often more convenient than</span>
+<span class="doccomment">/// defining an empty type and the implementation).</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// It is better to define the extension in a generic way (eg. accepting any type that is</span>
+<span class="doccomment">/// [`Extensible`]) instead of eg. a [`Builder`][crate::Builder] directly. Note that sometimes it</span>
+<span class="doccomment">/// is needed to restrict the acceptable [`Extensible`]s to the base ones, with `Ok = E`, like in</span>
+<span class="doccomment">/// the example below. They&#39;ll still be possible to apply to `Result`s.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```rust</span>
+<span class="doccomment">/// use spirit::{AnyError ,Empty, Spirit};</span>
+<span class="doccomment">/// use spirit::extension::{Extension, Extensible};</span>
+<span class="doccomment">/// use spirit::prelude::*;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// struct CfgPrint;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// impl&lt;E: Extensible&lt;Ok = E&gt;&gt; Extension&lt;E&gt; for CfgPrint {</span>
+<span class="doccomment">///     fn apply(self, ext: E) -&gt; Result&lt;E, AnyError&gt; {</span>
+<span class="doccomment">///         Ok(ext.on_config(|_opts, _config| println!(&quot;Config changed&quot;)))</span>
+<span class="doccomment">///     }</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Spirit::&lt;Empty, Empty&gt;::new()</span>
+<span class="doccomment">///     .with(CfgPrint)</span>
+<span class="doccomment">///     .run(|_spirit| {</span>
+<span class="doccomment">///         println!(&quot;Running...&quot;);</span>
+<span class="doccomment">///         Ok(())</span>
+<span class="doccomment">///     })</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```rust</span>
+<span class="doccomment">/// use spirit::{Empty, Extensible, Spirit};</span>
+<span class="doccomment">/// use spirit::prelude::*;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// fn cfg_print&lt;E: Extensible&lt;Ok = E&gt;&gt;(ext: E) -&gt; E {</span>
+<span class="doccomment">///     ext.on_config(|_opts, _config| println!(&quot;Config changed&quot;))</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Spirit::&lt;Empty, Empty&gt;::new()</span>
+<span class="doccomment">///     .with(cfg_print)</span>
+<span class="doccomment">///     .run(|_spirit| {</span>
+<span class="doccomment">///         println!(&quot;Running...&quot;);</span>
+<span class="doccomment">///         Ok(())</span>
+<span class="doccomment">///     })</span>
+<span class="doccomment">/// ```</span>
+<span class="kw">pub</span> <span class="kw">trait</span> <span class="ident">Extension</span><span class="op">&lt;</span><span class="ident">B</span><span class="op">&gt;</span> {
+    <span class="doccomment">/// Perform the transformation on the given extensible.</span>
+    <span class="doccomment">///</span>
+    <span class="doccomment">/// And yes, it is possible to do multiple primitive transformations inside one extension (this</span>
+    <span class="doccomment">/// is what makes extensions useful for 3rd party crates, they can integrate with just one call</span>
+    <span class="doccomment">/// of [`with`][Extensible::with]).</span>
+    <span class="kw">fn</span> <span class="ident">apply</span>(<span class="self">self</span>, <span class="ident">builder</span>: <span class="ident">B</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">B</span>, <span class="ident">AnyError</span><span class="op">&gt;</span>;
+}
+
+<span class="kw">impl</span><span class="op">&lt;</span><span class="ident">B</span>, <span class="ident">F</span>, <span class="ident">R</span><span class="op">&gt;</span> <span class="ident">Extension</span><span class="op">&lt;</span><span class="ident">B</span><span class="op">&gt;</span> <span class="kw">for</span> <span class="ident">F</span>
+<span class="kw">where</span>
+    <span class="ident">F</span>: <span class="ident">FnOnce</span>(<span class="ident">B</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">R</span>,
+    <span class="ident">R</span>: <span class="ident">IntoResult</span><span class="op">&lt;</span><span class="ident">B</span><span class="op">&gt;</span>,
+{
+    <span class="kw">fn</span> <span class="ident">apply</span>(<span class="self">self</span>, <span class="ident">builder</span>: <span class="ident">B</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="ident">B</span>, <span class="ident">AnyError</span><span class="op">&gt;</span> {
+        <span class="self">self</span>(<span class="ident">builder</span>).<span class="ident">into_result</span>()
+    }
+}
+
+<span class="doccomment">/// An extension for one-time initial configuration.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// Sometimes, some configuration values can&#39;t be reasonably updated at runtime (libraries don&#39;t</span>
+<span class="doccomment">/// support reconfiguration, there&#39;s no time to implement that, ...). This callback tries to</span>
+<span class="doccomment">/// improve the situation around these configurations.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// The `extractor` extracts a fragment of configuration every time a configuration is loaded. The</span>
+<span class="doccomment">/// first time this happens, `init` is called with this extracted configuration. Upon any future</span>
+<span class="doccomment">/// configuration reloads, a warning is issued (with the given `name`) if the configuration</span>
+<span class="doccomment">/// contains a different value than the one it was originally initialized (and is silent if it is</span>
+<span class="doccomment">/// the same).</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # See also</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// * [`immutable_cfg`]</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use serde::Deserialize;</span>
+<span class="doccomment">/// use spirit::{Empty, Spirit};</span>
+<span class="doccomment">/// use spirit::prelude::*;</span>
+<span class="doccomment">/// use spirit::extension;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// #[derive(Clone, Debug, Default, Deserialize)]</span>
+<span class="doccomment">/// struct Cfg {</span>
+<span class="doccomment">///     #[serde(default)]</span>
+<span class="doccomment">///     msg: String,</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// impl Cfg {</span>
+<span class="doccomment">///     fn msg(&amp;self) -&gt; &amp;String {</span>
+<span class="doccomment">///         &amp;self.msg</span>
+<span class="doccomment">///     }</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// fn print_msg(msg: &amp;String) {</span>
+<span class="doccomment">///     println!(&quot;{}&quot;, msg);</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// fn main() {</span>
+<span class="doccomment">///     Spirit::&lt;Empty, Cfg&gt;::new()</span>
+<span class="doccomment">///         // The first version of `msg` is printed at the initial configuration load. If however</span>
+<span class="doccomment">///         // the configuration changes into some other message, a warning is printed (because</span>
+<span class="doccomment">///         // there&#39;s no way to modify the already printed message</span>
+<span class="doccomment">///         .with(extension::immutable_cfg_init(Cfg::msg, print_msg, &quot;message&quot;))</span>
+<span class="doccomment">///         .run(|_| Ok(()));</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">/// ```</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">immutable_cfg_init</span><span class="op">&lt;</span><span class="ident">Ext</span>, <span class="ident">R</span>, <span class="ident">E</span>, <span class="ident">F</span>, <span class="ident">N</span><span class="op">&gt;</span>(<span class="ident">extractor</span>: <span class="ident">E</span>, <span class="ident">init</span>: <span class="ident">F</span>, <span class="ident">name</span>: <span class="ident">N</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="kw">impl</span> <span class="ident">Extension</span><span class="op">&lt;</span><span class="ident">Ext</span><span class="op">&gt;</span>
+<span class="kw">where</span>
+    <span class="ident">Ext</span>: <span class="ident">Extensible</span>,
+    <span class="ident">E</span>: <span class="kw">for</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span> <span class="ident">Fn</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">Ext</span>::<span class="ident">Config</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="kw-2">&amp;</span><span class="ident">R</span> <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>,
+    <span class="ident">F</span>: <span class="ident">FnOnce</span>(<span class="kw-2">&amp;</span><span class="ident">R</span>) <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>,
+    <span class="ident">R</span>: <span class="ident">Clone</span> <span class="op">+</span> <span class="ident">PartialEq</span> <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>,
+    <span class="ident">N</span>: <span class="ident">Display</span> <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>,
+{
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">first</span> <span class="op">=</span> <span class="prelude-val">None</span>;
+    <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">init</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">init</span>);
+    <span class="kw">let</span> <span class="ident">on_cfg</span> <span class="op">=</span> <span class="kw">move</span> <span class="op">|</span><span class="ident">_o</span>: <span class="kw-2">&amp;</span><span class="ident">Ext</span>::<span class="ident">Opts</span>, <span class="ident">c</span>: <span class="kw-2">&amp;</span><span class="ident">Arc</span><span class="op">&lt;</span><span class="ident">Ext</span>::<span class="ident">Config</span><span class="op">&gt;</span><span class="op">|</span> {
+        <span class="kw">let</span> <span class="ident">extracted</span> <span class="op">=</span> <span class="ident">extractor</span>(<span class="kw-2">&amp;</span><span class="ident">c</span>);
+        <span class="kw">if</span> <span class="ident">first</span>.<span class="ident">is_none</span>() {
+            <span class="ident">first</span> <span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">extracted</span>.<span class="ident">clone</span>());
+            (<span class="ident">init</span>.<span class="ident">take</span>().<span class="ident">expect</span>(<span class="string">&quot;Init called multiple times&quot;</span>))(<span class="ident">extracted</span>);
+        } <span class="kw">else</span> <span class="kw">if</span> <span class="ident">first</span>.<span class="ident">as_ref</span>() <span class="op">!</span><span class="op">=</span> <span class="prelude-val">Some</span>(<span class="ident">extracted</span>) {
+            <span class="macro">warn</span><span class="macro">!</span>(<span class="string">&quot;Configuration {} can&#39;t be changed at runtime&quot;</span>, <span class="ident">name</span>);
+        }
+    };
+    <span class="op">|</span><span class="ident">ext</span>: <span class="ident">Ext</span><span class="op">|</span> <span class="ident">ext</span>.<span class="ident">on_config</span>(<span class="ident">on_cfg</span>)
+}
+
+<span class="doccomment">/// An extension to warn about changes to configuration that can&#39;t be updated at runtime.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// This is similar to [`immutable_cfg_init`] except that there&#39;s no callback called at the first</span>
+<span class="doccomment">/// load.</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// # Examples</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// ```</span>
+<span class="doccomment">/// use serde::Deserialize;</span>
+<span class="doccomment">/// use spirit::{Empty, Spirit};</span>
+<span class="doccomment">/// use spirit::prelude::*;</span>
+<span class="doccomment">/// use spirit::extension;</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// #[derive(Clone, Debug, Default, Deserialize)]</span>
+<span class="doccomment">/// struct Cfg {</span>
+<span class="doccomment">///     #[serde(default)]</span>
+<span class="doccomment">///     msg: String,</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// impl Cfg {</span>
+<span class="doccomment">///     fn msg(&amp;self) -&gt; &amp;String {</span>
+<span class="doccomment">///         &amp;self.msg</span>
+<span class="doccomment">///     }</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">///</span>
+<span class="doccomment">/// fn main() {</span>
+<span class="doccomment">///     Spirit::&lt;Empty, Cfg&gt;::new()</span>
+<span class="doccomment">///         // This prints a warning if the message is ever changed during runtime ‒ we can&#39;t take</span>
+<span class="doccomment">///         // it back and change it after it got printed in the body.</span>
+<span class="doccomment">///         .with(extension::immutable_cfg(Cfg::msg, &quot;message&quot;))</span>
+<span class="doccomment">///         .run(|spirit| {</span>
+<span class="doccomment">///             println!(&quot;{}&quot;, spirit.config().msg);</span>
+<span class="doccomment">///             Ok(())</span>
+<span class="doccomment">///         });</span>
+<span class="doccomment">/// }</span>
+<span class="doccomment">/// ```</span>
+<span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">immutable_cfg</span><span class="op">&lt;</span><span class="ident">Ext</span>, <span class="ident">R</span>, <span class="ident">E</span>, <span class="ident">N</span><span class="op">&gt;</span>(<span class="ident">extractor</span>: <span class="ident">E</span>, <span class="ident">name</span>: <span class="ident">N</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="kw">impl</span> <span class="ident">Extension</span><span class="op">&lt;</span><span class="ident">Ext</span><span class="op">&gt;</span>
+<span class="kw">where</span>
+    <span class="ident">Ext</span>: <span class="ident">Extensible</span>,
+    <span class="ident">E</span>: <span class="kw">for</span><span class="op">&lt;</span><span class="lifetime">&#39;a</span><span class="op">&gt;</span> <span class="ident">Fn</span>(<span class="kw-2">&amp;</span><span class="lifetime">&#39;a</span> <span class="ident">Ext</span>::<span class="ident">Config</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="kw-2">&amp;</span><span class="ident">R</span> <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>,
+    <span class="ident">R</span>: <span class="ident">Clone</span> <span class="op">+</span> <span class="ident">PartialEq</span> <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>,
+    <span class="ident">N</span>: <span class="ident">Display</span> <span class="op">+</span> <span class="ident">Send</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>,
+{
+    <span class="ident">immutable_cfg_init</span>(<span class="ident">extractor</span>, <span class="op">|</span><span class="kw">_</span><span class="op">|</span> (), <span class="ident">name</span>)
+}
+</pre></div>
+</section><section id="search" class="content hidden"></section><section class="footer"></section><script>window.rootPath = "../../";window.currentCrate = "spirit";</script><script src="../../main.js"></script><script src="../../source-script.js"></script><script src="../../source-files.js"></script><script defer src="../../search-index.js"></script></body></html>

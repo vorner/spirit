@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["ErrorKind",""]],"struct":[["PrivDrop","`PrivDrop` structure"],["PrivDropError",""]]});

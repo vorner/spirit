@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["spirit_tokio"] = [{"text":"impl&lt;A, B&gt; AsyncBufRead for Either&lt;A, B&gt; <span class=\"where fmt-newline\">where<br>&nbsp;&nbsp;&nbsp;&nbsp;A: AsyncBufRead + Unpin,<br>&nbsp;&nbsp;&nbsp;&nbsp;B: AsyncBufRead + Unpin,&nbsp;</span>","synthetic":false,"types":[]},{"text":"impl&lt;C:&nbsp;AsyncBufRead + Unpin&gt; AsyncBufRead for Tracked&lt;C&gt;","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

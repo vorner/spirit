@@ -1,0 +1,164 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source to the Rust file `/home/runner/.cargo/registry/src/github.com-1ecc6299db9ec823/fern-0.6.0/src/meta.rs`."><meta name="keywords" content="rust, rustlang, rust-lang"><title>meta.rs.html -- source</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../../ayu.css" disabled ><script src="../../storage.js"></script><noscript><link rel="stylesheet" href="../../noscript.css"></noscript><link rel="icon" type="image/svg+xml" href="../../favicon.svg">
+<link rel="alternate icon" type="image/png" href="../../favicon-16x16.png">
+<link rel="alternate icon" type="image/png" href="../../favicon-32x32.png"><style type="text/css">#crate-search{background-image:url("../../down-arrow.svg");}</style></head><body class="rustdoc source"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../../fern/index.html'><div class='logo-container rust-logo'><img src='../../rust-logo.png' alt='logo'></div></a></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><span class="help-button">?</span>
+                <a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><pre class="line-numbers"><span id="1"> 1</span>
+<span id="2"> 2</span>
+<span id="3"> 3</span>
+<span id="4"> 4</span>
+<span id="5"> 5</span>
+<span id="6"> 6</span>
+<span id="7"> 7</span>
+<span id="8"> 8</span>
+<span id="9"> 9</span>
+<span id="10">10</span>
+<span id="11">11</span>
+<span id="12">12</span>
+<span id="13">13</span>
+<span id="14">14</span>
+<span id="15">15</span>
+<span id="16">16</span>
+<span id="17">17</span>
+<span id="18">18</span>
+<span id="19">19</span>
+<span id="20">20</span>
+<span id="21">21</span>
+<span id="22">22</span>
+<span id="23">23</span>
+<span id="24">24</span>
+<span id="25">25</span>
+<span id="26">26</span>
+<span id="27">27</span>
+<span id="28">28</span>
+<span id="29">29</span>
+<span id="30">30</span>
+<span id="31">31</span>
+<span id="32">32</span>
+<span id="33">33</span>
+<span id="34">34</span>
+<span id="35">35</span>
+<span id="36">36</span>
+<span id="37">37</span>
+<span id="38">38</span>
+<span id="39">39</span>
+<span id="40">40</span>
+<span id="41">41</span>
+<span id="42">42</span>
+<span id="43">43</span>
+<span id="44">44</span>
+<span id="45">45</span>
+<span id="46">46</span>
+<span id="47">47</span>
+<span id="48">48</span>
+<span id="49">49</span>
+<span id="50">50</span>
+<span id="51">51</span>
+<span id="52">52</span>
+<span id="53">53</span>
+<span id="54">54</span>
+<span id="55">55</span>
+<span id="56">56</span>
+<span id="57">57</span>
+<span id="58">58</span>
+<span id="59">59</span>
+<span id="60">60</span>
+<span id="61">61</span>
+<span id="62">62</span>
+<span id="63">63</span>
+<span id="64">64</span>
+<span id="65">65</span>
+<span id="66">66</span>
+<span id="67">67</span>
+<span id="68">68</span>
+<span id="69">69</span>
+<span id="70">70</span>
+<span id="71">71</span>
+<span id="72">72</span>
+<span id="73">73</span>
+<span id="74">74</span>
+<span id="75">75</span>
+<span id="76">76</span>
+<span id="77">77</span>
+<span id="78">78</span>
+<span id="79">79</span>
+</pre><div class="example-wrap"><pre class="rust ">
+<span class="doccomment">/*!
+Fern supports logging most things by default, except for one kind of struct: structs which make log
+calls to the global logger from within their `Display` or `Debug` implementations.
+
+Here&#39;s an example of such a structure:
+
+```
+# use log::debug;
+# use std::fmt;
+#
+struct Thing&lt;&#39;a&gt;(&amp;&#39;a str);
+
+impl&lt;&#39;a&gt; fmt::Display for Thing&lt;&#39;a&gt; {
+    fn fmt(&amp;self, f: &amp;mut fmt::Formatter) -&gt; fmt::Result {
+        debug!(&quot;just displayed a Thing wrapping {}&quot;, self.0);
+        f.write_str(self.0)
+    }
+}
+
+# fn main() {}
+```
+
+This structure, and this structure alone, will cause some problems when logging in fern. There are
+mitigations, but since it&#39;s a fairly niche use case, they are disabled by default.
+
+The problems are, depending on which backend you use:
+
+- stdout/stderr: logging will &#39;stutter&#39;, with the logs output inside the `Display` implementation
+  cutting other log lines down the center
+- file: thread will deadlock, and all future logs will also deadlock
+
+There are two mitigations you can make, both completely fix this error.
+
+The simplest mitigation to this is to enable the `meta-logging-in-format` feature of `fern`. The
+disadvantage is that this means fern makes an additional allocation per log call per affected
+backend. Not a huge cost, but enough to mean it&#39;s disabled by default. To enable this, use the
+following in your `Cargo.toml`:
+
+```toml
+[dependencies]
+# ...
+fern = { version = &quot;0.5&quot;, features = [&quot;meta-logging-in-format&quot;] }
+```
+
+The second mitigation is one you can make inside a formatting closure. This means extra code
+complexity, but it also means you can enable it per-logger: the fix isn&#39;t global. This fix is also
+redundant if you&#39;ve already enable the above feature. To add the second mitigation, replacec
+`format_args!()` with `format!()` as displayed below:
+
+```
+fern::Dispatch::new()
+    # /*
+    ...
+    # */
+    // instead of doing this:
+    .format(move |out, message, record| {
+        out.finish(format_args!(&quot;[{}] {}&quot;, record.level(), message))
+    })
+    // do this:
+    .format(move |out, message, record| {
+        let formatted = format!(&quot;[{}] {}&quot;, record.level(), message);
+
+        out.finish(format_args!(&quot;{}&quot;, formatted))
+    })
+# ;
+```
+
+This second mitigation works by forcing the `Display` implementation to run before any text has
+started to log to the backend. There&#39;s an additional allocation per log, but it no longer deadlocks!
+
+This mitigation also has the advantage of ensuring there&#39;s only one call to `Display::fmt`. If youc
+use `meta-logging-in-format` and have multiple backends, `Display::fmt` will still be called once
+per backend. With this, it will only be called once.
+
+------
+
+If you&#39;ve never experienced this problem, there&#39;s no need to fix it - `Display::fmt` and
+`Debug::fmt` are normally implemented as &quot;pure&quot; functions with no side effects.
+*/</span>
+</pre></div>
+</section><section id="search" class="content hidden"></section><section class="footer"></section><script>window.rootPath = "../../";window.currentCrate = "fern";</script><script src="../../main.js"></script><script src="../../source-script.js"></script><script src="../../source-files.js"></script><script defer src="../../search-index.js"></script></body></html>

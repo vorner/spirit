@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Backends","An intermediate resource produced by [`Config`]."],["Config","The [`Fragment`] to configure [`dipstick`]s backends."],["Monitor","An inner node in a metrics tree."],["MonitorInstaller","The [`Installer`] of backends into the [`Monitor`]."],["Uninstaller","An uninstall handle for backends."]]});

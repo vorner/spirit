@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["Either","The [`Either`] type allows to wrap two similar [`Fragment`]s and let the user choose which one will be used."]],"struct":[["EitherDriver","A [`Driver`] used for [`Either`] [`Fragment`]s."],["EitherInstaller","An [`Installer`] for [`Either`] `Resource`s."]]});

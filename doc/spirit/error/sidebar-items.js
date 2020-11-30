@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["ErrorLogFormat","How to format errors in logs."]],"fn":[["log_error","Log one error on given log level."],["log_errors","A wrapper around a fallible function, logging any returned errors."]],"type":[["AnyError","A wrapper type for any error."]]});

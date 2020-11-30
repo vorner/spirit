@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["OverflowMode","Selection of how to act if the channel to the logger thread is full."]],"struct":[["AsyncLogger","A logger that postpones the logging into a background thread."],["Background","A [`Transformation`] to move loggers into background threads."],["FlushGuard","This, when dropped, flushes the logger."]]});

@@ -1,0 +1,42 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="API documentation for the Rust `log_reroute` crate."><meta name="keywords" content="rust, rustlang, rust-lang, log_reroute"><title>log_reroute - Rust</title><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../ayu.css" disabled ><script src="../storage.js"></script><noscript><link rel="stylesheet" href="../noscript.css"></noscript><link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<link rel="alternate icon" type="image/png" href="../favicon-16x16.png">
+<link rel="alternate icon" type="image/png" href="../favicon-32x32.png"><style type="text/css">#crate-search{background-image:url("../down-arrow.svg");}</style></head><body class="rustdoc mod"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../log_reroute/index.html'><div class='logo-container rust-logo'><img src='../rust-logo.png' alt='logo'></div></a><p class='location'>Crate log_reroute</p><div class='block version'><p>Version 0.1.6</p></div><div class="sidebar-elems"><a id='all-types' href='all.html'><p>See all log_reroute's items</p></a><div class="block items"><ul><li><a href="#structs">Structs</a></li><li><a href="#statics">Statics</a></li><li><a href="#functions">Functions</a></li></ul></div><p class='location'></p><script>window.sidebarCurrent = {name: 'log_reroute', ty: 'mod', relpath: '../'};</script></div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../theme.js"></script><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><span class="help-button">?</span>
+                <a id="settings-menu" href="../settings.html"><img src="../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><h1 class='fqn'><span class='out-of-band'><span id='render-detail'><a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class='inner'>&#x2212;</span>]</a></span><a class='srclink' href='../src/log_reroute/lib.rs.html#1-175' title='goto source code'>[src]</a></span><span class='in-band'>Crate <a class="mod" href=''>log_reroute</a></span></h1><div class='docblock'><p>Crate to reroute logging messages at runtime.</p>
+<p>The <a href="https://crates.io/crates/log"><code>log</code></a> logging facade allows to set only a single
+destination during the whole lifetime of program. If you want to change the logging destination
+multiple times, you can use <a href="struct.Reroute.html"><code>Reroute</code></a> (either directly, or through the
+<a href="fn.init.html"><code>init</code></a> and <a href="fn.reroute.html"><code>reroute</code></a> functions).</p>
+<p>This may be useful if you want to log to <code>stderr</code> before you know where the main logs will go.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered">
+<span class="kw">use</span> <span class="ident">fern</span>::<span class="ident">Dispatch</span>;
+<span class="kw">use</span> <span class="ident">log</span>::{<span class="ident">info</span>, <span class="ident">LevelFilter</span>};
+
+<span class="kw">fn</span> <span class="ident">main</span>() {
+    <span class="ident">log</span>::<span class="ident">set_max_level</span>(<span class="ident">LevelFilter</span>::<span class="ident">Off</span>);
+    <span class="macro">info</span><span class="macro">!</span>(<span class="string">&quot;This log message goes nowhere&quot;</span>);
+    <span class="ident">log_reroute</span>::<span class="ident">init</span>().<span class="ident">unwrap</span>();
+    <span class="macro">info</span><span class="macro">!</span>(<span class="string">&quot;Still goes nowhere&quot;</span>);
+    <span class="comment">// Log to stderr</span>
+    <span class="kw">let</span> <span class="ident">early_logger</span> <span class="op">=</span> <span class="ident">Dispatch</span>::<span class="ident">new</span>().<span class="ident">chain</span>(<span class="ident">std</span>::<span class="ident">io</span>::<span class="ident">stderr</span>()).<span class="ident">into_log</span>().<span class="number">1</span>;
+    <span class="ident">log_reroute</span>::<span class="ident">reroute_boxed</span>(<span class="ident">early_logger</span>);
+    <span class="macro">info</span><span class="macro">!</span>(<span class="string">&quot;This one goes to stderr&quot;</span>);
+    <span class="comment">// Load file name from config and log to that file</span>
+    <span class="kw">let</span> <span class="ident">file</span> <span class="op">=</span> <span class="ident">tempfile</span>::<span class="ident">tempfile</span>().<span class="ident">unwrap</span>();
+    <span class="kw">let</span> <span class="ident">logger</span> <span class="op">=</span> <span class="ident">Dispatch</span>::<span class="ident">new</span>().<span class="ident">chain</span>(<span class="ident">file</span>).<span class="ident">into_log</span>().<span class="number">1</span>;
+    <span class="ident">log_reroute</span>::<span class="ident">reroute_boxed</span>(<span class="ident">logger</span>);
+    <span class="macro">info</span><span class="macro">!</span>(<span class="string">&quot;And this one to the file&quot;</span>);
+    <span class="comment">// Stop logging</span>
+    <span class="ident">log_reroute</span>::<span class="ident">reroute</span>(<span class="ident">log_reroute</span>::<span class="ident">Dummy</span>);
+}</pre></div>
+</div><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
+<table><tr class='module-item'><td><a class="struct" href="struct.Dummy.html" title='log_reroute::Dummy struct'>Dummy</a></td><td class='docblock-short'><p>A logger that doesn't log.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Reroute.html" title='log_reroute::Reroute struct'>Reroute</a></td><td class='docblock-short'><p>A logging proxy.</p>
+</td></tr></table><h2 id='statics' class='section-header'><a href="#statics">Statics</a></h2>
+<table><tr class='module-item'><td><a class="static" href="static.REROUTE.html" title='log_reroute::REROUTE static'>REROUTE</a></td><td class='docblock-short'><p>A global <a href="struct.Reroute.html"><code>Reroute</code></a> object.</p>
+</td></tr></table><h2 id='functions' class='section-header'><a href="#functions">Functions</a></h2>
+<table><tr class='module-item'><td><a class="fn" href="fn.init.html" title='log_reroute::init fn'>init</a></td><td class='docblock-short'><p>Installs the global <a href="struct.Reroute.html"><code>Reroute</code></a> instance into the
+<a href="https://crates.io/crates/log"><code>log</code></a> facade.</p>
+</td></tr><tr class='module-item'><td><a class="fn" href="fn.reroute.html" title='log_reroute::reroute fn'>reroute</a></td><td class='docblock-short'><p>Changes the slave of the global <a href="struct.Reroute.html"><code>Reroute</code></a> instance.</p>
+</td></tr><tr class='module-item'><td><a class="fn" href="fn.reroute_boxed.html" title='log_reroute::reroute_boxed fn'>reroute_boxed</a></td><td class='docblock-short'><p>Changes the slave of the global <a href="struct.Reroute.html"><code>Reroute</code></a> instance.</p>
+</td></tr></table></section><section id="search" class="content hidden"></section><section class="footer"></section><script>window.rootPath = "../";window.currentCrate = "log_reroute";</script><script src="../main.js"></script><script defer src="../search-index.js"></script></body></html>

@@ -1,0 +1,4 @@
+(function() {var implementors = {};
+implementors["spirit"] = [];
+implementors["spirit_tokio"] = [{"text":"impl&lt;A, B&gt; Driver&lt;Either&lt;A, B&gt;&gt; for EitherDriver&lt;A, B&gt; <span class=\"where fmt-newline\">where<br>&nbsp;&nbsp;&nbsp;&nbsp;A: Fragment,<br>&nbsp;&nbsp;&nbsp;&nbsp;A::Driver: Driver&lt;A, SubFragment = A&gt; + Default,<br>&nbsp;&nbsp;&nbsp;&nbsp;B: Fragment,<br>&nbsp;&nbsp;&nbsp;&nbsp;B::Driver: Driver&lt;B, SubFragment = B&gt; + Default,&nbsp;</span>","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

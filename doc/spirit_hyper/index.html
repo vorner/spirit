@@ -1,0 +1,69 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="API documentation for the Rust `spirit_hyper` crate."><meta name="keywords" content="rust, rustlang, rust-lang, spirit_hyper"><title>spirit_hyper - Rust</title><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../ayu.css" disabled ><script src="../storage.js"></script><noscript><link rel="stylesheet" href="../noscript.css"></noscript><link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<link rel="alternate icon" type="image/png" href="../favicon-16x16.png">
+<link rel="alternate icon" type="image/png" href="../favicon-32x32.png"><style type="text/css">#crate-search{background-image:url("../down-arrow.svg");}</style></head><body class="rustdoc mod"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../spirit_hyper/index.html'><div class='logo-container rust-logo'><img src='../rust-logo.png' alt='logo'></div></a><p class='location'>Crate spirit_hyper</p><div class='block version'><p>Version 0.7.1</p></div><div class="sidebar-elems"><a id='all-types' href='all.html'><p>See all spirit_hyper's items</p></a><div class="block items"><ul><li><a href="#structs">Structs</a></li><li><a href="#enums">Enums</a></li><li><a href="#traits">Traits</a></li><li><a href="#functions">Functions</a></li><li><a href="#types">Type Definitions</a></li></ul></div><p class='location'></p><script>window.sidebarCurrent = {name: 'spirit_hyper', ty: 'mod', relpath: '../'};</script></div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../theme.js"></script><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><span class="help-button">?</span>
+                <a id="settings-menu" href="../settings.html"><img src="../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><h1 class='fqn'><span class='out-of-band'><span id='render-detail'><a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class='inner'>&#x2212;</span>]</a></span><a class='srclink' href='../src/spirit_hyper/lib.rs.html#1-652' title='goto source code'>[src]</a></span><span class='in-band'>Crate <a class="mod" href=''>spirit_hyper</a></span></h1><div class='docblock'><p><a href="../spirit/index.html" title="spirit">Spirit</a> extension for Hyper servers.</p>
+<p>This allows having Hyper servers auto-spawned from configuration. It is possible to put them on
+top of arbitrary stream-style IO objects (TcpStream, UdsStream, these wrapped in SSL...).</p>
+<h1 id="tokio-runtime" class="section-header"><a href="#tokio-runtime">Tokio runtime</a></h1>
+<p>This uses the <a href="../spirit_tokio/index.html" title="spirit_tokio"><code>spirit_tokio</code></a> crate under the hood. Similar drawback with initializing a
+runtime applies here too (see the <a href="../spirit_tokio/index.html" title="spirit_tokio"><code>spirit_tokio</code></a> docs for details).</p>
+<h1 id="examples" class="section-header"><a href="#examples">Examples</a></h1>
+<div class="example-wrap"><pre class="rust rust-example-rendered">
+<span class="kw">use</span> <span class="ident">hyper</span>::{<span class="ident">Body</span>, <span class="ident">Request</span>, <span class="ident">Response</span>};
+<span class="kw">use</span> <span class="ident">serde</span>::<span class="ident">Deserialize</span>;
+<span class="kw">use</span> <span class="ident">spirit</span>::{<span class="ident">Empty</span>, <span class="ident">Pipeline</span>, <span class="ident">Spirit</span>};
+<span class="kw">use</span> <span class="ident">spirit</span>::<span class="ident">prelude</span>::<span class="kw-2">*</span>;
+<span class="kw">use</span> <span class="ident">spirit_hyper</span>::{<span class="ident">server_from_handler</span>, <span class="ident">BuildServer</span>, <span class="ident">HttpServer</span>};
+
+<span class="kw">const</span> <span class="ident">DEFAULT_CONFIG</span>: <span class="kw-2">&amp;</span><span class="ident">str</span> <span class="op">=</span> <span class="string">r#&quot;
+[server]
+port = 2234
+&quot;#</span>;
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Default</span>, <span class="ident">Deserialize</span>)]</span>
+<span class="kw">struct</span> <span class="ident">Config</span> {
+    <span class="ident">server</span>: <span class="ident">HttpServer</span>,
+}
+
+<span class="kw">impl</span> <span class="ident">Config</span> {
+    <span class="kw">fn</span> <span class="ident">server</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">HttpServer</span> {
+        <span class="self">self</span>.<span class="ident">server</span>.<span class="ident">clone</span>()
+    }
+}
+
+<span class="ident">async</span> <span class="kw">fn</span> <span class="ident">request</span>(<span class="ident">_req</span>: <span class="ident">Request</span><span class="op">&lt;</span><span class="ident">Body</span><span class="op">&gt;</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">Response</span><span class="op">&lt;</span><span class="ident">Body</span><span class="op">&gt;</span> {
+    <span class="ident">Response</span>::<span class="ident">new</span>(<span class="ident">Body</span>::<span class="ident">from</span>(<span class="string">&quot;Hello world\n&quot;</span>))
+}
+
+<span class="kw">fn</span> <span class="ident">main</span>() {
+    <span class="ident">Spirit</span>::<span class="op">&lt;</span><span class="ident">Empty</span>, <span class="ident">Config</span><span class="op">&gt;</span>::<span class="ident">new</span>()
+        .<span class="ident">config_defaults</span>(<span class="ident">DEFAULT_CONFIG</span>)
+        .<span class="ident">with</span>(
+            <span class="comment">// Let&#39;s build a http server as configured by the user</span>
+            <span class="ident">Pipeline</span>::<span class="ident">new</span>(<span class="string">&quot;listen&quot;</span>)
+                .<span class="ident">extract_cfg</span>(<span class="ident">Config</span>::<span class="ident">server</span>)
+                <span class="comment">// This is where we teach the server what it serves. It is the usual stuff from</span>
+                <span class="comment">// hyper.</span>
+                .<span class="ident">transform</span>(<span class="ident">BuildServer</span>(<span class="ident">server_from_handler</span>(<span class="ident">request</span>)))
+        )
+        .<span class="ident">run</span>(<span class="op">|</span><span class="ident">spirit</span><span class="op">|</span> {
+            <span class="prelude-val">Ok</span>(())
+        });
+}</pre></div>
+<p>Further examples (with more flexible handling) are in the
+<a href="https://github.com/vorner/spirit/tree/master/spirit-hyper/examples">git repository</a>.</p>
+</div><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
+<table><tr class='module-item'><td><a class="struct" href="struct.Acceptor.html" title='spirit_hyper::Acceptor struct'>Acceptor</a></td><td class='docblock-short'><p>A plumbing wrapper type.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Activate.html" title='spirit_hyper::Activate struct'>Activate</a></td><td class='docblock-short'><p>A plumbing helper type.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.BuildServer.html" title='spirit_hyper::BuildServer struct'>BuildServer</a></td><td class='docblock-short'><p>A <a href="../spirit/fragment/trait.Transformation.html" title="Transformation"><code>Transformation</code></a> to turn a <a href="../hyper/server/struct.Builder.html" title="Builder"><code>Builder</code></a> into a <a href="../hyper/server/struct.Server.html" title="Server"><code>Server</code></a>.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.HyperCfg.html" title='spirit_hyper::HyperCfg struct'>HyperCfg</a></td><td class='docblock-short'><p>Configuration of Hyper HTTP servers.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.HyperServer.html" title='spirit_hyper::HyperServer struct'>HyperServer</a></td><td class='docblock-short'><p>A <a href="../spirit/fragment/trait.Fragment.html" title="Fragment"><code>Fragment</code></a> for hyper servers.</p>
+</td></tr></table><h2 id='enums' class='section-header'><a href="#enums">Enums</a></h2>
+<table><tr class='module-item'><td><a class="enum" href="enum.HttpMode.html" title='spirit_hyper::HttpMode enum'>HttpMode</a></td><td class='docblock-short'><p>Configuration of the selected HTTP protocol version.</p>
+</td></tr></table><h2 id='traits' class='section-header'><a href="#traits">Traits</a></h2>
+<table><tr class='module-item'><td><a class="trait" href="trait.ServerBuilder.html" title='spirit_hyper::ServerBuilder trait'>ServerBuilder</a></td><td class='docblock-short'><p>A trait abstracting the creation of servers.</p>
+</td></tr></table><h2 id='functions' class='section-header'><a href="#functions">Functions</a></h2>
+<table><tr class='module-item'><td><a class="fn" href="fn.server_from_handler.html" title='spirit_hyper::server_from_handler fn'>server_from_handler</a></td><td class='docblock-short'><p>A simplified version of creating the <a href="../spirit_hyper/trait.ServerBuilder.html" title="ServerBuilder"><code>ServerBuilder</code></a>.</p>
+</td></tr></table><h2 id='types' class='section-header'><a href="#types">Type Definitions</a></h2>
+<table><tr class='module-item'><td><a class="type" href="type.HttpServer.html" title='spirit_hyper::HttpServer type'>HttpServer</a></td><td class='docblock-short'><p>A type alias for http (plain TCP) hyper server.</p>
+</td></tr></table></section><section id="search" class="content hidden"></section><section class="footer"></section><script>window.rootPath = "../";window.currentCrate = "spirit_hyper";</script><script src="../main.js"></script><script defer src="../search-index.js"></script></body></html>

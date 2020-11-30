@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["dipstick"] = [{"text":"impl Deref for Counter","synthetic":false,"types":[]},{"text":"impl Deref for Marker","synthetic":false,"types":[]},{"text":"impl Deref for Timer","synthetic":false,"types":[]},{"text":"impl Deref for Gauge","synthetic":false,"types":[]},{"text":"impl Deref for Level","synthetic":false,"types":[]},{"text":"impl Deref for NameParts","synthetic":false,"types":[]},{"text":"impl Deref for MetricName","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

@@ -1,0 +1,42 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="API documentation for the Rust `strategy` mod in crate `arc_swap`."><meta name="keywords" content="rust, rustlang, rust-lang, strategy"><title>arc_swap::strategy - Rust</title><link rel="stylesheet" type="text/css" href="../../normalize.css"><link rel="stylesheet" type="text/css" href="../../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../../ayu.css" disabled ><script src="../../storage.js"></script><noscript><link rel="stylesheet" href="../../noscript.css"></noscript><link rel="icon" type="image/svg+xml" href="../../favicon.svg">
+<link rel="alternate icon" type="image/png" href="../../favicon-16x16.png">
+<link rel="alternate icon" type="image/png" href="../../favicon-32x32.png"><style type="text/css">#crate-search{background-image:url("../../down-arrow.svg");}</style></head><body class="rustdoc mod"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../../arc_swap/index.html'><div class='logo-container rust-logo'><img src='../../rust-logo.png' alt='logo'></div></a><p class='location'>Module strategy</p><div class="sidebar-elems"><div class="block items"><ul><li><a href="#traits">Traits</a></li><li><a href="#types">Type Definitions</a></li></ul></div><p class='location'><a href='../index.html'>arc_swap</a></p><script>window.sidebarCurrent = {name: 'strategy', ty: 'mod', relpath: '../'};</script><script defer src="../sidebar-items.js"></script></div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../../theme.js"></script><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><span class="help-button">?</span>
+                <a id="settings-menu" href="../../settings.html"><img src="../../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><h1 class='fqn'><span class='out-of-band'><span id='render-detail'><a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class='inner'>&#x2212;</span>]</a></span><a class='srclink' href='../../src/arc_swap/strategy/mod.rs.html#1-153' title='goto source code'>[src]</a></span><span class='in-band'>Module <a href='../index.html'>arc_swap</a>::<wbr><a class="mod" href=''>strategy</a></span></h1><div class='docblock'><p>Strategies for protecting the reference counts.</p>
+<p>There are multiple algorithms how to protect the reference counts while they're being updated
+by multiple threads, each with its own set of pros and cons. The <a href="../../arc_swap/strategy/type.DefaultStrategy.html" title="DefaultStrategy"><code>DefaultStrategy</code></a> is used by
+default and should generally be the least surprising option. It is possible to pick a different
+strategy.</p>
+<p>For now, the traits in here are sealed and don't expose any methods to the users of the crate.
+This is because we are not confident about the details just yet. In the future it may be
+possible for downstream users to implement their own, but for now it is only so users can
+choose one of the provided.</p>
+<p>It is expected that future strategies would come with different capabilities and limitations.
+In particular, some that are not &quot;tight&quot; in the cleanup (delay the cleanup) or not support the
+compare and swap operations.</p>
+<p>Currently, we have these strategies:</p>
+<ul>
+<li><a href="../../arc_swap/strategy/type.DefaultStrategy.html" title="DefaultStrategy"><code>DefaultStrategy</code></a> (this one is used implicitly)</li>
+<li><a href="../../arc_swap/strategy/type.IndependentStrategy.html" title="IndependentStrategy"><code>IndependentStrategy</code></a></li>
+<li><a href="https://doc.rust-lang.org/nightly/std/sync/rwlock/struct.RwLock.html" title="std::sync::RwLock"><code>RwLock&lt;()&gt;</code></a></li>
+</ul>
+<h1 id="testing" class="section-header"><a href="#testing">Testing</a></h1>
+<p>Formally, the <a href="https://doc.rust-lang.org/nightly/std/sync/rwlock/struct.RwLock.html" title="std::sync::RwLock"><code>RwLock&lt;()&gt;</code></a> may be used as a strategy too. It doesn't have
+the performance characteristics or lock-free guarantees of the others, but it is much simpler
+and contains less <code>unsafe</code> code (actually, less code altogether). Therefore, it can be used for
+testing purposes and cross-checking.</p>
+<p>Note that generally, using <a href="https://doc.rust-lang.org/nightly/std/sync/rwlock/struct.RwLock.html" title="std::sync::RwLock"><code>RwLock&lt;Arc&lt;T&gt;&gt;</code></a> is likely to be better
+performance wise. So if the goal is to not use third-party unsafe code, only the one in
+<a href="https://doc.rust-lang.org/nightly/std/index.html" title="std"><code>std</code></a>, that is the better option. This is provided mostly for investigation and testing of
+<a href="../../arc_swap/type.ArcSwap.html"><code>ArcSwap</code></a> itself or algorithms written to use <a href="../../arc_swap/type.ArcSwap.html"><code>ArcSwap</code></a>.</p>
+<p><em>This is not meant to be used in production code</em>.</p>
+<h1 id="experimental-strategies" class="section-header"><a href="#experimental-strategies">Experimental strategies</a></h1>
+<p>There are some more strategies inside the [<code>experimental</code>] module. Note that these <strong>are not</strong>
+subject to the API stability guarantees and can be changed, renamed or removed at any time.</p>
+<p>They are available only with the <code>experimental-strategies</code> feature.</p>
+</div><h2 id='traits' class='section-header'><a href="#traits">Traits</a></h2>
+<table><tr class='module-item'><td><a class="trait" href="trait.CaS.html" title='arc_swap::strategy::CaS trait'>CaS</a></td><td class='docblock-short'><p>An extension of the <a href="../../arc_swap/strategy/trait.Strategy.html" title="Strategy"><code>Strategy</code></a>, allowing for compare and swap operation.</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.Strategy.html" title='arc_swap::strategy::Strategy trait'>Strategy</a></td><td class='docblock-short'><p>A strategy for protecting the reference counted pointer <code>T</code>.</p>
+</td></tr></table><h2 id='types' class='section-header'><a href="#types">Type Definitions</a></h2>
+<table><tr class='module-item'><td><a class="type" href="type.DefaultStrategy.html" title='arc_swap::strategy::DefaultStrategy type'>DefaultStrategy</a></td><td class='docblock-short'><p>The default strategy.</p>
+</td></tr><tr class='module-item'><td><a class="type" href="type.IndependentStrategy.html" title='arc_swap::strategy::IndependentStrategy type'>IndependentStrategy</a></td><td class='docblock-short'><p>Strategy for isolating instances.</p>
+</td></tr></table></section><section id="search" class="content hidden"></section><section class="footer"></section><script>window.rootPath = "../../";window.currentCrate = "arc_swap";</script><script src="../../main.js"></script><script defer src="../../search-index.js"></script></body></html>

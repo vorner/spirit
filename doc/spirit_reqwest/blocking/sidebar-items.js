@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["AtomicClient","A storage for one `Client` that can be atomically exchanged under the hood."],["IntoClient","A transformation to turn a [`ClientBuilder`] into a [`Client`]."]]});

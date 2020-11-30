@@ -1,0 +1,7 @@
+(function() {var implementors = {};
+implementors["nix"] = [{"text":"impl Neg for TimeSpec","synthetic":false,"types":[]},{"text":"impl Neg for TimeVal","synthetic":false,"types":[]}];
+implementors["num_complex"] = [{"text":"impl&lt;T:&nbsp;Clone + Num + Neg&lt;Output = T&gt;&gt; Neg for Complex&lt;T&gt;","synthetic":false,"types":[]},{"text":"impl&lt;'a, T:&nbsp;Clone + Num + Neg&lt;Output = T&gt;&gt; Neg for &amp;'a Complex&lt;T&gt;","synthetic":false,"types":[]}];
+implementors["num_rational"] = [{"text":"impl&lt;T&gt; Neg for Ratio&lt;T&gt; <span class=\"where fmt-newline\">where<br>&nbsp;&nbsp;&nbsp;&nbsp;T: Clone + Integer + Neg&lt;Output = T&gt;,&nbsp;</span>","synthetic":false,"types":[]},{"text":"impl&lt;'a, T&gt; Neg for &amp;'a Ratio&lt;T&gt; <span class=\"where fmt-newline\">where<br>&nbsp;&nbsp;&nbsp;&nbsp;T: Clone + Integer + Neg&lt;Output = T&gt;,&nbsp;</span>","synthetic":false,"types":[]}];
+implementors["openssl"] = [{"text":"impl&lt;'a&gt; Neg for &amp;'a BigNumRef","synthetic":false,"types":[]},{"text":"impl&lt;'a&gt; Neg for &amp;'a BigNum","synthetic":false,"types":[]},{"text":"impl Neg for BigNum","synthetic":false,"types":[]}];
+implementors["time"] = [{"text":"impl Neg for Duration","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["brotli"] = [{"text":"impl&lt;ErrType, W:&nbsp;CustomWrite&lt;ErrType&gt;, BufferType:&nbsp;SliceWrapperMut&lt;u8&gt;, Alloc:&nbsp;BrotliAlloc&gt; CustomWrite&lt;ErrType&gt; for CompressorWriterCustomIo&lt;ErrType, W, BufferType, Alloc&gt;","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

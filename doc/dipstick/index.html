@@ -1,0 +1,117 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="API documentation for the Rust `dipstick` crate."><meta name="keywords" content="rust, rustlang, rust-lang, dipstick"><title>dipstick - Rust</title><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../ayu.css" disabled ><script src="../storage.js"></script><noscript><link rel="stylesheet" href="../noscript.css"></noscript><link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<link rel="alternate icon" type="image/png" href="../favicon-16x16.png">
+<link rel="alternate icon" type="image/png" href="../favicon-32x32.png"><style type="text/css">#crate-search{background-image:url("../down-arrow.svg");}</style></head><body class="rustdoc mod"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../dipstick/index.html'><div class='logo-container rust-logo'><img src='../rust-logo.png' alt='logo'></div></a><p class='location'>Crate dipstick</p><div class='block version'><p>Version 0.9.0</p></div><div class="sidebar-elems"><a id='all-types' href='all.html'><p>See all dipstick's items</p></a><div class="block items"><ul><li><a href="#macros">Macros</a></li><li><a href="#structs">Structs</a></li><li><a href="#enums">Enums</a></li><li><a href="#traits">Traits</a></li><li><a href="#functions">Functions</a></li><li><a href="#types">Type Definitions</a></li></ul></div><p class='location'></p><script>window.sidebarCurrent = {name: 'dipstick', ty: 'mod', relpath: '../'};</script></div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../theme.js"></script><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><span class="help-button">?</span>
+                <a id="settings-menu" href="../settings.html"><img src="../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><h1 class='fqn'><span class='out-of-band'><span id='render-detail'><a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class='inner'>&#x2212;</span>]</a></span><a class='srclink' href='../src/dipstick/lib.rs.html#1-138' title='goto source code'>[src]</a></span><span class='in-band'>Crate <a class="mod" href=''>dipstick</a></span></h1><div class='docblock'><p>A quick, modular metrics toolkit for Rust applications.</p>
+</div><h2 id='macros' class='section-header'><a href="#macros">Macros</a></h2>
+<table><tr class='module-item'><td><a class="macro" href="macro.labels.html" title='dipstick::labels macro'>labels</a></td><td class='docblock-short'><p>Create <strong>Labels</strong> from a list of key-value pairs
+Adapted from the hashmap!() macro in the <em>maplit</em> crate.</p>
+</td></tr><tr class='module-item'><td><a class="macro" href="macro.lazy_static.html" title='dipstick::lazy_static macro'>lazy_static</a></td><td class='docblock-short'></td></tr><tr class='module-item'><td><a class="macro" href="macro.metrics.html" title='dipstick::metrics macro'>metrics</a></td><td class='docblock-short'><p>Metrics can be used from anywhere (public), does not need to declare metrics in this block.</p>
+</td></tr><tr class='module-item'><td><a class="macro" href="macro.time.html" title='dipstick::time macro'>time</a></td><td class='docblock-short'><p>A convenience macro to wrap a block or an expression with a start / stop timer.
+Elapsed time is sent to the supplied statsd client after the computation has been performed.
+Expression result (if any) is transparently returned.</p>
+</td></tr></table><h2 id='structs' class='section-header'><a href="#structs">Structs</a></h2>
+<table><tr class='module-item'><td><a class="struct" href="struct.AppLabel.html" title='dipstick::AppLabel struct'>AppLabel</a></td><td class='docblock-short'><p>Handle metric labels for the whole application (globals).
+App scope labels have the lowest lookup priority and serve as a fallback to other scopes.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.AtomicBucket.html" title='dipstick::AtomicBucket struct'>AtomicBucket</a></td><td class='docblock-short'><p>Central aggregation structure.
+Maintains a list of metrics for enumeration when used as source.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.CancelGuard.html" title='dipstick::CancelGuard struct'>CancelGuard</a></td><td class='docblock-short'><p>A guard canceling the inner handle when dropped.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.CancelHandle.html" title='dipstick::CancelHandle struct'>CancelHandle</a></td><td class='docblock-short'><p>A handle to cancel a scheduled task if required.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Counter.html" title='dipstick::Counter struct'>Counter</a></td><td class='docblock-short'><p>A counter of absolute observed values (non-negative amounts).
+Used to count things that cannot be undone:</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Gauge.html" title='dipstick::Gauge struct'>Gauge</a></td><td class='docblock-short'><p>A gauge that sends values to the metrics backend</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Graphite.html" title='dipstick::Graphite struct'>Graphite</a></td><td class='docblock-short'><p>Graphite Input holds a socket to a graphite server.
+The socket is shared between scopes opened from the Input.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.GraphiteMetric.html" title='dipstick::GraphiteMetric struct'>GraphiteMetric</a></td><td class='docblock-short'><p>Key of a graphite metric.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.GraphiteScope.html" title='dipstick::GraphiteScope struct'>GraphiteScope</a></td><td class='docblock-short'><p>Graphite Input</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.InputMetric.html" title='dipstick::InputMetric struct'>InputMetric</a></td><td class='docblock-short'><p>A metric is actually a function that knows to write a metric value to a metric output.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.InputQueue.html" title='dipstick::InputQueue struct'>InputQueue</a></td><td class='docblock-short'><p>Wrap new scopes with an asynchronous metric write &amp; flush dispatcher.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.InputQueueScope.html" title='dipstick::InputQueueScope struct'>InputQueueScope</a></td><td class='docblock-short'><p>A metric scope wrapper that sends writes &amp; flushes over a Rust sync channel.
+Commands are executed by a background thread.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Labels.html" title='dipstick::Labels struct'>Labels</a></td><td class='docblock-short'><p>Base structure to carry metric labels from the application to the metric backend(s).
+Can carry both one-off labels and exported context labels (if async metrics are enabled).
+Used in applications through the labels!() macro.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Level.html" title='dipstick::Level struct'>Level</a></td><td class='docblock-short'><p>A counter of fluctuating resources accepting positive and negative values.
+Can be used as a stateful <code>Gauge</code> or as a <code>Counter</code> of possibly decreasing amounts.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.LineTemplate.html" title='dipstick::LineTemplate struct'>LineTemplate</a></td><td class='docblock-short'><p>An sequence of print commands, embodying an output strategy for a single metric.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Log.html" title='dipstick::Log struct'>Log</a></td><td class='docblock-short'><p>Buffered metrics log output.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.LogScope.html" title='dipstick::LogScope struct'>LogScope</a></td><td class='docblock-short'><p>A scope for metrics log output.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Marker.html" title='dipstick::Marker struct'>Marker</a></td><td class='docblock-short'><p>A monotonic counter metric.
+Since value is only ever increased by one, no value parameter is provided,
+preventing programming errors.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.MetricName.html" title='dipstick::MetricName struct'>MetricName</a></td><td class='docblock-short'><p>The name of a metric, including the concatenated possible namespaces in which it was defined.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.MultiInput.html" title='dipstick::MultiInput struct'>MultiInput</a></td><td class='docblock-short'><p>Opens multiple scopes at a time from just as many outputs.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.MultiInputScope.html" title='dipstick::MultiInputScope struct'>MultiInputScope</a></td><td class='docblock-short'><p>Dispatch metric values to a list of scopes.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.NameParts.html" title='dipstick::NameParts struct'>NameParts</a></td><td class='docblock-short'><p>A double-ended vec of strings constituting a metric name or a future part thereof.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.ObserveWhen.html" title='dipstick::ObserveWhen struct'>ObserveWhen</a></td><td class='docblock-short'><p>When to observe a recurring task.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.OnFlushCancel.html" title='dipstick::OnFlushCancel struct'>OnFlushCancel</a></td><td class='docblock-short'><p>A handle to cancel a flush observer.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Prometheus.html" title='dipstick::Prometheus struct'>Prometheus</a></td><td class='docblock-short'><p>Prometheus Input holds a socket to a Prometheus server.
+The socket is shared between scopes opened from the Input.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.PrometheusScope.html" title='dipstick::PrometheusScope struct'>PrometheusScope</a></td><td class='docblock-short'><p>Prometheus Input</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Proxy.html" title='dipstick::Proxy struct'>Proxy</a></td><td class='docblock-short'><p>A dynamic proxy for app and lib metrics.
+Decouples metrics definition from backend configuration.
+Allows defining metrics before a concrete type is configured.
+Allows replacing metrics backend on the fly at runtime.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.SimpleFormat.html" title='dipstick::SimpleFormat struct'>SimpleFormat</a></td><td class='docblock-short'><p>A simple metric output format of &quot;MetricName {Value}&quot;</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.StatsMapScope.html" title='dipstick::StatsMapScope struct'>StatsMapScope</a></td><td class='docblock-short'><p>A BTreeMap wrapper to receive metrics or stats values.
+Every received value for a metric replaces the previous one (if any).</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Statsd.html" title='dipstick::Statsd struct'>Statsd</a></td><td class='docblock-short'><p>Statsd Input holds a datagram (UDP) socket to a statsd server.
+The socket is shared between scopes opened from the Input.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.StatsdMetric.html" title='dipstick::StatsdMetric struct'>StatsdMetric</a></td><td class='docblock-short'><p>Key of a statsd metric.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.StatsdScope.html" title='dipstick::StatsdScope struct'>StatsdScope</a></td><td class='docblock-short'><p>Statsd Input</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Stream.html" title='dipstick::Stream struct'>Stream</a></td><td class='docblock-short'><p>Buffered metrics text Input.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.TextScope.html" title='dipstick::TextScope struct'>TextScope</a></td><td class='docblock-short'><p>A scope for text metrics.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.ThreadLabel.html" title='dipstick::ThreadLabel struct'>ThreadLabel</a></td><td class='docblock-short'><p>Handle metric labels for the current thread.
+App scope labels have the lowest lookup priority and serve as a fallback to other scopes.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.TimeHandle.html" title='dipstick::TimeHandle struct'>TimeHandle</a></td><td class='docblock-short'><p>A handle to the start time of a counter.
+Wrapped so it may be changed safely later.</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Timer.html" title='dipstick::Timer struct'>Timer</a></td><td class='docblock-short'><p>A timer that sends values to the metrics backend
+Timers can record time intervals in multiple ways :</p>
+</td></tr><tr class='module-item'><td><a class="struct" href="struct.Void.html" title='dipstick::Void struct'>Void</a></td><td class='docblock-short'><p>Discard metrics Input.</p>
+</td></tr></table><h2 id='enums' class='section-header'><a href="#enums">Enums</a></h2>
+<table><tr class='module-item'><td><a class="enum" href="enum.Buffering.html" title='dipstick::Buffering enum'>Buffering</a></td><td class='docblock-short'><p>A metrics buffering strategy.
+All strategies other than <code>Unbuffered</code> are applied as a best-effort, meaning that the buffer
+may be flushed at any moment before reaching the limit, for any or no reason in particular.</p>
+</td></tr><tr class='module-item'><td><a class="enum" href="enum.InputKind.html" title='dipstick::InputKind enum'>InputKind</a></td><td class='docblock-short'><p>Used to differentiate between metric kinds in the backend.</p>
+</td></tr><tr class='module-item'><td><a class="enum" href="enum.LabelOp.html" title='dipstick::LabelOp enum'>LabelOp</a></td><td class='docblock-short'><p>Print commands are steps in the execution of output templates.</p>
+</td></tr><tr class='module-item'><td><a class="enum" href="enum.LineOp.html" title='dipstick::LineOp enum'>LineOp</a></td><td class='docblock-short'><p>Print commands are steps in the execution of output templates.</p>
+</td></tr><tr class='module-item'><td><a class="enum" href="enum.Sampling.html" title='dipstick::Sampling enum'>Sampling</a></td><td class='docblock-short'><p>The actual distribution (random, fixed-cycled, etc) depends on selected sampling method.</p>
+</td></tr><tr class='module-item'><td><a class="enum" href="enum.ScoreType.html" title='dipstick::ScoreType enum'>ScoreType</a></td><td class='docblock-short'><p>Possibly aggregated scores.</p>
+</td></tr></table><h2 id='traits' class='section-header'><a href="#traits">Traits</a></h2>
+<table><tr class='module-item'><td><a class="trait" href="trait.Buffered.html" title='dipstick::Buffered trait'>Buffered</a></td><td class='docblock-short'><p>Determine scope buffering strategy, if supported by output.
+Changing this only affects scopes opened afterwards.
+Buffering is done on best effort, meaning flush will occur if buffer capacity is exceeded.</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.CachedInput.html" title='dipstick::CachedInput trait'>CachedInput</a></td><td class='docblock-short'><p>Wrap an input with a metric definition cache.
+This can provide performance benefits for metrics that are dynamically defined at runtime on each access.
+Caching is useless if all metrics are statically declared
+or instantiated programmatically in advance and referenced by a long living variable.</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.Cancel.html" title='dipstick::Cancel trait'>Cancel</a></td><td class='docblock-short'><p>A deferred, repeatable, background action that can be cancelled.</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.Flush.html" title='dipstick::Flush trait'>Flush</a></td><td class='docblock-short'><p>Both InputScope and OutputScope share the ability to flush the recorded data.</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.Formatting.html" title='dipstick::Formatting trait'>Formatting</a></td><td class='docblock-short'><p>Format output config support.</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.Input.html" title='dipstick::Input trait'>Input</a></td><td class='docblock-short'><p>A function trait that opens a new metric capture scope.</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.InputDyn.html" title='dipstick::InputDyn trait'>InputDyn</a></td><td class='docblock-short'><p>A function trait that opens a new metric capture scope.</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.InputScope.html" title='dipstick::InputScope trait'>InputScope</a></td><td class='docblock-short'><p>InputScope
+Define metrics, write values and flush them.</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.LazyStatic.html" title='dipstick::LazyStatic trait'>LazyStatic</a></td><td class='docblock-short'><p>Support trait for enabling a few common operation on lazy static values.</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.LineFormat.html" title='dipstick::LineFormat trait'>LineFormat</a></td><td class='docblock-short'><p>Forges metric-specific printers</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.Observe.html" title='dipstick::Observe trait'>Observe</a></td><td class='docblock-short'><p>Schedule a recurring task</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.OnFlush.html" title='dipstick::OnFlush trait'>OnFlush</a></td><td class='docblock-short'><p>Register and notify scope-flush listeners</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.Prefixed.html" title='dipstick::Prefixed trait'>Prefixed</a></td><td class='docblock-short'><p>Name operations support.</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.QueuedInput.html" title='dipstick::QueuedInput trait'>QueuedInput</a></td><td class='docblock-short'><p>Wrap this output behind an asynchronous metrics dispatch queue.
+This is not strictly required for multi threading since the provided scopes
+are already Send + Sync but might be desired to lower the latency</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.Sampled.html" title='dipstick::Sampled trait'>Sampled</a></td><td class='docblock-short'><p>Apply statistical sampling to collected metrics data.</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.ScheduleFlush.html" title='dipstick::ScheduleFlush trait'>ScheduleFlush</a></td><td class='docblock-short'><p>Enable background periodical publication of metrics</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.__Deref.html" title='dipstick::__Deref trait'>__Deref</a></td><td class='docblock-short'><p>Used for immutable dereferencing operations, like <code>*v</code>.</p>
+</td></tr></table><h2 id='functions' class='section-header'><a href="#functions">Functions</a></h2>
+<table><tr class='module-item'><td><a class="fn" href="fn.initialize.html" title='dipstick::initialize fn'>initialize</a></td><td class='docblock-short'><p>Takes a shared reference to a lazy static and initializes
+it if it has not been already.</p>
+</td></tr><tr class='module-item'><td><a class="fn" href="fn.stats_all.html" title='dipstick::stats_all fn'>stats_all</a></td><td class='docblock-short'><p>A predefined export strategy reporting all aggregated stats for all metric types.
+Resulting stats are named by appending a short suffix to each metric's name.</p>
+</td></tr><tr class='module-item'><td><a class="fn" href="fn.stats_average.html" title='dipstick::stats_average fn'>stats_average</a></td><td class='docblock-short'><p>A predefined export strategy reporting the average value for every non-marker metric.
+Marker metrics export their hit count instead.
+Since there is only one stat per metric, there is no risk of collision
+and so exported stats copy their metric's name.</p>
+</td></tr><tr class='module-item'><td><a class="fn" href="fn.stats_summary.html" title='dipstick::stats_summary fn'>stats_summary</a></td><td class='docblock-short'><p>A predefined single-stat-per-metric export strategy:</p>
+</td></tr></table><h2 id='types' class='section-header'><a href="#types">Type Definitions</a></h2>
+<table><tr class='module-item'><td><a class="type" href="type.MetricValue.html" title='dipstick::MetricValue type'>MetricValue</a></td><td class='docblock-short'><p>Base type for recorded metric values.</p>
+</td></tr></table></section><section id="search" class="content hidden"></section><section class="footer"></section><script>window.rootPath = "../";window.currentCrate = "dipstick";</script><script src="../main.js"></script><script defer src="../search-index.js"></script></body></html>

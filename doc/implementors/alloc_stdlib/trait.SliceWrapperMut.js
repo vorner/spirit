@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["alloc_stdlib"] = [{"text":"impl&lt;T&gt; SliceWrapperMut&lt;T&gt; for WrapBox&lt;T&gt;","synthetic":false,"types":[]},{"text":"impl&lt;'a, T:&nbsp;'a&gt; SliceWrapperMut&lt;&amp;'a mut [T]&gt; for HeapPrealloc&lt;'a, T&gt;","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

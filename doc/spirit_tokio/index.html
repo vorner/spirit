@@ -1,0 +1,120 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="API documentation for the Rust `spirit_tokio` crate."><meta name="keywords" content="rust, rustlang, rust-lang, spirit_tokio"><title>spirit_tokio - Rust</title><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../light.css"  id="themeStyle"><link rel="stylesheet" type="text/css" href="../dark.css" disabled ><link rel="stylesheet" type="text/css" href="../ayu.css" disabled ><script src="../storage.js"></script><noscript><link rel="stylesheet" href="../noscript.css"></noscript><link rel="icon" type="image/svg+xml" href="../favicon.svg">
+<link rel="alternate icon" type="image/png" href="../favicon-16x16.png">
+<link rel="alternate icon" type="image/png" href="../favicon-32x32.png"><style type="text/css">#crate-search{background-image:url("../down-arrow.svg");}</style></head><body class="rustdoc mod"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><a href='../spirit_tokio/index.html'><div class='logo-container rust-logo'><img src='../rust-logo.png' alt='logo'></div></a><p class='location'>Crate spirit_tokio</p><div class='block version'><p>Version 0.7.2</p></div><div class="sidebar-elems"><a id='all-types' href='all.html'><p>See all spirit_tokio's items</p></a><div class="block items"><ul><li><a href="#reexports">Re-exports</a></li><li><a href="#modules">Modules</a></li></ul></div><p class='location'></p><script>window.sidebarCurrent = {name: 'spirit_tokio', ty: 'mod', relpath: '../'};</script></div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../theme.js"></script><nav class="sub"><form class="search-form"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" disabled autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><span class="help-button">?</span>
+                <a id="settings-menu" href="../settings.html"><img src="../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><h1 class='fqn'><span class='out-of-band'><span id='render-detail'><a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class='inner'>&#x2212;</span>]</a></span><a class='srclink' href='../src/spirit_tokio/lib.rs.html#1-137' title='goto source code'>[src]</a></span><span class='in-band'>Crate <a class="mod" href=''>spirit_tokio</a></span></h1><div class='docblock'><p>Support for tokio inside spirit</p>
+<p>This provides configuration of the tokio runtime and installer of futures.</p>
+<p>It also provides few configuration <a href="../spirit/fragment/trait.Fragment.html"><code>Fragment</code></a>s for configuring network primitives.</p>
+<p>Note that this enables several features of <a href="../tokio/index.html" title="tokio"><code>tokio</code></a>.</p>
+<h1 id="features" class="section-header"><a href="#features">Features</a></h1>
+<ul>
+<li><code>rt-from-cfg</code>: Allows creating runtime from configuration. Enables the <a href="../spirit_tokio/runtime/enum.Tokio.html#variant.FromCfg" title="Tokio::FromCfg"><code>Tokio::FromCfg</code></a>
+variant and <a href="../spirit_tokio/runtime/struct.Config.html" title="crate::runtime::Config"><code>Config</code></a>. Enabled by default.</li>
+<li><code>cfg-help</code>: Support for generating help for the configuration options.</li>
+<li><code>net</code>: Network primitive configuration <a href="../spirit/fragment/trait.Fragment.html"><code>Fragment</code></a>s in the <a href="../spirit_tokio/net/index.html" title="net"><code>net</code></a> module.</li>
+<li><code>stream</code>: Implementations of <a href="../futures_core/stream/trait.Stream.html" title="tokio::stream::Stream"><code>tokio::stream::Stream</code></a> on several types.</li>
+<li><code>futures</code>: Support for converting between <a href="../futures_util/index.html" title="futures_util"><code>futures</code></a>' and ours
+<a href="../spirit_tokio/either/enum.Either.html" title="crate::either::Either"><code>Either</code></a>.</li>
+<li><code>either</code>: Support for converting between our <a href="../spirit_tokio/either/enum.Either.html" title="crate::either::Either"><code>Either</code></a> and the one
+from the <a href="../spirit_tokio/either/index.html" title="either"><code>either</code></a> crate.</li>
+</ul>
+<h1 id="examples" class="section-header"><a href="#examples">Examples</a></h1>
+<div class="example-wrap"><pre class="rust rust-example-rendered">
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">future</span>::<span class="ident">Future</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">pin</span>::<span class="ident">Pin</span>;
+<span class="kw">use</span> <span class="ident">std</span>::<span class="ident">time</span>::<span class="ident">Duration</span>;
+
+<span class="kw">use</span> <span class="ident">err_context</span>::<span class="ident">AnyError</span>;
+<span class="kw">use</span> <span class="ident">serde</span>::{<span class="ident">Deserialize</span>, <span class="ident">Serialize</span>};
+<span class="kw">use</span> <span class="ident">spirit</span>::{<span class="ident">Empty</span>, <span class="ident">Pipeline</span>, <span class="ident">Spirit</span>};
+<span class="kw">use</span> <span class="ident">spirit</span>::<span class="ident">prelude</span>::<span class="kw-2">*</span>;
+<span class="kw">use</span> <span class="ident">spirit</span>::<span class="ident">fragment</span>::<span class="ident">driver</span>::<span class="ident">CacheEq</span>;
+<span class="kw">use</span> <span class="ident">spirit_tokio</span>::{<span class="ident">FutureInstaller</span>, <span class="ident">Tokio</span>};
+<span class="kw">use</span> <span class="ident">spirit_tokio</span>::<span class="ident">runtime</span>::<span class="ident">Config</span> <span class="kw">as</span> <span class="ident">TokioCfg</span>;
+<span class="kw">use</span> <span class="ident">structdoc</span>::<span class="ident">StructDoc</span>;
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Debug</span>, <span class="ident">Deserialize</span>, <span class="ident">PartialEq</span>, <span class="ident">Serialize</span>, <span class="ident">StructDoc</span>)]</span>
+<span class="attribute">#[<span class="ident">serde</span>(<span class="ident">default</span>)]</span>
+<span class="kw">struct</span> <span class="ident">MsgCfg</span> {
+    <span class="doccomment">/// A message to print now and then.</span>
+    <span class="ident">msg</span>: <span class="ident">String</span>,
+    <span class="doccomment">/// Time between printing the message.</span>
+    <span class="ident">interval</span>: <span class="ident">Duration</span>,
+}
+
+<span class="kw">impl</span> <span class="ident">MsgCfg</span> {
+    <span class="ident">async</span> <span class="kw">fn</span> <span class="ident">run</span>(<span class="self">self</span>) {
+        <span class="kw">loop</span> {
+            <span class="macro">println</span><span class="macro">!</span>(<span class="string">&quot;{}&quot;</span>, <span class="self">self</span>.<span class="ident">msg</span>);
+            <span class="ident">tokio</span>::<span class="ident">time</span>::<span class="ident">delay_for</span>(<span class="self">self</span>.<span class="ident">interval</span>).<span class="ident">await</span>;
+        }
+    }
+}
+
+<span class="kw">impl</span> <span class="ident">Default</span> <span class="kw">for</span> <span class="ident">MsgCfg</span> {
+    <span class="kw">fn</span> <span class="ident">default</span>() <span class="op">-</span><span class="op">&gt;</span> <span class="self">Self</span> {
+        <span class="ident">MsgCfg</span> {
+            <span class="ident">msg</span>: <span class="string">&quot;Hello&quot;</span>.<span class="ident">to_owned</span>(),
+            <span class="ident">interval</span>: <span class="ident">Duration</span>::<span class="ident">from_secs</span>(<span class="number">1</span>),
+        }
+    }
+}
+
+<span class="ident">spirit</span>::<span class="macro">simple_fragment</span><span class="macro">!</span> {
+    <span class="kw">impl</span> <span class="ident">Fragment</span> <span class="kw">for</span> <span class="ident">MsgCfg</span> {
+        <span class="kw">type</span> <span class="ident">Driver</span> <span class="op">=</span> <span class="ident">CacheEq</span><span class="op">&lt;</span><span class="ident">MsgCfg</span><span class="op">&gt;</span>;
+        <span class="kw">type</span> <span class="ident">Resource</span> <span class="op">=</span> <span class="ident">Pin</span><span class="op">&lt;</span><span class="ident">Box</span><span class="op">&lt;</span><span class="ident">dyn</span> <span class="ident">Future</span><span class="op">&lt;</span><span class="ident">Output</span> <span class="op">=</span> ()<span class="op">&gt;</span> <span class="op">+</span> <span class="ident">Send</span><span class="op">&gt;</span><span class="op">&gt;</span>;
+        <span class="kw">type</span> <span class="ident">Installer</span> <span class="op">=</span> <span class="ident">FutureInstaller</span>;
+        <span class="kw">fn</span> <span class="ident">create</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="kw">_</span>: <span class="kw-2">&amp;</span><span class="lifetime">&#39;static</span> <span class="ident">str</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="prelude-ty">Result</span><span class="op">&lt;</span><span class="self">Self</span>::<span class="ident">Resource</span>, <span class="ident">AnyError</span><span class="op">&gt;</span> {
+            <span class="kw">let</span> <span class="ident">fut</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">clone</span>().<span class="ident">run</span>();
+            <span class="prelude-val">Ok</span>(<span class="ident">Box</span>::<span class="ident">pin</span>(<span class="ident">fut</span>))
+        }
+    }
+}
+
+<span class="doccomment">/// An application.</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Default</span>, <span class="ident">Deserialize</span>, <span class="ident">Serialize</span>, <span class="ident">StructDoc</span>)]</span>
+<span class="kw">struct</span> <span class="ident">AppConfig</span> {
+    <span class="attribute">#[<span class="ident">serde</span>(<span class="ident">flatten</span>)]</span>
+    <span class="ident">msg</span>: <span class="ident">MsgCfg</span>,
+
+    <span class="doccomment">/// Configuration of the asynchronous tokio runtime.</span>
+    <span class="attribute">#[<span class="ident">serde</span>(<span class="ident">default</span>)]</span>
+    <span class="ident">threadpool</span>: <span class="ident">TokioCfg</span>,
+}
+
+<span class="kw">impl</span> <span class="ident">AppConfig</span> {
+    <span class="kw">fn</span> <span class="ident">threadpool</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">TokioCfg</span> {
+        <span class="self">self</span>.<span class="ident">threadpool</span>.<span class="ident">clone</span>()
+    }
+
+    <span class="kw">fn</span> <span class="ident">msg</span>(<span class="kw-2">&amp;</span><span class="self">self</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="kw-2">&amp;</span><span class="ident">MsgCfg</span> {
+        <span class="kw-2">&amp;</span><span class="self">self</span>.<span class="ident">msg</span>
+    }
+}
+
+<span class="kw">fn</span> <span class="ident">main</span>() {
+    <span class="ident">Spirit</span>::<span class="op">&lt;</span><span class="ident">Empty</span>, <span class="ident">AppConfig</span><span class="op">&gt;</span>::<span class="ident">new</span>()
+        <span class="comment">// Makes sure we have a runtime configured from the config.</span>
+        <span class="comment">// If we don&#39;t do this, the pipeline below would insert a default Tokio runtime to make</span>
+        <span class="comment">// it work. If you want to customize the runtime (like here), make sure to insert it</span>
+        <span class="comment">// before any pipelines requiring it (otherwise you get the default one from them).</span>
+        .<span class="ident">with_singleton</span>(<span class="ident">Tokio</span>::<span class="ident">from_cfg</span>(<span class="ident">AppConfig</span>::<span class="ident">threadpool</span>))
+        <span class="comment">// Will install and possibly cancel and replace the future if the config changes.</span>
+        .<span class="ident">with</span>(<span class="ident">Pipeline</span>::<span class="ident">new</span>(<span class="string">&quot;Msg&quot;</span>).<span class="ident">extract_cfg</span>(<span class="ident">AppConfig</span>::<span class="ident">msg</span>))
+        <span class="comment">// Just an empty body here.</span>
+        .<span class="ident">run</span>(<span class="op">|</span><span class="ident">spirit</span><span class="op">|</span> {
+            <span class="comment">// Usually, one would terminate by CTRL+C, but we terminate from here to make sure</span>
+            <span class="comment">// the example finishes.</span>
+            <span class="ident">spirit</span>.<span class="ident">terminate</span>();
+            <span class="prelude-val">Ok</span>(())
+        })
+}</pre></div>
+<p>An alternative approach can be seen at <a href="../spirit_tokio/handlers/struct.ToFutureUnconfigured.html" title="handlers::ToFutureUnconfigured"><code>handlers::ToFutureUnconfigured</code></a>.</p>
+</div><h2 id='reexports' class='section-header'><a href="#reexports">Re-exports</a></h2>
+<table><tr><td><code>pub use crate::installer::<a class="struct" href="../spirit_tokio/installer/struct.FutureInstaller.html" title="struct spirit_tokio::installer::FutureInstaller">FutureInstaller</a>;</code></td></tr><tr><td><code>pub use crate::net::<a class="struct" href="../spirit_tokio/net/struct.TcpListen.html" title="struct spirit_tokio::net::TcpListen">TcpListen</a>;</code></td></tr><tr><td><code>pub use crate::net::<a class="type" href="../spirit_tokio/net/type.TcpListenWithLimits.html" title="type spirit_tokio::net::TcpListenWithLimits">TcpListenWithLimits</a>;</code></td></tr><tr><td><code>pub use crate::net::<a class="struct" href="../spirit_tokio/net/struct.UdpListen.html" title="struct spirit_tokio::net::UdpListen">UdpListen</a>;</code></td></tr><tr><td><code>pub use crate::runtime::<a class="enum" href="../spirit_tokio/runtime/enum.Tokio.html" title="enum spirit_tokio::runtime::Tokio">Tokio</a>;</code></td></tr></table><h2 id='modules' class='section-header'><a href="#modules">Modules</a></h2>
+<table><tr class='module-item'><td><a class="mod" href="either/index.html" title='spirit_tokio::either mod'>either</a></td><td class='docblock-short'><p>Support for alternative choices of configuration.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="handlers/index.html" title='spirit_tokio::handlers mod'>handlers</a></td><td class='docblock-short'><p>Various <a href="../spirit/fragment/trait.Transformation.html" title="Transformation"><code>Transformation</code></a>s for working with resources in async contexts.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="installer/index.html" title='spirit_tokio::installer mod'>installer</a></td><td class='docblock-short'><p>Installer of futures.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="net/index.html" title='spirit_tokio::net mod'>net</a></td><td class='docblock-short'><p>Autoconfiguration of network primitives of <a href="../tokio/index.html" title="tokio">tokio</a></p>
+</td></tr><tr class='module-item'><td><a class="mod" href="runtime/index.html" title='spirit_tokio::runtime mod'>runtime</a></td><td class='docblock-short'><p>An extension to start the tokio runtime at the appropriate time.</p>
+</td></tr></table></section><section id="search" class="content hidden"></section><section class="footer"></section><script>window.rootPath = "../";window.currentCrate = "spirit_tokio";</script><script src="../main.js"></script><script defer src="../search-index.js"></script></body></html>

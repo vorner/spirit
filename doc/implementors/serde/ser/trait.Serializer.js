@@ -1,0 +1,7 @@
+(function() {var implementors = {};
+implementors["serde_hjson"] = [{"text":"impl&lt;W, F&gt; Serializer for Serializer&lt;W, F&gt; <span class=\"where fmt-newline\">where<br>&nbsp;&nbsp;&nbsp;&nbsp;W: Write,<br>&nbsp;&nbsp;&nbsp;&nbsp;F: Formatter,&nbsp;</span>","synthetic":false,"types":[]},{"text":"impl Serializer for Serializer","synthetic":false,"types":[]}];
+implementors["serde_json"] = [{"text":"impl&lt;'a, W, F&gt; Serializer for &amp;'a mut Serializer&lt;W, F&gt; <span class=\"where fmt-newline\">where<br>&nbsp;&nbsp;&nbsp;&nbsp;W: Write,<br>&nbsp;&nbsp;&nbsp;&nbsp;F: Formatter,&nbsp;</span>","synthetic":false,"types":[]},{"text":"impl Serializer for Serializer","synthetic":false,"types":[]}];
+implementors["serde_test"] = [{"text":"impl&lt;'a, I&gt; Serializer for Serializer&lt;'a, I&gt; <span class=\"where fmt-newline\">where<br>&nbsp;&nbsp;&nbsp;&nbsp;I: Iterator&lt;Item = &amp;'a Token&lt;'a&gt;&gt;,&nbsp;</span>","synthetic":false,"types":[]}];
+implementors["serde_urlencoded"] = [{"text":"impl&lt;'input, 'output, Target&gt; Serializer for Serializer&lt;'input, 'output, Target&gt; <span class=\"where fmt-newline\">where<br>&nbsp;&nbsp;&nbsp;&nbsp;Target: 'output + UrlEncodedTarget,&nbsp;</span>","synthetic":false,"types":[]}];
+implementors["toml"] = [{"text":"impl&lt;'a, 'b&gt; Serializer for &amp;'b mut Serializer&lt;'a&gt;","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

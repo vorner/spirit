@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["init","Initializes the panic hook."]]});

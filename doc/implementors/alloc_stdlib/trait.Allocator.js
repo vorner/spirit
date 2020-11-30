@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["alloc_stdlib"] = [{"text":"impl&lt;T:&nbsp;Clone&gt; Allocator&lt;T&gt; for HeapAlloc&lt;T&gt;","synthetic":false,"types":[]},{"text":"impl&lt;T:&nbsp;Clone + Default&gt; Allocator&lt;T&gt; for StandardAlloc","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
