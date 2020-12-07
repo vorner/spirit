@@ -454,19 +454,8 @@ There are few more tricks. It is possible to also listen on unix domain sockets,
 hybrid configuration where some instances listen on IPv4, some on IPv6 and some on unix domain
 sockets. Furthermore, the server configuration fragment can be parametrized by additional type
 parameter. The library doesn't touch it, but it is possible ‒ if you don't use the
-[`server_from_handler`][spirit_hyper::server_from_handler], but build the server manually ‒ to
-access that field and customize each separate instance of the listening server.
-
-Let's also mention a small trick. The [`Pipeline`][crate::fragment::pipeline::Pipeline] is built in
-the usual builder pattern, by incrementally changing how it looks. But for that to be possible, the
-traits of the types used around it may not match in the middle of the process. Therefore, the type
-checking is enforced only at the very end, when being plugged into spirit. That has the downside
-that if the types don't align correctly, the error message is often less helpful or less exact than
-one would like. One can place the `.check()` method in various places in the pipeline construction
-‒ that one forces the type check at that point, and often provides a bit more information even if
-used at the very end (I'm not sure exactly why that is). If that still doesn't help, try
-simplifying the pipeline (using single value instead of vector, for example) ‒ eventually, `rustc`
-should be able to cope with the trait complexity and provide something useful.
+`server_from_handler`, but build the server manually ‒ to access that field and customize each
+separate instance of the listening server.
 
 # The complete thing
 
@@ -486,4 +475,6 @@ extended version of the above exercise. You'll further find:
 
 Hopefully, this shows some of the possibilities of what spirit is capable of. Further chapters do
 into more details about specific topics.
+
+[`tokio`]: https://tokio.rs
 */

@@ -31,21 +31,15 @@ You'll find here:
 * [Lower and higher levels of API][self::levels]
 * [A tutorial][self::tutorial]
 * Common tasks
-  - [Loading configuration][self::configuration]
-  - [Logging][self::logging]
-  - [Metrics][self::metrics]
-  - [Friendlier command line interface][self::cmdline]
+  - [Loading & handling configuration][self::configuration]
 * Advanced topis:
   - [Using fragments and pipelines][self::fragments]
   - [Extending with own fragments][self::extend]
 */
 
-pub mod cmdline;
 pub mod configuration;
 pub mod extend;
 pub mod fragments;
 pub mod levels;
-pub mod logging;
-pub mod metrics;
 pub mod principles;
 pub mod tutorial;

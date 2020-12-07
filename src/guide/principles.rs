@@ -22,8 +22,8 @@ doing what you want.
 Having a place to put callbacks might be handy a bit, but certainly nothing to make any fuss about
 (or write tutorials about). The added value of the library is the system of
 [extensions][crate::extension::Extension], [fragments][crate::fragment::Fragment] and
-[pipelines][crate::fragment::Pipeline]. There are other, related crates (eg. `spirit-log`) that
-provide these and allow easy and reusable plugging of functionality in.
+[pipelines][crate::fragment::pipeline::Pipeline]. There are other, related crates (eg.
+`spirit-log`) that provide these and allow easy and reusable plugging of functionality in.
 
 An extension simply modifies the [builder][crate::Builder], usually by registering some callbacks.
 The fragments and pipelines are ways to build extensions from already existing parts. They are
@@ -33,7 +33,7 @@ explained in detail in [their own chapter][super::fragments].
 
 In a library like this, quite a lot of things can go wrong. Some of the errors might come from the
 library, but many would come from user-provided code in callbacks, extensions, etc. Error are
-passed around as a boxed trait objects (the [`AnyError`][crate::AnyErro] is just a boxed trait
+passed around as a boxed trait objects (the [`AnyError`][crate::AnyError] is just a boxed trait
 object). Other option would be something like the [`anyhow`](https://lib.rs/anyhow), but that would
 force the users of the library into a specific one. Future versions might go that way if there's a
 clear winner between these crates, but until then we stay with only what [`std`] provides.
