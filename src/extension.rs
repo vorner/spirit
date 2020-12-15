@@ -73,7 +73,7 @@ pub enum Autojoin {
     ///
     /// It is up to the caller to either join the thread manually or to make sure not doing proper
     /// shutdown is OK. In particular, if the thread is left running on application termination,
-    /// the [guards](trait.Extension.html#fn.keep_guard) need not to be dropped.
+    /// the [guards][Extensible::keep_guard] need not to be dropped.
     Abandon,
 }
 
@@ -270,7 +270,7 @@ pub trait Extensible: Sized {
 
     /// Adds a callback executed once the [`Spirit`] decides to terminate.
     ///
-    /// This is called either when someone calls [`terminate`](struct.Spirit.html#method.terminate)
+    /// This is called either when someone calls [`terminate`][crate::Spirit::terminate]
     /// or when a termination signal is received.
     ///
     /// Note that there are ways the application may terminate without calling these hooks ‒ for

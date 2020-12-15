@@ -1,6 +1,0 @@
-[book]
-authors = ["Michael Bryan <michaelfbryan@gmail.com>"]
-title = "Spirit User Guide"
-
-[build]
-build-dir = "../target/user-guide"

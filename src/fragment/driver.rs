@@ -70,7 +70,8 @@ impl Iterator for IdGen {
 pub struct CacheId(u128);
 
 impl CacheId {
-    fn dummy() -> Self {
+    /// A dummy cache ID.
+    pub fn dummy() -> Self {
         CacheId(0)
     }
 }
