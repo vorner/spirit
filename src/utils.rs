@@ -28,7 +28,8 @@ use crate::AnyError;
 /// The function never fails. However, the substeps (finding current directory to make it absolute
 /// and canonization) might fail. In such case, the failing step is skipped.
 ///
-/// The motivation is parsing command line arguments using the [`structopt`] crate. Users are used
+/// The motivation is parsing command line arguments using the
+/// [`structopt`](https://lib.rs/crates/structopt) crate. Users are used
 /// to passing relative paths to command line (as opposed to configuration files). However, if the
 /// daemon changes the current directory (for example during daemonization), the relative paths now
 /// point somewhere else.
@@ -231,7 +232,7 @@ pub fn deserialize_duration<'de, D: Deserializer<'de>>(d: D) -> Result<Duration,
         .map_err(|_| DeError::invalid_value(Unexpected::Str(&s), &"Human readable duration"))
 }
 
-/// Deserialize an `Option<Duration>` using the [`humantime`] crate.
+/// Deserialize an `Option<Duration>` using the [`humantime`](https://lib.rs/crates/humantime) crate.
 ///
 /// This allows reading human-friendly representations of time, like `30s` or `5days`. It should be
 /// paired with [`serialize_opt_duration`]. Also, to act like [`Option`] does when deserializing by

@@ -71,19 +71,22 @@ to participate in some further tiers.
 
 Currently, there are these crates with fragments:
 
-* [`spirit-daemonize`]: Configuration and routines to go into background and be a nice daemon.
-* [`spirit-dipstick`]: Configuration of the dipstick metrics library.
-* [`spirit-log`]: Configuration of logging.
-* [`spirit-tokio`]: Integrates basic tokio primitives ‒ auto-reconfiguration for TCP and UDP
-  sockets and starting the runtime.
-* [`spirit-hyper`]: Integrates the hyper web server.
-* [`spirit-reqwest`]: Configuration for the reqwest HTTP [`Client`][reqwest-client].
+* [`spirit-daemonize`](https://crates.rs/crates/spirit-daemonize): Configuration and routines to go
+  into background and be a nice daemon.
+* [`spirit-dipstick`](https://crates.rs/crates/spirit-dipstick): Configuration of the dipstick
+  metrics library.
+* [`spirit-log`](https://crates.rs/crates/spirit-log): Configuration of logging.
+* [`spirit-tokio`](https://crates.rs/crates/spirit-tokio): Integrates basic tokio primitives ‒
+  auto-reconfiguration for TCP and UDP sockets and starting the runtime.
+* [`spirit-hyper`](https://crates.rs/crates/spirit-hyper): Integrates the hyper web server.
+* [`spirit-reqwest`](https://crates.rs/crates/spirit-reqwest): Configuration for the reqwest HTTP
+  [`Client`](https://docs.rs/reqwest/0.10.10/reqwest/struct.Client.html).
 
 Also, while this is not outright a configuration fragment, it comes close. When you build your
-configuration from the fragments, there's a lot of options. The [`spirit-cfg-helpers`] crate
-brings the `--help-config` and `--dump-config` command line options, that describe what options
-can be configured and what values would be used after combining all configuration sources
-together.
+configuration from the fragments, there's a lot of options. The
+[`spirit-cfg-helpers`](https://crates.rs/crates/spirit-cfg-helpers) crate brings the
+`--help-config` and `--dump-config` command line options, that describe what options can be
+configured and what values would be used after combining all configuration sources together.
 
 You can create your own fragments and, if it's something others could use, share them.
 
@@ -342,5 +345,4 @@ fn main() {
 
 [`Builder`]: crate::Builder
 [`Spirit`]: crate::Spirit
-
 */

@@ -44,8 +44,9 @@ One can use the configuration in multiple ways:
 * With the `on_config` hook, if it can't possibly fail.
 * Look into it each time it is needed. There is the [`config`][crate::Spirit::config] method.
 
-A variation of the last one is propagating it through parts of program through [`arc-swap`]. It
-also have the [`access`][arc_swap::access] module, to „slice“ the shared configuration and provide
+A variation of the last one is propagating it through parts of program through
+[`arc-swap`](https://lib.rs/crates/arc-swap). It also have the [`access`][arc_swap::access]
+module, to „slice“ the shared configuration and provide
 only part of it to different parts of program.
 
 ```rust

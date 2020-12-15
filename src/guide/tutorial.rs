@@ -477,4 +477,6 @@ Hopefully, this shows some of the possibilities of what spirit is capable of. Fu
 into more details about specific topics.
 
 [`tokio`]: https://tokio.rs
+[`spirit-log`]: https://lib.rs/crates/spirit-log
+[`spirit-cfg-helpers`]: https://lib.rs/crates/spirit-cfg-helpers
 */

@@ -59,4 +59,5 @@ any other way.
 [`Spirit`]: crate::Spirit
 [`StructOpt`]: structopt::StructOpt
 [`Deserialize`]: serde::Deserialize
+[`err-context`]: https://lib.rs/crates/err-context
 */

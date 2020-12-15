@@ -31,7 +31,7 @@ created and installed, and they are removed or added as needed.
 # Customization
 
 * The strategy of when and how to replace the instances is done through the
-  [driver][crate::fragment::pipeline::Pipeline::driver].
+  [set_driver][crate::fragment::pipeline::Pipeline::set_driver].
 * One can modify the instance of the resource through the
   [transform][crate::fragment::pipeline::Pipeline::transform],
   [map][crate::fragment::pipeline::Pipeline::map] or

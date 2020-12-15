@@ -927,7 +927,7 @@ pub trait SpiritBuilder: ConfigBuilder + Extensible {
     /// # Warning
     ///
     /// If asked to go to background (when you're using the
-    /// [`spirit-daemonize`](https://crates.io/crates/spirit-daemonize) crate, this uses `fork`.
+    /// [`spirit-daemonize`](https://lib.rs/crates/spirit-daemonize) crate, this uses `fork`.
     /// Therefore, start any threads after you call `build` (or from within [`run`]),
     /// or you'll lose them ‒ only the thread doing fork is preserved across it.
     ///
