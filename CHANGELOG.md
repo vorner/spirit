@@ -1,3 +1,6 @@
+* Guide.
+* More info about received signals.
+
 # 0.4.10
 
 * Migrate to signal-hook-0.2 (internal change)

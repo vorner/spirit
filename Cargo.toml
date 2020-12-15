@@ -54,7 +54,7 @@ log = "~0.4"
 serde = { version = "~1", features = ["derive"] }
 serde_ignored = { version = "~0.1.0" }
 serde_path_to_error = "~0.1"
-signal-hook = "~0.2"
+signal-hook = { version = "~0.2.2", features = ["extended-siginfo"] }
 structdoc = { version = "~0.1.3", optional = true }
 # Due to a hack, we are using part of API that doesn't have the proper API guarantees. So make sure cargo update doesn't break stuff.
 # We should solve it eventually somehow. See the StructOptInternal.

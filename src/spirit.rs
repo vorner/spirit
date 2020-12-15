@@ -16,7 +16,8 @@ use arc_swap::ArcSwap;
 use err_context::prelude::*;
 use log::{debug, error, info, trace};
 use serde::de::DeserializeOwned;
-use signal_hook::iterator::{Handle as SigHandle, Signals};
+use signal_hook::iterator::exfiltrator::origin::WithOrigin;
+use signal_hook::iterator::{Handle as SigHandle, SignalsInfo};
 use structopt::StructOpt;
 
 use crate::app::App;
@@ -28,6 +29,8 @@ use crate::extension::{Autojoin, Extensible, Extension};
 use crate::fragment::pipeline::MultiError;
 use crate::validation::Action;
 use crate::AnyError;
+
+type Signals = SignalsInfo<WithOrigin>;
 
 /// A recursive implementation of the logic of wrapping of hooks.
 ///
@@ -412,9 +415,9 @@ where
         // :-( See spirit-hook#70, it's impossible to use .forever() here as it consumes.
         // Simulating with .wait.
         'forever: while !signals.is_closed() {
-            for signal in signals.wait() {
-                debug!("Received signal {}", signal);
-                let term = match signal {
+            for info in signals.wait() {
+                info!("Received signal {:?}", info);
+                let term = match info.signal {
                     libc::SIGHUP => {
                         let _ = error::log_errors(module_path!(), || {
                             self.config_reload_with_wrapper(|inner| self.wrap_around_hooks(inner))
@@ -431,7 +434,7 @@ where
 
                 let mut lock = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
 
-                if let Some(hooks) = lock.sigs.get_mut(&signal) {
+                if let Some(hooks) = lock.sigs.get_mut(&info.signal) {
                     self.wrap_around_hooks(|| {
                         for hook in hooks {
                             hook();
