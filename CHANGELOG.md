@@ -1,3 +1,7 @@
+# spirit-reqwest-0.5.0
+
+* Porting to reqwest 0.11.
+
 # spirit-hyper-0.8.0
 
 * Porting to hyper 0.14.

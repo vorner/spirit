@@ -364,6 +364,11 @@ pub struct ReqwestClient {
     /// Default is no address (the OS will choose).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_address: Option<IpAddr>,
+
+    /// Restrict to using only https.
+    ///
+    /// Default is false.
+    pub https_only: bool,
 }
 
 impl Default for ReqwestClient {
@@ -397,6 +402,7 @@ impl Default for ReqwestClient {
             max_idle_per_host: None,
             tcp_nodelay: false,
             local_address: None,
+            https_only: false,
         }
     }
 }
@@ -427,13 +433,14 @@ impl ReqwestClient {
         };
         let mut builder = Client::builder()
             .danger_accept_invalid_certs(self.tls_accept_invalid_certs)
-            .tcp_nodelay_(self.tcp_nodelay)
+            .tcp_nodelay(self.tcp_nodelay)
             .pool_max_idle_per_host(self.max_idle_per_host.unwrap_or(usize::max_value()))
             .pool_idle_timeout(self.pool_idle_timeout)
             .local_address(self.local_address)
             .default_headers(headers)
             .redirect(redirects)
-            .referer(self.referer);
+            .referer(self.referer)
+            .https_only(self.https_only);
         #[cfg(feature = "gzip")]
         {
             builder = builder.gzip(self.enable_gzip);

@@ -1,6 +1,6 @@
 [package]
 name = "spirit-reqwest"
-version = "0.4.3"
+version = "0.5.0"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 edition = "2018"
 description = "Reqwest helpers for Spirit"
@@ -30,19 +30,19 @@ gzip = ["reqwest/gzip"]
 native-tls = ["reqwest/native-tls"]
 
 [dependencies]
-arc-swap = "~1"
-err-context = "~0.1"
-log = "~0.4"
+arc-swap = "^1"
+err-context = "^0.1"
+log = "^0.4"
 # Yes, depend on default-features. That means default-tls, we don't want to disable so many parts of the code
-reqwest = "~0.10"
-serde = { version = "~1", features = ["derive"] }
-spirit = { version = "~0.4.8", path = "..", default-features = false }
-structdoc = { version = "~0.1", optional = true }
-url = { version = "~2", features = ["serde"] }
+reqwest = "^0.11"
+serde = { version = "^1", features = ["derive"] }
+spirit = { version = "^0.4.8", path = "..", default-features = false }
+structdoc = { version = "^0.1", optional = true }
+url = { version = "^2", features = ["serde"] }
 
 [dev-dependencies]
-env_logger = "~0.7"
-tokio = { version = "~0.2", features = ["full"] }
+env_logger = "^0.7"
+tokio = { version = "^1", features = ["full"] }
 
 [package.metadata.docs.rs]
 all-features = true

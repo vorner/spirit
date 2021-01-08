@@ -50,7 +50,7 @@ fn main() {
                 .install(client.clone()),
         )
         .run(move |_| {
-            let mut runtime = Runtime::new()?;
+            let runtime = Runtime::new()?;
             // But by now, spirit already stored the configured client in there. Also, if we were
             // running for a longer time, it would replace it with a new one every time we change
             // the configuration.
