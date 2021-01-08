@@ -144,15 +144,6 @@ pub struct HyperCfg {
     #[serde(skip_serializing_if = "is_true")]
     pub http1_keepalive: bool,
 
-    /// Vectored writes of headers.
-    ///
-    /// This is a low-level optimization setting. Using the vectored writes saves some copying of
-    /// data around, but can be slower on some systems or transports.
-    ///
-    /// Default is on, can be turned off.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub http1_writev: Option<bool>,
-
     /// When a http1 client closes its write end, keep the connection open until the reply is sent.
     ///
     /// If set to false, if the client closes its connection, server does too.
@@ -182,6 +173,10 @@ pub struct HyperCfg {
     /// Defaults to no limit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub http2_max_concurrent_streams: Option<u32>,
+
+    /// The maximum frame size of http2.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http2_max_frame_size: Option<u32>,
 
     /// How often to send keep alive/ping frames.
     ///
@@ -219,6 +214,8 @@ impl HyperCfg {
             .http2_initial_connection_window_size(self.http2_initial_connection_window_size)
             .http2_initial_stream_window_size(self.http2_initial_stream_window_size)
             .http2_adaptive_window(self.http2_adaptive_window)
+            .http2_max_concurrent_streams(self.http2_max_concurrent_streams)
+            .http2_max_frame_size(self.http2_max_frame_size)
             .http2_keep_alive_interval(self.http2_keep_alive_interval)
             .http2_keep_alive_timeout(self.http2_keep_alive_timeout)
             .http1_only(h1_only)
@@ -226,10 +223,6 @@ impl HyperCfg {
 
         if let Some(size) = self.http1_max_buf_size {
             builder = builder.http1_max_buf_size(size);
-        }
-
-        if let Some(writev) = self.http1_writev {
-            builder = builder.http1_writev(writev);
         }
 
         builder
@@ -240,13 +233,13 @@ impl Default for HyperCfg {
     fn default() -> Self {
         HyperCfg {
             http1_keepalive: true,
-            http1_writev: None,
             http1_half_close: true,
             http1_max_buf_size: None,
             http2_initial_connection_window_size: None,
             http2_initial_stream_window_size: None,
             http2_adaptive_window: false,
             http2_max_concurrent_streams: None,
+            http2_max_frame_size: None,
             http2_keep_alive_interval: None,
             http2_keep_alive_timeout: KEEPALIVE_TIMEOUT,
             http_mode: HttpMode::default(),
@@ -287,7 +280,6 @@ impl<A: SpiritAccept + Unpin> HyperAccept for Acceptor<A> {
 /// In addition to options already provided by the `Transport`, these options are added:
 ///
 /// * `http1-keepalive`: boolean, default true.
-/// * `http1-writev`: boolean, default true.
 /// * `http-mode`: One of `"both"`, `"http1-only"` or `"http2-only"`. Defaults to `"both"`.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]

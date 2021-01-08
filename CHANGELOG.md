@@ -1,3 +1,7 @@
+# spirit-hyper-0.8.0
+
+* Porting to hyper 0.14.
+
 # spirit-tokio-0.8.0
 
 * Porting to tokio 1.0.

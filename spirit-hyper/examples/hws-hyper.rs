@@ -82,7 +82,7 @@ fn main() {
         .config_exts(&["toml", "ini", "json"])
         // Explicitly enabling tokio integration, implicitly it would happen inside run and that's
         // too late.
-        .with_singleton(Tokio::default()) // Explicitly enabling tokio
+        .with_singleton(Tokio::SingleThreaded) // Explicitly enabling tokio
         .run(|spirit| {
             let spirit_srv = Arc::clone(spirit);
             let build_server = move |builder: Builder<_>,

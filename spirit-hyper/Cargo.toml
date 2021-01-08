@@ -1,6 +1,6 @@
 [package]
 name = "spirit-hyper"
-version = "0.7.1"
+version = "0.8.0"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Hyper helpers for Spirit"
 documentation = "https://docs.rs/spirit-hyper"
@@ -25,15 +25,15 @@ default = ["cfg-help"]
 cfg-help = ["spirit/cfg-help", "spirit-tokio/cfg-help", "structdoc"]
 
 [dependencies]
-err-context = "~0.1"
-hyper = "~0.13"
-log = "~0.4"
-serde = { version = "~1", features = ["derive"] }
-spirit = { path = "..", version = "~0.4.8", default-features = false }
-spirit-tokio = { path = "../spirit-tokio", version = "~0.7", default-features = false, features = ["net"] }
-structdoc = { version = "~0.1", optional = true }
-structopt = { version = "~0.3", default-features = false }
-tokio = { version = "~0.2", default-features = false, features = ["rt-core"] }
+err-context = "^0.1"
+hyper = { version = "^0.14", features = ["server", "http1", "http2", "runtime"] }
+log = "^0.4"
+serde = { version = "^1", features = ["derive"] }
+spirit = { path = "..", version = "^0.4.8", default-features = false }
+spirit-tokio = { path = "../spirit-tokio", version = "^0.8", default-features = false, features = ["net"] }
+structdoc = { version = "^0.1", optional = true }
+structopt = { version = "^0.3", default-features = false }
+tokio = { version = "^1", default-features = false, features = ["rt", "sync"] }
 
 [dev-dependencies]
 env_logger = "~0.7"
