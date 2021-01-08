@@ -5,7 +5,6 @@ use std::io::{Error as IoError, SeekFrom};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use bytes::{Buf, BufMut};
 #[cfg(feature = "either")]
 use either::Either as OtherEither;
 use err_context::AnyError;
@@ -19,9 +18,9 @@ use spirit::fragment::{Fragment, Installer, Stackable, Transformation};
 #[cfg(feature = "cfg-help")]
 use structdoc::StructDoc;
 use structopt::StructOpt;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek, AsyncWrite};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek, AsyncWrite, ReadBuf};
 #[cfg(feature = "stream")]
-use tokio::stream::Stream;
+use tokio_stream::Stream;
 
 #[cfg(feature = "net")]
 use crate::net::Accept;
@@ -97,7 +96,7 @@ use crate::net::Accept;
 /// use spirit_tokio::net::TcpListen;
 /// #[cfg(unix)]
 /// use spirit_tokio::net::unix::UnixListen;
-/// use tokio::prelude::*;
+/// use tokio::io::{AsyncWrite, AsyncWriteExt};
 ///
 /// // If we want to work on systems that don't have unix domain sockets...
 ///
@@ -286,20 +285,9 @@ where
     fn poll_read(
         self: Pin<&mut Self>,
         ctx: &mut Context,
-        buf: &mut [u8],
-    ) -> Poll<Result<usize, IoError>> {
+        buf: &mut ReadBuf,
+    ) -> Poll<Result<(), IoError>> {
         either_unwrap!(self.get_mut(), v => Pin::new(v).poll_read(ctx, buf))
-    }
-
-    fn poll_read_buf<Bu: BufMut>(
-        self: Pin<&mut Self>,
-        ctx: &mut Context<'_>,
-        buf: &mut Bu,
-    ) -> Poll<Result<usize, IoError>>
-    where
-        Self: Sized,
-    {
-        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_read_buf(ctx, buf))
     }
 }
 
@@ -308,12 +296,8 @@ where
     A: AsyncSeek + Unpin,
     B: AsyncSeek + Unpin,
 {
-    fn start_seek(
-        self: Pin<&mut Self>,
-        ctx: &mut Context,
-        position: SeekFrom,
-    ) -> Poll<Result<(), IoError>> {
-        either_unwrap!(self.get_mut(), v => Pin::new(v).start_seek(ctx, position))
+    fn start_seek(self: Pin<&mut Self>, position: SeekFrom) -> Result<(), IoError> {
+        either_unwrap!(self.get_mut(), v => Pin::new(v).start_seek(position))
     }
     fn poll_complete(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<u64, IoError>> {
         either_unwrap!(self.get_mut(), v => Pin::new(v).poll_complete(ctx))
@@ -341,15 +325,16 @@ where
         either_unwrap!(self.get_mut(), v => Pin::new(v).poll_shutdown(ctx))
     }
 
-    fn poll_write_buf<BU: Buf>(
+    fn poll_write_vectored(
         self: Pin<&mut Self>,
-        ctx: &mut Context<'_>,
-        buf: &mut BU,
-    ) -> Poll<Result<usize, IoError>>
-    where
-        Self: Sized,
-    {
-        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_write_buf(ctx, buf))
+        ctx: &mut Context,
+        bufs: &[std::io::IoSlice],
+    ) -> Poll<Result<usize, IoError>> {
+        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_write_vectored(ctx, bufs))
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        either_unwrap!(self, v => v.is_write_vectored())
     }
 }
 

@@ -1,3 +1,7 @@
+# spirit-tokio-0.8.0
+
+* Porting to tokio 1.0.
+
 # 0.4.11
 
 * Guide.

@@ -19,7 +19,7 @@
 //!   variant and [`Config`][crate::runtime::Config]. Enabled by default.
 //! * `cfg-help`: Support for generating help for the configuration options.
 //! * `net`: Network primitive configuration [`Fragment`]s in the [`net`] module.
-//! * `stream`: Implementations of [`tokio::stream::Stream`] on several types.
+//! * `stream`: Implementations of [`tokio_stream::Stream`] on several types.
 //! * `futures`: Support for converting between [`futures`][futures_util]' and ours
 //!   [`Either`][crate::either::Either].
 //! * `either`: Support for converting between our [`Either`][crate::either::Either] and the one
@@ -54,7 +54,7 @@
 //!     async fn run(self) {
 //!         loop {
 //!             println!("{}", self.msg);
-//!             tokio::time::delay_for(self.interval).await;
+//!             tokio::time::sleep(self.interval).await;
 //!         }
 //!     }
 //! }

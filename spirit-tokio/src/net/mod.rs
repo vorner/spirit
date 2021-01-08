@@ -30,14 +30,11 @@ use spirit::Empty;
 use structdoc::StructDoc;
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 #[cfg(feature = "stream")]
-use tokio::stream::Stream;
+use tokio_stream::Stream;
 
 pub mod limits;
 #[cfg(unix)]
 pub mod unix;
-
-// TODO: Unix domain sockets
-// TODO: Either?
 
 /// Configuration that can be unset, explicitly turned off or set to a duration.
 ///
@@ -148,11 +145,17 @@ impl Accept for TcpListener {
     type Connection = TcpStream;
 
     fn poll_accept(&mut self, ctx: &mut Context) -> Poll<Result<TcpStream, IoError>> {
-        match self.poll_accept(ctx) {
-            Poll::Ready(Ok((stream, _addr))) => Poll::Ready(Ok(stream)),
-            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-            Poll::Pending => Poll::Pending,
+        mod inner {
+            use super::{Context, IoError, Poll, TcpListener, TcpStream};
+            // Hide the Accept trait from scope so it doesn't interfere
+            pub(super) fn poll_accept(
+                l: &TcpListener,
+                ctx: &mut Context,
+            ) -> Poll<Result<TcpStream, IoError>> {
+                l.poll_accept(ctx).map_ok(|(s, _)| s)
+            }
         }
+        inner::poll_accept(self, ctx)
     }
 }
 
@@ -333,12 +336,12 @@ pub trait StreamConfig<S> {
     ///
     /// If the configuration fails and error is returned, the connection is dropped (and the error
     /// is logged).
-    fn configure(&self, stream: &mut S) -> Result<(), IoError>;
+    fn configure(&self, stream: S) -> Result<S, IoError>;
 }
 
 impl<S> StreamConfig<S> for Empty {
-    fn configure(&self, _: &mut S) -> Result<(), IoError> {
-        Ok(())
+    fn configure(&self, s: S) -> Result<S, IoError> {
+        Ok(s)
     }
 }
 
@@ -408,25 +411,26 @@ pub struct TcpConfig {
 }
 
 impl StreamConfig<TcpStream> for TcpConfig {
-    fn configure(&self, stream: &mut TcpStream) -> Result<(), IoError> {
+    fn configure(&self, stream: TcpStream) -> Result<TcpStream, IoError> {
+        let sock: Socket = stream.into_std()?.into();
         if let Some(nodelay) = self.nodelay {
-            stream.set_nodelay(nodelay)?;
+            sock.set_nodelay(nodelay)?;
         }
         if let Some(recv_buf_size) = self.recv_buf_size {
-            stream.set_recv_buffer_size(recv_buf_size)?;
+            sock.set_recv_buffer_size(recv_buf_size)?;
         }
         if let Some(send_buf_size) = self.send_buf_size {
-            stream.set_send_buffer_size(send_buf_size)?;
+            sock.set_send_buffer_size(send_buf_size)?;
         }
         match self.keepalive {
             MaybeDuration::Unset => (),
-            MaybeDuration::Off => stream.set_keepalive(None)?,
-            MaybeDuration::Duration(duration) => stream.set_keepalive(Some(duration))?,
+            MaybeDuration::Off => sock.set_keepalive(None)?,
+            MaybeDuration::Duration(duration) => sock.set_keepalive(Some(duration))?,
         }
         if let Some(ttl) = self.accepted_ttl {
-            stream.set_ttl(ttl)?;
+            sock.set_ttl(ttl)?;
         }
-        Ok(())
+        Ok(TcpStream::from_std(sock.into_tcp_stream())?)
     }
 }
 
@@ -457,12 +461,10 @@ where
     type Connection = A::Connection;
     fn poll_accept(&mut self, ctx: &mut Context) -> Poll<Result<A::Connection, IoError>> {
         match self.accept.poll_accept(ctx) {
-            Poll::Ready(Ok(mut conn)) => {
-                if let Err(e) = self.config.configure(&mut conn) {
-                    return Poll::Ready(Err(e));
-                }
-                Poll::Ready(Ok(conn))
-            }
+            Poll::Ready(Ok(conn)) => match self.config.configure(conn) {
+                Ok(conn) => Poll::Ready(Ok(conn)),
+                Err(e) => Poll::Ready(Err(e)),
+            },
             Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
             Poll::Pending => Poll::Pending,
         }
@@ -556,7 +558,10 @@ where
         let config = self.tcp_config.clone();
         seed.try_clone() // Another copy of the listener
             // std → tokio socket conversion
-            .and_then(TcpListener::from_std)
+            .and_then(|sock| -> Result<TcpListener, IoError> {
+                sock.set_nonblocking(true)?;
+                TcpListener::from_std(sock)
+            })
             .with_context(|_| format!("Failed to make socket {}/{:?} asynchronous", name, self))
             .map_err(AnyError::from)
             .map(|listener| ConfiguredListener::new(listener, config))
@@ -635,7 +640,10 @@ where
     fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<UdpSocket, AnyError> {
         seed.try_clone() // Another copy of the socket
             // std → tokio socket conversion
-            .and_then(UdpSocket::from_std)
+            .and_then(|sock| -> Result<UdpSocket, IoError> {
+                sock.set_nonblocking(true)?;
+                UdpSocket::from_std(sock)
+            })
             .with_context(|_| format!("Failed to make socket {}/{:?} async", name, self))
             .map_err(AnyError::from)
     }

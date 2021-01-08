@@ -24,7 +24,7 @@ impl MsgCfg {
     async fn run(self) {
         loop {
             println!("{}", self.msg);
-            tokio::time::delay_for(self.interval).await;
+            tokio::time::sleep(self.interval).await;
         }
     }
 }

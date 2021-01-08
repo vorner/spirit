@@ -1,6 +1,6 @@
 [package]
 name = "spirit-tokio"
-version = "0.7.2"
+version = "0.8.0"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Tokio helpers for Spirit"
 documentation = "https://docs.rs/spirit-tokio"
@@ -21,9 +21,10 @@ include = [
 default = ["cfg-help", "rt-from-cfg", "net", "stream"]
 
 cfg-help = ["spirit/cfg-help", "structdoc"]
+multithreaded = ["tokio/rt-multi-thread"]
 net = ["humantime", "socket2", "tokio/net", "tokio/time"]
-rt-from-cfg = ["tokio/rt-threaded", "tokio/time", "tokio/io-driver"]
-stream = ["tokio/stream"]
+rt-from-cfg = ["multithreaded", "tokio/time", "num_cpus"]
+stream = ["tokio-stream"]
 
 futures = ["futures-util"]
 
@@ -32,27 +33,22 @@ travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-bytes = "~0.5"
-either = { version = "~1", optional = true }
+either = { version = "^1", optional = true }
 futures-util = { version = "~0.3", optional = true, default-features = false }
-err-context = "~0.1"
-log = "~0.4"
-humantime = { version = "~2", optional = true }
-socket2 = { version = "~0.3", optional = true, features = ["reuseport"] }
-num_cpus = "~1"
-serde = { version = "~1", features = ["derive"] }
-spirit = { version = "~0.4.6", path = "..", default-features = false }
-structdoc = { version = "~0.1", optional = true }
-structopt = { version = "~0.3", default-features = false }
-
-[dependencies.tokio]
-# TODO: Make some/all these features optional (maybe default)?
-version = "0.2"
-default-features = false
-features = ["macros", "rt-core", "sync"]
+err-context = "^0.1"
+log = "^0.4"
+humantime = { version = "^2", optional = true }
+socket2 = { version = "^0.3", optional = true, features = ["reuseport"] }
+num_cpus = { version = "^1", optional = true }
+serde = { version = "^1", features = ["derive"] }
+spirit = { version = "^0.4.6", path = "..", default-features = false }
+structdoc = { version = "^0.1", optional = true }
+structopt = { version = "^0.3", default-features = false }
+tokio = { version = "^1", default-features = false, features = ["macros", "rt", "sync"] }
+tokio-stream = { version = "^0.1", optional = true }
 
 [dev-dependencies]
-arc-swap = "~1"
+arc-swap = "^1"
 env_logger = "~0.7"
-serde_json = "~1"
-tokio = { version = "~0.2", features = ["io-util"] }
+serde_json = "^1"
+tokio = { version = "^1", features = ["io-util"] }

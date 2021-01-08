@@ -1,3 +1,4 @@
+#![allow(clippy::mutex_atomic)] // Mutex<bool> needed for condvar
 //! Installer of futures.
 //!
 //! The [`FutureInstaller`] is an [`Installer`] that allows installing (spawning) futures, but also
@@ -7,6 +8,7 @@
 //! [`Installer`]: spirit::fragment::Installer
 
 use std::future::Future;
+use std::sync::{Arc, Condvar, Mutex};
 
 use err_context::AnyError;
 use log::trace;
@@ -14,11 +16,30 @@ use serde::de::DeserializeOwned;
 use spirit::extension::Extensible;
 use spirit::fragment::Installer;
 use structopt::StructOpt;
-use tokio::runtime::Handle;
 use tokio::select;
-use tokio::sync::oneshot::{self, Receiver, Sender};
+use tokio::sync::oneshot::{self, Sender};
 
 use crate::runtime::Tokio;
+
+/// Wakeup async -> sync.
+#[derive(Default)]
+struct Wakeup {
+    wakeup: Mutex<bool>,
+    condvar: Condvar,
+}
+
+impl Wakeup {
+    fn wait(&self) {
+        let g = self.wakeup.lock().unwrap();
+        let _g = self.condvar.wait_while(g, |w| *w).unwrap();
+    }
+
+    fn wakeup(&self) {
+        // Expected to be unlocked all the time.
+        *self.wakeup.lock().unwrap() = true;
+        self.condvar.notify_all();
+    }
+}
 
 /// An [`UninstallHandle`] for the [`FutureInstaller`].
 ///
@@ -29,7 +50,7 @@ use crate::runtime::Tokio;
 pub struct RemoteDrop {
     name: &'static str,
     request_drop: Option<Sender<()>>,
-    terminated: Option<Receiver<()>>,
+    wakeup: Arc<Wakeup>,
 }
 
 impl Drop for RemoteDrop {
@@ -38,19 +59,16 @@ impl Drop for RemoteDrop {
         // Ask the other side to drop the thing
         let _ = self.request_drop.take().unwrap().send(());
         // And wait for it to actually happen
-        let mut terminated = self.terminated.take().unwrap();
-        if terminated.try_recv().is_err() {
-            let _ = Handle::current().block_on(terminated);
-        }
+        self.wakeup.wait();
         trace!("Remote drop done on {}", self.name);
     }
 }
 
-struct SendOnDrop(Option<Sender<()>>);
+struct SendOnDrop(Arc<Wakeup>);
 
 impl Drop for SendOnDrop {
     fn drop(&mut self) {
-        let _ = self.0.take().unwrap().send(());
+        self.0.wakeup();
     }
 }
 
@@ -80,15 +98,16 @@ where
 
     fn install(&mut self, fut: F, name: &'static str) -> RemoteDrop {
         let (request_send, request_recv) = oneshot::channel();
-        let (confirm_send, confirm_recv) = oneshot::channel();
+        let wakeup = Default::default();
 
         // Make sure we can terminate the future remotely/uninstall it.
         // (Is there a more lightweight version in tokio than bringing in the macros & doing an
         // async block? The futures crate has select function, but we don't have futures as dep and
         // bringing it just for this feels… heavy)
+        let guard = SendOnDrop(Arc::clone(&wakeup));
         let cancellable_future = async move {
             // Send the confirmation we're done by RAII. This works with panics and shutdown.
-            let _guard = SendOnDrop(Some(confirm_send));
+            let _guard = guard;
 
             select! {
                 _ = request_recv => trace!("Future {} requested to terminate", name),
@@ -102,7 +121,7 @@ where
         RemoteDrop {
             name,
             request_drop: Some(request_send),
-            terminated: Some(confirm_recv),
+            wakeup,
         }
     }
 
@@ -112,6 +131,13 @@ where
         E::Config: DeserializeOwned + Send + Sync + 'static,
         E::Opts: StructOpt + Send + Sync + 'static,
     {
-        ext.with_singleton(Tokio::Default)
+        #[cfg(feature = "multithreaded")]
+        {
+            ext.with_singleton(Tokio::Default)
+        }
+        #[cfg(not(feature = "multithreaded"))]
+        {
+            ext.with_singleton(Tokio::SingleThreaded)
+        }
     }
 }

@@ -23,7 +23,6 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use bytes::{Buf, BufMut};
 use err_context::AnyError;
 use log::trace;
 use serde::de::DeserializeOwned;
@@ -34,11 +33,11 @@ use spirit::fragment::{Fragment, Stackable};
 #[cfg(feature = "cfg-help")]
 use structdoc::StructDoc;
 use structopt::StructOpt;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek, AsyncWrite};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek, AsyncWrite, ReadBuf};
+use tokio::sync::{AcquireError, OwnedSemaphorePermit, Semaphore};
+use tokio::time;
 #[cfg(feature = "stream")]
-use tokio::stream::Stream;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-use tokio::time::{self, Delay};
+use tokio_stream::Stream;
 
 use super::Accept;
 
@@ -68,9 +67,8 @@ pub trait ListenLimits {
 /// socket changes, the old listening socket is destroyed but the old connections are kept around
 /// until they terminate. The new listening socket starts with fresh limits, not counting the old
 /// connections.
-#[derive(
-    Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, StructDoc,
-)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
+#[cfg_attr(feature = "structdoc", derive(StructDoc))]
 #[non_exhaustive]
 pub struct WithListenLimits<A, L> {
     /// The inner listener socket.
@@ -216,7 +214,7 @@ pub struct Limited<A> {
     error_sleep: Duration,
     // If there's a global-ish error (too many file descriptors, for example), we want to wait a
     // bit. And here we have the future for the waiting. None if we don't wait.
-    err_delay: Option<Delay>,
+    err_delay: Option<Pin<Box<dyn Future<Output = ()> + Send + Sync>>>,
     // Tracking how many connections we have/we can still accept.
     allowed_conns: Arc<Semaphore>,
     // Awaiting on a permit. Unfortunately, no way to name the thing like in the case of the delay,
@@ -225,7 +223,10 @@ pub struct Limited<A> {
     //
     // We probably could write our own semaphore thing, but that would be hard and the code even
     // more complex, likely. So we mostly hope the limits are not hit very often.
-    permit_fut: Option<Pin<Box<dyn Future<Output = OwnedSemaphorePermit> + Send + Sync>>>,
+    #[allow(clippy::type_complexity)]
+    permit_fut: Option<
+        Pin<Box<dyn Future<Output = Result<OwnedSemaphorePermit, AcquireError>> + Send + Sync>>,
+    >,
 }
 
 impl<A: Accept> Accept for Limited<A> {
@@ -248,7 +249,7 @@ impl<A: Accept> Accept for Limited<A> {
                     match Arc::clone(&self.allowed_conns).try_acquire_owned() {
                         // The expected fast path… no future allocated on heap, no dyn and we
                         // expect we are in limits most of the time.
-                        Ok(permit) => break permit,
+                        Ok(permit) => break Ok(permit),
                         Err(_) => {
                             // We have run out of permits for new connections and will probably
                             // have to wait for them. Therefore, we get the future, store it and
@@ -296,13 +297,13 @@ impl<A: Accept> Accept for Limited<A> {
                 }
                 Poll::Ready(Err(_)) => {
                     trace!("Accept error, sleeping for {:?}", self.error_sleep);
-                    self.err_delay = Some(time::delay_for(self.error_sleep));
+                    self.err_delay = Some(Box::pin(time::sleep(self.error_sleep)));
                 }
                 Poll::Ready(Ok(conn)) => {
                     trace!("Got a new connection");
                     return Poll::Ready(Ok(Tracked {
                         inner: conn,
-                        _permit: permit,
+                        _permit: permit.expect("We don't remove the semaphore"),
                     }));
                 }
                 Poll::Pending => return Poll::Pending,
@@ -360,30 +361,15 @@ impl<C: AsyncRead + Unpin> AsyncRead for Tracked<C> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         ctx: &mut Context,
-        buf: &mut [u8],
-    ) -> Poll<Result<usize, IoError>> {
+        buf: &mut ReadBuf,
+    ) -> Poll<Result<(), IoError>> {
         Pin::new(&mut self.inner).poll_read(ctx, buf)
-    }
-
-    fn poll_read_buf<B: BufMut>(
-        mut self: Pin<&mut Self>,
-        ctx: &mut Context,
-        buf: &mut B,
-    ) -> Poll<Result<usize, IoError>>
-    where
-        Self: Sized,
-    {
-        Pin::new(&mut self.inner).poll_read_buf(ctx, buf)
     }
 }
 
 impl<C: AsyncSeek + Unpin> AsyncSeek for Tracked<C> {
-    fn start_seek(
-        mut self: Pin<&mut Self>,
-        ctx: &mut Context,
-        position: SeekFrom,
-    ) -> Poll<Result<(), IoError>> {
-        Pin::new(&mut self.inner).start_seek(ctx, position)
+    fn start_seek(mut self: Pin<&mut Self>, position: SeekFrom) -> Result<(), IoError> {
+        Pin::new(&mut self.inner).start_seek(position)
     }
     fn poll_complete(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<u64, IoError>> {
         Pin::new(&mut self.inner).poll_complete(ctx)
@@ -407,15 +393,16 @@ impl<C: AsyncWrite + Unpin> AsyncWrite for Tracked<C> {
         Pin::new(&mut self.inner).poll_shutdown(ctx)
     }
 
-    fn poll_write_buf<B: Buf>(
+    fn poll_write_vectored(
         mut self: Pin<&mut Self>,
-        ctx: &mut Context<'_>,
-        buf: &mut B,
-    ) -> Poll<Result<usize, IoError>>
-    where
-        Self: Sized,
-    {
-        Pin::new(&mut self.inner).poll_write_buf(ctx, buf)
+        ctx: &mut Context,
+        bufs: &[std::io::IoSlice],
+    ) -> Poll<Result<usize, IoError>> {
+        Pin::new(&mut self.inner).poll_write_vectored(ctx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
     }
 }
 
@@ -522,7 +509,7 @@ mod tests {
             for _ in 0..3 {
                 let conn = listener.accept().await.unwrap();
                 tokio::spawn(async move {
-                    time::delay_for(Duration::from_millis(50)).await;
+                    time::sleep(Duration::from_millis(50)).await;
                     drop(conn);
                 });
             }

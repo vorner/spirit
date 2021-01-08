@@ -13,9 +13,7 @@ use spirit::validation::Action;
 #[cfg(all(feature = "cfg-help", feature = "rt-from-cfg"))]
 use structdoc::StructDoc;
 use structopt::StructOpt;
-#[cfg(feature = "rt-from-cfg")]
-use tokio::runtime::Builder;
-use tokio::runtime::Runtime;
+use tokio::runtime::{Builder, Runtime};
 use tokio::sync::oneshot;
 
 // From tokio documentation
@@ -61,9 +59,9 @@ impl Default for Config {
 #[cfg(feature = "rt-from-cfg")]
 impl Into<Builder> for Config {
     fn into(self) -> Builder {
-        let mut builder = Builder::new();
+        let mut builder = Builder::new_multi_thread();
         let threads = self.core_threads.unwrap_or_else(num_cpus::get);
-        builder.core_threads(threads);
+        builder.worker_threads(threads);
         let max = match self.max_threads {
             None if threads >= DEFAULT_MAX_THREADS => {
                 warn!(
@@ -73,16 +71,17 @@ impl Into<Builder> for Config {
                 threads
             }
             None => DEFAULT_MAX_THREADS,
-            Some(max_threads) if max_threads < threads => {
+            Some(max_threads) if max_threads <= threads => {
                 warn!(
                     "Incrementing max threads from configured {} to {} to match core threads",
-                    max_threads, threads
+                    max_threads,
+                    threads + 1
                 );
-                threads
+                threads + 1
             }
             Some(max) => max,
         };
-        builder.max_threads(max);
+        builder.max_blocking_threads(max);
         builder.thread_name(self.thread_name);
         builder
     }
@@ -109,7 +108,11 @@ impl Into<Builder> for Config {
 #[allow(clippy::type_complexity)] // While complex, the types are probably more readable inline
 pub enum Tokio<O, C> {
     /// Provides the equivalent of [`Runtime::new`].
+    #[cfg(feature = "multithreaded")]
     Default,
+
+    /// A singlethreaded runtime.
+    SingleThreaded,
 
     /// Allows the caller to provide arbitrary constructor for the [`Runtime`].
     ///
@@ -156,19 +159,25 @@ impl<O, C> Tokio<O, C> {
     /// This can be used when not taking advantage of the spirit auto-management features.
     pub fn create(&mut self, opts: &O, cfg: &Arc<C>) -> Result<Runtime, AnyError> {
         match self {
+            #[cfg(feature = "multithreaded")]
             Tokio::Default => Runtime::new().map_err(AnyError::from),
+            Tokio::SingleThreaded => Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(AnyError::from),
             Tokio::Custom(ctor) => ctor(opts, cfg),
             #[cfg(feature = "rt-from-cfg")]
             Tokio::FromCfg(extractor, postprocess) => {
                 let cfg = extractor(opts, cfg);
                 let mut builder: Builder = cfg.into();
-                builder.enable_all().threaded_scheduler();
+                builder.enable_all();
                 postprocess(builder)
             }
         }
     }
 }
 
+#[cfg(feature = "multithreaded")]
 impl<O, C> Default for Tokio<O, C> {
     fn default() -> Self {
         Tokio::Default
@@ -255,7 +264,8 @@ where
 
                 if let Some(handle) = locked.as_ref() {
                     trace!("Wrapping hooks into tokio handle");
-                    handle.enter(inner);
+                    let _guard = handle.enter();
+                    inner();
                     trace!("Leaving tokio handle");
                 } else {
                     // During startup, the handle/runtime is not *yet* ready. This is OK and
@@ -276,9 +286,10 @@ where
             .around_hooks(around_hooks)
             .run_around(move |spirit, inner| -> Result<(), AnyError> {
                 // No need to worry about poisons here, we are going to be called just once
-                let mut runtime = runtime.lock().unwrap().take().expect("Run even before config");
-                debug!("Running with tokio handle");
-                let result = runtime.enter(inner);
+                let runtime = runtime.lock().unwrap().take().expect("Run even before config");
+                debug!("Running with tokio runtime");
+                let _guard = runtime.enter();
+                let result = inner();
                 debug!("Inner bodies ended");
                 if result.is_ok() {
                     debug!("Waiting for spirit to terminate");

@@ -4,16 +4,20 @@
 //! While possible to do manually, the types here might be a bit more comfortable.
 
 use std::future::Future;
+#[cfg(feature = "net")]
 use std::pin::Pin;
+#[cfg(feature = "net")]
 use std::task::{Context, Poll};
 
 use err_context::AnyError;
-use log::{error, trace};
-use spirit::fragment::Transformation;
 
 #[cfg(feature = "net")]
 use super::net::Accept;
 use super::FutureInstaller;
+#[cfg(feature = "net")]
+use log::error;
+use log::trace;
+use spirit::fragment::Transformation;
 
 /// A [`Transformation`] to take a resource, turn it into a future and install it.
 pub struct ToFuture<F>(pub F);
@@ -74,7 +78,7 @@ where
 ///     async fn run(self) {
 ///         loop {
 ///             println!("{}", self.msg);
-///             tokio::time::delay_for(self.interval).await;
+///             tokio::time::sleep(self.interval).await;
 ///         }
 ///     }
 /// }
@@ -179,7 +183,7 @@ where
                     // Poking the borrow checker around the un-pinning, otherwise it is unhappy
                     let me: &mut Self = &mut self;
                     let fut = (me.f)(conn, &me.cfg);
-                    tokio::spawn(fut);
+                    tokio::spawn(async move { fut.await });
                 }
                 Poll::Pending => return Poll::Pending,
             }

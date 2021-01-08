@@ -13,7 +13,6 @@ use std::fmt::Debug;
 use std::io::Error as IoError;
 use std::os::unix::net::{UnixDatagram as StdUnixDatagram, UnixListener as StdUnixListener};
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use err_context::prelude::*;
@@ -84,10 +83,17 @@ pub type UnixConfig = Empty;
 impl Accept for UnixListener {
     type Connection = UnixStream;
     fn poll_accept(&mut self, ctx: &mut Context) -> Poll<Result<Self::Connection, IoError>> {
-        let mut inc = self.incoming();
-        // Unlike the TcpListener, this forces us to go through the incoming :-( But for what it
-        // looks inside, this should still work
-        Pin::new(&mut inc).poll_accept(ctx)
+        mod inner {
+            use super::{Context, IoError, Poll, UnixListener, UnixStream};
+            // Hide the Accept trait from scope so it doesn't interfere
+            pub(super) fn poll_accept(
+                l: &UnixListener,
+                ctx: &mut Context,
+            ) -> Poll<Result<UnixStream, IoError>> {
+                l.poll_accept(ctx).map_ok(|(s, _)| s)
+            }
+        }
+        inner::poll_accept(self, ctx)
     }
 }
 
@@ -152,7 +158,10 @@ where
         let config = self.unix_config.clone();
         seed.try_clone() // Another copy of the listener
             // std → tokio socket conversion
-            .and_then(UnixListener::from_std)
+            .and_then(|sock| -> Result<UnixListener, IoError> {
+                sock.set_nonblocking(true)?;
+                UnixListener::from_std(sock)
+            })
             .with_context(|_| {
                 format!(
                     "Failed to make unix streamsocket {}/{:?} asynchronous",
@@ -227,7 +236,10 @@ where
     fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<UnixDatagram, AnyError> {
         seed.try_clone() // Another copy of the socket
             // std → tokio socket conversion
-            .and_then(UnixDatagram::from_std)
+            .and_then(|sock| -> Result<UnixDatagram, IoError> {
+                sock.set_nonblocking(true)?;
+                UnixDatagram::from_std(sock)
+            })
             .with_context(|_| {
                 format!(
                     "Failed to make unix datagram socket {}/{:?} asynchronous",
