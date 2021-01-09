@@ -17,8 +17,6 @@ Alternatively, I may accept payment to do some development on it.
 
 ## The library
 
-(**[API Docs for master][docs]/[User Guide][user-guide]**)
-
 Spirit aims to help with combining configuration and command line parsing,
 reloading it at runtime and provides various ready-made helpers for common parts
 of configuration like logging.
@@ -45,6 +43,3 @@ Unless you explicitly state otherwise, any contribution intentionally
 submitted for inclusion in the work by you, as defined in the Apache-2.0
 license, shall be dual licensed as above, without any additional terms
 or conditions.
-
-[docs]: https://vorner.github.io/spirit/doc/spirit/index.html
-[user-guide]: https://vorner.github.io/spirit/user-guide/index.html
