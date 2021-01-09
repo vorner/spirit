@@ -1,3 +1,8 @@
+# spirit-0.4.12
+
+* Fix occasional deadlock on shutdown of single-threaded tokio based
+  applications.
+
 # spirit-reqwest-0.5.0
 
 * Porting to reqwest 0.11.

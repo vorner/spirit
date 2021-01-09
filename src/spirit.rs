@@ -389,8 +389,7 @@ where
         let mut hooks = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
         // Take out the terminate hooks out first, so they are not called multiple times even in
         // case of panic.
-        let mut term_hooks = Vec::new();
-        mem::swap(&mut term_hooks, &mut hooks.terminate);
+        let mut term_hooks = mem::take(&mut hooks.terminate);
         for hook in &mut term_hooks {
             hook();
         }
@@ -400,14 +399,17 @@ where
         // guards (until the end of the spirit lifetime) and the singletons (so we don't register
         // something a second time in some corner case when it didn't notice it already
         // terminated).
-        let mut guards = Vec::new();
-        mem::swap(&mut guards, &mut hooks.guards);
-        let mut singletons = HashSet::new();
-        mem::swap(&mut singletons, &mut hooks.singletons);
-        *hooks = Hooks::default();
-        hooks.guards = guards;
-        hooks.singletons = singletons;
+
+        // Take everything out
+        let mut old_hooks: Hooks<_, _> = mem::take(&mut hooks);
+        // Return the interesting things back
+        mem::swap(&mut old_hooks.guards, &mut hooks.guards);
+        mem::swap(&mut old_hooks.singletons, &mut hooks.singletons);
         hooks.terminated = true;
+        // Unlock before dropping all the hooks. Has been observed to deadlock at occasions.
+        drop(hooks);
+        trace!("Dropping all hooks");
+        // Now we drop all the hooks and all that
     }
 
     fn background(&self, signals: &mut Signals) {
