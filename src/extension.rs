@@ -251,7 +251,7 @@ pub trait Extensible: Sized {
     ///
     /// The [`Spirit`][crate::Spirit] reacts to some signals itself, in its own service
     /// thread. However, it is also possible to hook into any signals directly (well, any except
-    /// the ones that are [off limits][signal_hook::FORBIDDEN]).
+    /// the ones that are [off limits][signal_hook::consts::FORBIDDEN]).
     ///
     /// These are not run inside the real signal handler, but are delayed and run in the service
     /// thread. Therefore, restrictions about async-signal-safety don't apply to the hook.

@@ -1,3 +1,6 @@
+* Use `utils::support_emergency_shutdown` instead of `cleanup_signals` (the
+  latter is deprecated).
+
 # spirit-0.4.12
 
 * Fix occasional deadlock on shutdown of single-threaded tokio based

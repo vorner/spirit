@@ -10,10 +10,13 @@ use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::Duration;
 
 use err_context::prelude::*;
-use log::warn;
+use libc::c_int;
+use log::{debug, error, warn};
 use serde::de::{Deserializer, Error as DeError, Unexpected};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
@@ -280,44 +283,93 @@ pub fn serialize_opt_duration<S: Serializer>(
     }
 }
 
-/// Remove the signals handling termination.
+#[deprecated(note = "Abstraction at the wrong place. Use support_emergency_shutdown instead.")]
+#[doc(hidden)]
+pub fn cleanup_signals() {
+    debug!("Resetting termination signal handlers to defaults");
+    // Originally, this was done by removing all signals and resetting to defaults. We now install
+    // default-handler emulation instead. That's a little bit problematic, if it's the signal
+    // handlers that get stuck, but folks are recommended to use the support_emergency_shutdown
+    // instead anyway.
+    for sig in signal_hook::consts::TERM_SIGNALS {
+        let registered =
+            signal_hook::flag::register_conditional_default(*sig, Arc::new(AtomicBool::new(true)));
+        if let Err(e) = registered {
+            let name = signal_hook::low_level::signal_name(*sig).unwrap_or_default();
+            error!(
+                "Failed to register forced shutdown signal {}/{}: {}",
+                name, sig, e
+            );
+        }
+    }
+}
+
+/// Installs a stage-shutdown handling.
 ///
-/// There's a common pattern of handling termination signals (`CTRL+C`, mostly). The first one
-/// initiates a graceful shutdown. But in case the shutdown takes a long time, the user can press
-/// `CTRL+C` again and expect to shut down immediately (in more unclean way, possibly).
+/// If CTRL+C (or some other similar signal) is received for the first time, a graceful shutdown is
+/// initiated and a flag is set to true. If it is received for a second time, the application is
+/// terminated abruptly.
 ///
-/// On the application side, it is handled by resetting the signal handlers to their defaults after
-/// receiving the first one. This can be used to such thing (it resets the signal handlers for
-/// `SIGTERM`, `SIGINT`, `SIGQUIT`).
+/// The flag handle is returned to the caller, so the graceful shutdown and second stage kill can
+/// be aborted.
 ///
-/// # Warning
+/// Note that this API doesn't allow for removing the staged shutdown (due to the needed API
+/// clutter). If that is needed, you can use [`signal_hook`] directly.
 ///
-/// This resets the signal handlers, but doesn't remove the *hooks*. Furthermore, this is a global
-/// action ‒ it doesn't reset only the ones of [`spirit`][crate], but of everything in the
-/// application.
+/// # Usage
 ///
-/// Also, this example runs the cleanup as part of the normal `spirit` background thread. If the
-/// shutdown is being slow (or stuck) in there before calling the `on_terminate` here, it won't
-/// have effect. Therefore it is a good idea to register this earlier than later.
+/// This is supposed to be called early in the program (usually as the first thing in `main`). This
+/// is for two reasons:
+///
+/// * One usually wants this kind of emergency handling even during startup ‒ if something gets
+///   stuck during the initialization.
+/// * Installing signal handlers once there are multiple threads is inherently racy, therefore it
+///   is better to be done before any additional threads are started.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use spirit::{utils, Empty, Spirit};
 /// use spirit::prelude::*;
+/// use spirit::{utils, Empty, Spirit};
 ///
-/// Spirit::<Empty, Empty>::new()
-///     .on_terminate(utils::cleanup_signals)
-///     .run(|_| {
-///         Ok(())
-///     })
+/// fn main() {
+///     // Do this first, so double CTRL+C works from the very beginning.
+///     utils::support_emergency_shutdown().expect("This doesn't fail on healthy systems");
+///     // Proceed to doing something useful.
+///     Spirit::<Empty, Empty>::new()
+///         .run(|_spirit| {
+///             println!("Hello world");
+///             Ok(())
+///         });
+/// }
 /// ```
-pub fn cleanup_signals() {
-    for i in &[libc::SIGTERM, libc::SIGINT, libc::SIGQUIT] {
-        if let Err(e) = signal_hook::cleanup::cleanup_signal(*i) {
-            warn!("Failed to remove signal handler {}: {}", i, e.display(": "));
-        }
+///
+/// # Errors
+///
+/// This manipulates low-level signal handlers internally, so in theory this can fail. But this is
+/// not expected to fail in practice (not on a system that isn't severely broken anyway). As such,
+/// it is probably reasonable to unwrap here.
+pub fn support_emergency_shutdown() -> Result<Arc<AtomicBool>, AnyError> {
+    let flag = Arc::new(AtomicBool::new(false));
+
+    let install = |sig: c_int| -> Result<(), AnyError> {
+        signal_hook::flag::register_conditional_shutdown(sig, 2, Arc::clone(&flag))?;
+        signal_hook::flag::register(sig, Arc::clone(&flag))?;
+        Ok(())
+    };
+
+    for sig in signal_hook::consts::TERM_SIGNALS {
+        let name = signal_hook::low_level::signal_name(*sig).unwrap_or_default();
+        debug!("Installing emergency shutdown support for {}/{}", name, sig);
+        install(*sig).with_context(|_| {
+            format!(
+                "Failed to install staged shutdown handler for {}/{}",
+                name, sig
+            )
+        })?
     }
+
+    Ok(flag)
 }
 
 /// Checks if value is default.

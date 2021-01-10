@@ -414,39 +414,35 @@ where
 
     fn background(&self, signals: &mut Signals) {
         debug!("Starting background processing");
-        // :-( See spirit-hook#70, it's impossible to use .forever() here as it consumes.
-        // Simulating with .wait.
-        'forever: while !signals.is_closed() {
-            for info in signals.wait() {
-                info!("Received signal {:?}", info);
-                let term = match info.signal {
-                    libc::SIGHUP => {
-                        let _ = error::log_errors(module_path!(), || {
-                            self.config_reload_with_wrapper(|inner| self.wrap_around_hooks(inner))
-                        });
-                        false
-                    }
-                    libc::SIGTERM | libc::SIGINT | libc::SIGQUIT => {
-                        self.wrap_around_hooks(|| self.terminate());
-                        true
-                    }
-                    // Some other signal, only for the hook benefit
-                    _ => false,
-                };
-
-                let mut lock = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
-
-                if let Some(hooks) = lock.sigs.get_mut(&info.signal) {
-                    self.wrap_around_hooks(|| {
-                        for hook in hooks {
-                            hook();
-                        }
+        'forever: for info in signals {
+            info!("Received signal {:?}", info);
+            let term = match info.signal {
+                libc::SIGHUP => {
+                    let _ = error::log_errors(module_path!(), || {
+                        self.config_reload_with_wrapper(|inner| self.wrap_around_hooks(inner))
                     });
+                    false
                 }
+                libc::SIGTERM | libc::SIGINT | libc::SIGQUIT => {
+                    self.wrap_around_hooks(|| self.terminate());
+                    true
+                }
+                // Some other signal, only for the hook benefit
+                _ => false,
+            };
 
-                if term {
-                    break 'forever;
-                }
+            let mut lock = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
+
+            if let Some(hooks) = lock.sigs.get_mut(&info.signal) {
+                self.wrap_around_hooks(|| {
+                    for hook in hooks {
+                        hook();
+                    }
+                });
+            }
+
+            if term {
+                break 'forever;
             }
         }
         debug!("Terminating the background thread");

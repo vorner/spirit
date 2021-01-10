@@ -252,6 +252,9 @@ fn hello(global_cfg: &Cfg, cfg: &Arc<Server>, req: Request<Body>) -> Response<Bo
 
 /// Putting it all together and starting.
 fn main() {
+    // Do a forced shutdown on second CTRL+C if the shutdown after the first one takes too
+    // long.
+    utils::support_emergency_shutdown().expect("Installing signals isn't supposed to fail");
     let global_cfg = Arc::new(ArcSwap::from_pointee(Cfg::default()));
     let build_server = {
         let global_cfg = Arc::clone(&global_cfg);
@@ -278,9 +281,6 @@ fn main() {
         }
     };
     Spirit::<Opts, Cfg>::new()
-        // Do a forced shutdown on second CTRL+C if the shutdown after the first one takes too
-        // long.
-        .on_terminate(utils::cleanup_signals)
         // The baked in configuration.
         .config_defaults(DEFAULT_CONFIG)
         // In addition to specifying configuration in files and command line, also allow overriding
