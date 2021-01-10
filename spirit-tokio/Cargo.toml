@@ -38,7 +38,7 @@ futures-util = { version = "~0.3", optional = true, default-features = false }
 err-context = "^0.1"
 log = "^0.4"
 humantime = { version = "^2", optional = true }
-socket2 = { version = "^0.3", optional = true, features = ["reuseport"] }
+socket2 = { version = "^0.3", optional = true, features = ["reuseport", "unix"] }
 num_cpus = { version = "^1", optional = true }
 serde = { version = "^1", features = ["derive"] }
 spirit = { version = "^0.4.6", path = "..", default-features = false }

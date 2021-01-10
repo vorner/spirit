@@ -221,6 +221,8 @@ reuse-addr = true
 [[listen]]
 # This one will be rejected on Windows, because it'll turn off the unix domain socket support.
 path = "/tmp/hws.socket"
+unlink-before = "try-connect"
+unlink-after = true
 http-mode = "http1-only"
 backlog = 256
 scale = 2

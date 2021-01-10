@@ -8,6 +8,9 @@
   condition).
 * Support/fix graceful shutdown of futures when terminating the runtime.
 * Add support for user to hold the runtime alive.
+* Add support for removing unix-domain sockets (before and after use,
+  configurable; by default stays the same as not deleting them).
+* Add support for abstract addresses for unix domain sockets.
 
 # spirit-0.4.13
 

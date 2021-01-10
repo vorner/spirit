@@ -9,22 +9,79 @@
 //! [`net`]: crate::net
 //! [`Either`]: crate::either::Either
 
+use std::cmp;
+use std::ffi::OsStr;
 use std::fmt::Debug;
+use std::fs;
 use std::io::Error as IoError;
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::{UnixDatagram as StdUnixDatagram, UnixListener as StdUnixListener};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::task::{Context, Poll};
 
 use err_context::prelude::*;
 use err_context::AnyError;
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
+use socket2::{Domain, SockAddr, Socket, Type as SocketType};
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};
-use spirit::Empty;
+use spirit::utils::is_default;
+use spirit::{log_error, Empty};
 use tokio::net::{UnixDatagram, UnixListener, UnixStream};
 
 use super::limits::WithLimits;
 use super::{Accept, ConfiguredListener};
+
+/// When should an existing file/socket be removed before trying to bind to it.
+///
+/// # Warning
+///
+/// These settings are racy (they first check the condition and then act on that, but by that time
+/// something else might be in place already) and have the possibility to delete unrelated things.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+#[serde(rename_all = "kebab-case")]
+#[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
+pub enum UnlinkBefore {
+    /// Try removing it always.
+    ///
+    /// This has the risk of removing unrelated files.
+    Always,
+
+    /// Remove it if it is a socket.
+    IsSocket,
+
+    /// Try connecting there first and if connecting fails, remove otherwise keep alive.
+    TryConnect,
+}
+
+fn is_socket(p: &Path) -> Result<bool, AnyError> {
+    let meta = fs::metadata(p)?;
+    Ok(meta.file_type().is_socket())
+}
+
+fn try_connect(addr: &SockAddr, tp: SocketType) -> Result<bool, AnyError> {
+    let socket = Socket::new(Domain::unix(), tp, None)?;
+    Ok(socket.connect(addr).is_err())
+}
+
+#[doc(hidden)]
+pub struct SocketWithPath<S> {
+    to_delete: Option<PathBuf>,
+    socket: S,
+}
+
+impl<S> Drop for SocketWithPath<S> {
+    fn drop(&mut self) {
+        if let Some(path) = &self.to_delete {
+            if let Err(e) = fs::remove_file(path) {
+                warn!("Failed to remove {} after use: {}", path.display(), e);
+            }
+        }
+    }
+}
 
 /// Configuration of where to bind a unix domain socket.
 ///
@@ -36,14 +93,16 @@ use super::{Accept, ConfiguredListener};
 /// # Configuration options
 ///
 /// * `path`: The filesystem path to bind the socket to.
+/// * `remove_before`: Under which conditions should the socket be removed before trying to bind
+///   it. Beware that this is racy (both because the check is separate from the removal and that
+///   something might have been created after we have removed it). No removal by default.
+/// * `remove_after`: It an attempt to remove it should be done after we are done using the socket.
+///   Default is `false`.
+/// * `abstract_path`: If set to `true`, interprets the path as abstract path.
 ///
 /// # TODO
 ///
 /// * Setting permissions on the newly bound socket.
-/// * Ability to remove previous socket:
-///   - In case it is a dead socket (leftover, but nobody listens on it).
-///   - It is any socket.
-///   - Always.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 #[serde(rename_all = "kebab-case")]
@@ -51,23 +110,110 @@ use super::{Accept, ConfiguredListener};
 pub struct Listen {
     /// The path on the FS where to create the unix domain socket.
     pub path: PathBuf,
+
+    /// When should an existing file/socket be removed before trying to bind to it.
+    ///
+    /// # Warning
+    ///
+    /// These settings are racy (they first check the condition and then act on that, but by that time
+    /// something else might be in place already) and have the possibility to delete unrelated things.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unlink_before: Option<UnlinkBefore>,
+
+    /// Try removing the file after stopping using it.
+    ///
+    /// Removal might fail in case of unclean shutdown and be left behind.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub unlink_after: bool,
+
+    /// Interpret as an abstract path instead of ordinary one.
+    #[serde(default, rename = "abstract", skip_serializing_if = "is_default")]
+    pub abstract_path: bool,
+
+    /// The accepting backlog.
+    ///
+    /// Has no effect for DGRAM sockets.
+    ///
+    /// This specifies how many connections can wait in the kernel before being accepted. If more
+    /// than this limit are queued, the kernel starts refusing them with connection reset packets.
+    ///
+    /// The default is 128.
+    #[serde(default = "super::default_backlog")]
+    pub backlog: u32,
     // TODO: Permissions
-    // TODO: Remove
 }
 
 impl Listen {
+    fn add_path<S>(&self, socket: S) -> SocketWithPath<S> {
+        let to_delete = if self.unlink_after && !self.abstract_path {
+            Some(self.path.clone())
+        } else {
+            None
+        };
+        SocketWithPath { socket, to_delete }
+    }
+    fn unlink_before(&self, addr: &SockAddr, tp: SocketType) {
+        use UnlinkBefore::*;
+
+        let unlink = match (self.abstract_path, self.unlink_before) {
+            (true, _) | (false, None) => false,
+            (false, Some(Always)) => true,
+            (false, Some(IsSocket)) => is_socket(&self.path).unwrap_or(false),
+            (false, Some(TryConnect)) => {
+                self.path.exists() && try_connect(addr, tp).unwrap_or(false)
+            }
+        };
+
+        if unlink {
+            if let Err(e) = fs::remove_file(&self.path) {
+                log_error!(
+                    Warn,
+                    e.context(format!(
+                        "Failed to remove previous socket at {}",
+                        self.path.display()
+                    ))
+                    .into()
+                );
+            } else {
+                info!("Removed previous socket {}", self.path.display());
+            }
+        }
+    }
+
+    fn create_any(&self, tp: SocketType) -> Result<Socket, AnyError> {
+        let mut buf = Vec::new();
+        let addr: &OsStr = if self.abstract_path {
+            buf.push(0);
+            buf.extend(self.path.as_os_str().as_bytes());
+            OsStr::from_bytes(&buf)
+        } else {
+            self.path.as_ref()
+        };
+        let addr = SockAddr::unix(addr).context("Create sockaddr")?;
+        let sock = Socket::new(Domain::unix(), tp, None).context("Create socket")?;
+        self.unlink_before(&addr, tp);
+        sock.bind(&addr)
+            .with_context(|_| format!("Binding socket to {}", self.path.display()))?;
+
+        Ok(sock)
+    }
+
     /// Creates a unix listener.
     ///
     /// This is a low-level function, returning the *blocking* (std) listener.
     pub fn create_listener(&self) -> Result<StdUnixListener, AnyError> {
-        StdUnixListener::bind(&self.path).map_err(AnyError::from)
+        let sock = self.create_any(SocketType::stream())?;
+        sock.listen(cmp::min(self.backlog, i32::max_value() as u32) as i32)
+            .context("Listening to Stream socket")?;
+        Ok(sock.into_unix_listener())
     }
 
     /// Creates a unix datagram socket.
     ///
     /// This is a low-level function, returning the *blocking* (std) socket.
     pub fn create_datagram(&self) -> Result<StdUnixDatagram, AnyError> {
-        StdUnixDatagram::bind(&self.path).map_err(AnyError::from)
+        let sock = self.create_any(SocketType::dgram())?;
+        Ok(sock.into_unix_datagram())
     }
 }
 
@@ -146,17 +292,19 @@ where
 {
     type Driver = CacheSimilar<Self>;
     type Installer = ();
-    type Seed = StdUnixListener;
+    type Seed = SocketWithPath<StdUnixListener>;
     type Resource = ConfiguredListener<UnixListener, UnixStreamConfig>;
-    fn make_seed(&self, name: &str) -> Result<StdUnixListener, AnyError> {
+    fn make_seed(&self, name: &str) -> Result<Self::Seed, AnyError> {
         self.listen
             .create_listener()
             .with_context(|_| format!("Failed to create a unix stream socket {}/{:?}", name, self))
             .map_err(AnyError::from)
+            .map(|s| self.listen.add_path(s))
     }
     fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<Self::Resource, AnyError> {
         let config = self.unix_config.clone();
-        seed.try_clone() // Another copy of the listener
+        seed.socket
+            .try_clone() // Another copy of the listener
             // std → tokio socket conversion
             .and_then(|sock| -> Result<UnixListener, IoError> {
                 sock.set_nonblocking(true)?;
@@ -225,16 +373,18 @@ where
 {
     type Driver = CacheSimilar<Self>;
     type Installer = ();
-    type Seed = StdUnixDatagram;
+    type Seed = SocketWithPath<StdUnixDatagram>;
     type Resource = UnixDatagram;
     fn make_seed(&self, name: &str) -> Result<Self::Seed, AnyError> {
         self.listen
             .create_datagram()
             .with_context(|_| format!("Failed to create unix datagram socket {}/{:?}", name, self))
             .map_err(AnyError::from)
+            .map(|s| self.listen.add_path(s))
     }
     fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<UnixDatagram, AnyError> {
-        seed.try_clone() // Another copy of the socket
+        seed.socket
+            .try_clone() // Another copy of the socket
             // std → tokio socket conversion
             .and_then(|sock| -> Result<UnixDatagram, IoError> {
                 sock.set_nonblocking(true)?;
