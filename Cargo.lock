@@ -1456,7 +1456,7 @@ dependencies = [
 
 [[package]]
 name = "spirit"
-version = "0.4.12"
+version = "0.4.13"
 dependencies = [
  "arc-swap",
  "config",
@@ -1530,7 +1530,7 @@ dependencies = [
 
 [[package]]
 name = "spirit-hyper"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "env_logger",
  "err-context",
@@ -1582,7 +1582,7 @@ dependencies = [
 
 [[package]]
 name = "spirit-tokio"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "arc-swap",
  "either",
