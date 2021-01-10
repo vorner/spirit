@@ -1,7 +1,13 @@
+# spirit-hyper-0.8.1
+
+* Support/fix graceful shutdown.
+
 # spirit-tokio-0.8.1
 
 * Fix deadlock in the installer unistall routine (the remote drop had reversed
   condition).
+* Support/fix graceful shutdown of futures when terminating the runtime.
+* Add support for user to hold the runtime alive.
 
 # spirit-0.4.13
 

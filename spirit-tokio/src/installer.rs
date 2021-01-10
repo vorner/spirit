@@ -19,7 +19,7 @@ use structopt::StructOpt;
 use tokio::select;
 use tokio::sync::oneshot::{self, Sender};
 
-use crate::runtime::Tokio;
+use crate::runtime::{self, ShutGuard, Tokio};
 
 /// Wakeup async -> sync.
 #[derive(Default, Debug)]
@@ -53,6 +53,9 @@ pub struct RemoteDrop {
     name: &'static str,
     request_drop: Option<Sender<()>>,
     wakeup: Arc<Wakeup>,
+    // Prevent the tokio runtime from shutting down too soon, as long as the resource is still
+    // alive. We want to remove it first gracefully.
+    _shut_guard: Option<ShutGuard>,
 }
 
 impl Drop for RemoteDrop {
@@ -124,6 +127,7 @@ where
             name,
             request_drop: Some(request_send),
             wakeup,
+            _shut_guard: runtime::shut_guard(),
         }
     }
 

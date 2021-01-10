@@ -1,5 +1,6 @@
 //! An extension to start the tokio runtime at the appropriate time.
 
+use std::cell::Cell;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use err_context::prelude::*;
@@ -14,7 +15,54 @@ use spirit::validation::Action;
 use structdoc::StructDoc;
 use structopt::StructOpt;
 use tokio::runtime::{Builder, Runtime};
-use tokio::sync::oneshot;
+use tokio::sync::oneshot::{self, Sender};
+
+/// A guard preventing the tokio runtime from shutting down just yet.
+///
+/// One can keep the runtime alive by holding onto an instance of this.
+///
+/// Note that a forced shutdown is still possible. In case the `spirit`s `run` returns an error,
+/// the runtime is terminated right away.
+#[derive(Clone, Debug)]
+pub struct ShutGuard(Arc<Sender<()>>);
+
+thread_local! {
+    static SHUT_GUARD: Cell<Option<ShutGuard>> = Cell::new(None);
+}
+
+fn with_shut_guard<R, F: FnOnce() -> R>(g: Option<ShutGuard>, f: F) -> R {
+    SHUT_GUARD.with(|c| {
+        // Install the ShutGuard to thread local storage so others can have a look at it.
+        assert!(c.replace(g).is_none());
+        struct Guard<'a>(&'a Cell<Option<ShutGuard>>);
+        impl Drop for Guard<'_> {
+            fn drop(&mut self) {
+                self.0.take();
+            }
+        }
+        // Make sure it is removed after we are done no matter what.
+        let _g = Guard(c);
+
+        f()
+    })
+}
+
+/// Provides a shut guard.
+///
+/// Note that the guard is available only from within the hooks and main thread of run of `spirit`
+/// and only after a [`Tokio`] has been plugged into it and before termination.
+///
+/// It is generally possible to pair a created resource (eg. a future) with an instance of this to
+/// allow it to shut down gracefully.
+///
+/// Futures installed by [`FutureInstaller`][crate::FutureInstaller] already have this protection.
+pub fn shut_guard() -> Option<ShutGuard> {
+    SHUT_GUARD.with(|c| {
+        let g = c.take();
+        c.set(g.clone());
+        g
+    })
+}
 
 // From tokio documentation
 #[cfg(feature = "rt-from-cfg")]
@@ -249,7 +297,10 @@ where
             }
         };
 
-        let (terminate_send, terminate_recv) = oneshot::channel();
+        let (terminate_send, terminate_recv) = oneshot::channel::<()>();
+        let shutdown_guard = Arc::new(Mutex::new(Some(ShutGuard(Arc::new(terminate_send)))));
+        let shutdown_guard_main = Arc::clone(&shutdown_guard);
+        let shutdown_guard_drain = Arc::clone(&shutdown_guard);
 
         // Ugly hack: seems like Rust is not exactly ready to deal with our crazy type in here and
         // deduce it in just the function call :-(. Force it by an explicit type.
@@ -262,47 +313,53 @@ where
                     // next time again.
                     .unwrap_or_else(PoisonError::into_inner);
 
-                if let Some(handle) = locked.as_ref() {
-                    trace!("Wrapping hooks into tokio handle");
-                    let _guard = handle.enter();
-                    inner();
-                    trace!("Leaving tokio handle");
-                } else {
-                    // During startup, the handle/runtime is not *yet* ready. This is OK and
-                    // expected, but we must run without it. And we also need to unlock that mutex,
-                    // because the inner might actually contain the above init and want to provide
-                    // the handle, so we don't want a deadlock.
-                    drop(locked);
-                    trace!("Running hooks without tokio handle, not available yet");
-                    inner();
-                }
+                let shut_guard = shutdown_guard.lock().unwrap().clone();
+                with_shut_guard(shut_guard, || {
+                    if let Some(handle) = locked.as_ref() {
+                        trace!("Wrapping hooks into tokio handle");
+                        let _guard = handle.enter();
+                        inner();
+                        trace!("Leaving tokio handle");
+                    } else {
+                        // During startup, the handle/runtime is not *yet* ready. This is OK and
+                        // expected, but we must run without it. And we also need to unlock that
+                        // mutex, because the inner might actually contain the above init and want
+                        // to provide the handle, so we don't want a deadlock.
+                        drop(locked);
+                        trace!("Running hooks without tokio handle, not available yet");
+                        inner();
+                    }
+                })
             });
 
         ext
-            .on_terminate(|| {
-                let _ = terminate_send.send(());
-            })
             .config_validator(init)
             .around_hooks(around_hooks)
+            .on_terminate(move || {
+                trace!("Removing global shutdown guard (others might be present in resources)");
+                shutdown_guard_drain.lock().unwrap().take();
+            })
             .run_around(move |spirit, inner| -> Result<(), AnyError> {
                 // No need to worry about poisons here, we are going to be called just once
                 let runtime = runtime.lock().unwrap().take().expect("Run even before config");
                 debug!("Running with tokio runtime");
                 let _guard = runtime.enter();
-                let result = inner();
+                let shut_guard = shutdown_guard_main.lock().unwrap().clone();
+                let result = with_shut_guard(shut_guard, inner);
                 debug!("Inner bodies ended");
                 if result.is_ok() {
                     debug!("Waiting for spirit to terminate");
+                    // It's OK to terminate with error here. We actually release it by dropping the
+                    // last Arc to it.
                     let _ = runtime.block_on(terminate_recv);
                     debug!("Spirit signalled termination to runtime");
                     drop(runtime);
                 } else {
-                    warn!("Tokio runtime initialization body returned an error, trying to shut everything down gracefully");
+                    warn!("Tokio runtime initialization body returned an error, trying to shut everything down");
                     runtime.shutdown_background();
                     spirit.terminate();
                 }
                 result
-                // Here the runtime is dropped. That makes it finish all the tasks.
             })
     }
 }

@@ -89,6 +89,7 @@ use spirit::utils::{deserialize_opt_duration, is_default, is_true, serialize_opt
 use spirit::{log_error, Empty};
 use spirit_tokio::net::limits::WithLimits;
 use spirit_tokio::net::{Accept as SpiritAccept, TcpListen};
+use spirit_tokio::runtime::{self, ShutGuard};
 use spirit_tokio::FutureInstaller;
 #[cfg(feature = "cfg-help")]
 use structdoc::StructDoc;
@@ -344,6 +345,7 @@ pub type HttpServer<ExtraCfg = Empty> = HyperServer<WithLimits<TcpListen<ExtraCf
 /// A plumbing helper type.
 pub struct Activate<Fut> {
     build_server: Option<Box<dyn FnOnce(Receiver<()>) -> Fut + Send>>,
+    shut_guard: Option<ShutGuard>,
     sender: Option<Sender<()>>,
     join: Option<JoinHandle<()>>,
     name: &'static str,
@@ -366,7 +368,9 @@ where
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<()> {
+        trace!("Poll on Activate({})", self.name);
         if let Some(build_server) = self.build_server.take() {
+            trace!("Activating {}", self.name);
             // Hack: Hyper is very unfriendly to constraining type parameters (not only there's
             // like a whole paragraph on their methods, some of the traits are private so one can't
             // really ask for them :-(.
@@ -379,7 +383,11 @@ where
             let (sender, receiver) = oneshot::channel();
             let server = build_server(receiver);
             let name = self.name;
+            let shut_guard = self.shut_guard.take();
             let server = async move {
+                // Make sure the runtime doesn't terminate before the graceful shutdown of the
+                // server.
+                let _shut_guard = shut_guard;
                 if let Err(e) = server.await {
                     log_error!(
                         Error,
@@ -388,6 +396,7 @@ where
                             .into()
                     );
                 }
+                trace!("Server {} terminated", name);
             };
             let join = tokio::spawn(server);
             self.join = Some(join);
@@ -400,6 +409,7 @@ where
                 Poll::Ready(())
             }
             Poll::Ready(Err(e)) => {
+                debug!("Future of server {} errored out", self.name);
                 log_error!(
                     Error,
                     e.context(format!("HTTP server {} failed", self.name))
@@ -407,7 +417,10 @@ where
                 );
                 Poll::Ready(())
             }
-            Poll::Pending => Poll::Pending,
+            Poll::Pending => {
+                trace!("Future of server {} is still pending", self.name);
+                Poll::Pending
+            }
         }
     }
 }
@@ -454,6 +467,7 @@ where
         let build_server = move |receiver| build_server.build(builder, &cfg, name, receiver);
         Ok(Activate {
             build_server: Some(Box::new(build_server)),
+            shut_guard: runtime::shut_guard(),
             join: None,
             name,
             sender: None,
