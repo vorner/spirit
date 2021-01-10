@@ -324,7 +324,9 @@ fn main() {
         // we plugged the pipeline in inside the run method, that'd be too late ‒ we need the run
         // to be wrapped in it. So we either need to plug the pipeline in before run, or need to
         // make sure we add the Tokio runtime manually (even if Tokio::Default).
-        .with(Tokio::from_cfg(Cfg::threadpool))
+        //
+        // This one should be installed as singleton. Having two is not a good idea.
+        .with_singleton(Tokio::from_cfg(Cfg::threadpool))
         // And finally, the server.
         .with(
             Pipeline::new("listen")
