@@ -1,3 +1,10 @@
+# spirit-tokio-0.8.1
+
+* Fix deadlock in the installer unistall routine (the remote drop had reversed
+  condition).
+
+# spirit-0.4.13
+
 * Use `utils::support_emergency_shutdown` instead of `cleanup_signals` (the
   latter is deprecated).
 

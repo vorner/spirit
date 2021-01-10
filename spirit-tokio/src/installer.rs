@@ -22,7 +22,7 @@ use tokio::sync::oneshot::{self, Sender};
 use crate::runtime::Tokio;
 
 /// Wakeup async -> sync.
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Wakeup {
     wakeup: Mutex<bool>,
     condvar: Condvar,
@@ -30,11 +30,13 @@ struct Wakeup {
 
 impl Wakeup {
     fn wait(&self) {
+        trace!("Waiting on wakeup on {:p}/{:?}", self, self);
         let g = self.wakeup.lock().unwrap();
-        let _g = self.condvar.wait_while(g, |w| *w).unwrap();
+        let _g = self.condvar.wait_while(g, |w| !*w).unwrap();
     }
 
     fn wakeup(&self) {
+        trace!("Waking up {:p}/{:?}", self, self);
         // Expected to be unlocked all the time.
         *self.wakeup.lock().unwrap() = true;
         self.condvar.notify_all();
