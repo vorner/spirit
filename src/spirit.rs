@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use err_context::prelude::*;
+use libc::pid_t;
 use log::{debug, error, info, trace};
 use serde::de::DeserializeOwned;
 use signal_hook::iterator::exfiltrator::origin::WithOrigin;
@@ -29,6 +30,19 @@ use crate::extension::{Autojoin, Extensible, Extension};
 use crate::fragment::pipeline::MultiError;
 use crate::validation::Action;
 use crate::AnyError;
+
+fn get_proc_name(pid: Option<pid_t>) -> String {
+    fn inner(pid: pid_t) -> Result<String, AnyError> {
+        let cmdline = std::fs::read(format!("/proc/{}/cmdline", pid))?;
+        let binary = cmdline.split(|b| *b == 0).next().unwrap_or_default();
+        Ok(String::from_utf8_lossy(binary).into_owned())
+    }
+    match pid.map(inner) {
+        None | Some(Err(_)) => String::new(),
+        Some(Ok(s)) if s.is_empty() => ", (Unnamed process)".to_owned(),
+        Some(Ok(s)) => format!(", Process: {} (best effort guess)", s),
+    }
+}
 
 type Signals = SignalsInfo<WithOrigin>;
 
@@ -415,7 +429,8 @@ where
     fn background(&self, signals: &mut Signals) {
         debug!("Starting background processing");
         'forever: for info in signals {
-            info!("Received signal {:?}", info);
+            let name = get_proc_name(info.process.as_ref().map(|p| p.pid));
+            info!("Received signal {:?}{}", info, name);
             let term = match info.signal {
                 libc::SIGHUP => {
                     let _ = error::log_errors(module_path!(), || {
