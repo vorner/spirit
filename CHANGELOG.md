@@ -1,3 +1,7 @@
+# spirit-log-0.4.2
+
+* Dep version updates.
+
 # spirit-hyper-0.8.1
 
 * Support/fix graceful shutdown.

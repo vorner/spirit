@@ -684,7 +684,7 @@ where
     logging
         .into_iter()
         .map(Logger::create)
-        .fold_results(Dispatch::new(), Dispatch::chain)
+        .fold_ok(Dispatch::new(), Dispatch::chain)
         .map_err(AnyError::from)
 }
 

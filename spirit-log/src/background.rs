@@ -23,9 +23,9 @@ use std::thread;
 use std::thread::{Builder as ThreadBuilder, Thread};
 use std::time::Duration;
 
-use crossbeam_channel::{Receiver, Sender};
 use either::Either;
 use fern::Dispatch;
+use flume::{Receiver, Sender, TrySendError};
 use log::{Level, LevelFilter, Log, Metadata, Record};
 use spirit::extension::{Autojoin, Extensible, Extension};
 use spirit::fragment::Transformation;
@@ -283,7 +283,7 @@ impl AsyncLogger {
             logger,
             lost_msgs: AtomicUsize::new(0),
         });
-        let (sender, receiver) = crossbeam_channel::bounded(buffer);
+        let (sender, receiver) = flume::bounded(buffer);
         let recv = Recv {
             shared: Arc::clone(&shared),
             instructions: receiver,
@@ -332,14 +332,15 @@ impl Log for AsyncLogger {
             };
             if self.mode == OverflowMode::Block {
                 self.ch.send(i).expect("Logging thread disappeared");
-            } else if let Err(e) = self.ch.try_send(i) {
-                assert!(e.is_full(), "Logging thread disappeared");
+            } else if let Err(TrySendError::Full(_)) = self.ch.try_send(i) {
                 match self.mode {
                     OverflowMode::DropMsg | OverflowMode::AdaptiveDrop { .. } => {
                         self.shared.lost_msgs.fetch_add(1, Ordering::Relaxed);
                     }
                     _ => (),
                 }
+            } else {
+                panic!("Logging thread disappeared");
             }
         }
     }

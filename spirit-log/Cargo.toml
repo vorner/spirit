@@ -1,6 +1,6 @@
 [package]
 name = "spirit-log"
-version = "0.4.1"
+version = "0.4.2"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Spirit helpers and config fragments for logging"
 documentation = "https://docs.rs/spirit-log"
@@ -21,17 +21,17 @@ travis-ci = { repository = "vorner/spirit" }
 maintenance = { status = "actively-developed" }
 
 [features]
-background = ["crossbeam-channel", "either"]
+background = ["flume", "either"]
 default = ["with-backtrace", "cfg-help"]
 with-backtrace = ["log-panics/with-backtrace"]
 cfg-help = ["spirit/cfg-help", "structdoc"]
 
 [dependencies]
-crossbeam-channel = { version = "~0.4", optional = true }
 chrono = "~0.4"
 either = { version = "~1", optional = true }
 fern = { version = "~0.6", default-features = false }
-itertools = "~0.9"
+flume = { version = "^0.10", optional = true }
+itertools = "^0.10"
 log = "~0.4"
 log-panics = { version = "~2", default-features = false }
 log-reroute = "~0.1.2"
