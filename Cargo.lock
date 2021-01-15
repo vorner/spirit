@@ -1455,7 +1455,7 @@ dependencies = [
 
 [[package]]
 name = "spirit"
-version = "0.4.13"
+version = "0.4.14"
 dependencies = [
  "arc-swap",
  "config",
@@ -1502,7 +1502,7 @@ dependencies = [
 
 [[package]]
 name = "spirit-daemonize"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "err-context",
  "log",

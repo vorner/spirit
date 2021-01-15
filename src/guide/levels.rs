@@ -311,19 +311,18 @@ fn main() {
         // If the program is passed a directory, load files with these extensions from there
         .config_exts(&["toml", "ini", "json"])
         .on_terminate(|| debug!("Asked to terminate"))
+        // Daemonization must go early, before any threads are started.
+        .with(unsafe {
+            spirit_daemonize::extension(|cfg: &Cfg, opts: &Opts| {
+                (cfg.daemon.clone(), opts.daemon.clone())
+            })
+        })
         // All the validation, etc, is done for us behind the scene here.
         // Even the spirit_log::init is not needed, the pipeline handles that.
         .with(Pipeline::new("logging").extract(|opts: &Opts, cfg: &Cfg| Logging {
             cfg: cfg.logging.clone(),
             opts: opts.logging.clone(),
         }))
-        // Also add daemonization
-        .with(
-            Pipeline::new("daemon")
-                .extract(|o: &Opts, c: &Cfg| {
-                    o.daemon.transform(c.daemon.clone())
-                })
-        )
         // Let's provide some --config-help and --config-dump options. These get the
         // information from the documentation strings we provided inside the structures. It
         // also uses the `Serialize` trait to provide the dump.

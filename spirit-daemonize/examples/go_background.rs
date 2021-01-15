@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use spirit::prelude::*;
-use spirit::{Pipeline, Spirit};
+use spirit::Spirit;
 use spirit_daemonize::{Daemon, Opts as DaemonOpts};
 use structopt::StructOpt;
 
@@ -40,10 +40,9 @@ fn main() {
     Spirit::<Opts, Cfg>::new()
         .config_defaults(DEFAULT_CONFIG)
         .config_exts(&["toml", "ini", "json"])
-        .with(
-            Pipeline::new("daemon")
-                .extract(|o: &Opts, c: &Cfg| o.daemon.transform(c.daemon.clone())),
-        )
+        .with(unsafe {
+            spirit_daemonize::extension(|c: &Cfg, o: &Opts| (c.daemon.clone(), o.daemon.clone()))
+        })
         .run(|spirit| {
             while !spirit.is_terminated() {
                 let cfg = spirit.config();

@@ -835,6 +835,65 @@ where
     }
 }
 
+/// A driver that initializes just once, but unlike [`OnceDriver`] is silent about changed
+/// configurations.
+///
+/// This may be used for early but incomplete initialization of some global resource. It would then
+/// be paired with a pipeline doing a full load later in the chain (one such example might be
+/// initializing logging but without the background thread before daemonization, and doing full
+/// logging with background thread afterwards).
+///
+/// See the [example in the daemonization chapter][crate::guide::daemonization].
+pub struct SilentOnceDriver {
+    attempted: bool,
+    initial: bool,
+}
+
+impl Default for SilentOnceDriver {
+    fn default() -> Self {
+        Self {
+            attempted: false,
+            initial: true,
+        }
+    }
+}
+
+impl<F> Driver<F> for SilentOnceDriver
+where
+    F: Fragment,
+{
+    type SubFragment = F;
+    fn instructions<T, I>(
+        &mut self,
+        fragment: &F,
+        transform: &mut T,
+        name: &'static str,
+    ) -> Result<Vec<Instruction<T::OutputResource>>, Vec<AnyError>>
+    where
+        T: Transformation<<Self::SubFragment as Fragment>::Resource, I, Self::SubFragment>,
+    {
+        if self.initial {
+            trace!("Building {} for the first time", name);
+            assert!(!self.attempted);
+            self.attempted = true;
+            Trivial.instructions(fragment, transform, name)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+    fn confirm(&mut self, _name: &'static str) {
+        assert!(self.attempted, "Confirm called before instructions");
+        self.initial = false;
+    }
+    fn abort(&mut self, _name: &'static str) {
+        // we still keep the thing that was set, because this must have been from previous
+        // round
+    }
+    fn maybe_cached(&self, _: &F, _name: &'static str) -> bool {
+        false
+    }
+}
+
 /// An adaptor [`Driver`] for references.
 ///
 /// This is used behind the scenes to wrap a driver for `F` to create a driver for `&F`.
