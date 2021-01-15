@@ -35,9 +35,11 @@ You'll find here:
 * Advanced topis:
   - [Using fragments and pipelines][self::fragments]
   - [Extending with own fragments][self::extend]
+  - [Proper daemonization and early startup][self::daemonization]
 */
 
 pub mod configuration;
+pub mod daemonization;
 pub mod extend;
 pub mod fragments;
 pub mod levels;

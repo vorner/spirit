@@ -18,12 +18,14 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response};
 use log::{debug, trace};
 use serde::{Deserialize, Serialize};
+use spirit::fragment::driver::SilentOnceDriver;
 use spirit::prelude::*;
 use spirit::utils;
 use spirit::{Pipeline, Spirit};
 use spirit_cfg_helpers::Opts as CfgOpts;
 use spirit_daemonize::{Daemon, Opts as DaemonOpts};
 use spirit_hyper::{BuildServer, HyperServer};
+use spirit_log::background::{Background, OverflowMode};
 use spirit_log::{Cfg as Logging, CfgAndOpts as LogBoth, Opts as LogOpts};
 use spirit_tokio::either::Either;
 use spirit_tokio::net::limits::WithLimits;
@@ -295,30 +297,49 @@ fn main() {
         // Note that if a file is added or removed at runtime and the application receives SIGHUP,
         // the change is reflected.
         .config_exts(&["toml", "ini", "json"])
+        // Put help options early. They may terminate the program and we may want to do it before
+        // daemonization or other side effects.
+        .with(CfgOpts::extension(Opts::cfg_opts))
+        // Early logging without the background thread. Only once, then it is taken over by the
+        // pipeline lower. We can't have the background thread before daemonization.
+        .with(
+            Pipeline::new("early-logging")
+                .extract(|opts: &Opts, cfg: &Cfg| LogBoth {
+                    cfg: cfg.logging(),
+                    opts: opts.logging(),
+                })
+                .set_driver(SilentOnceDriver::default()),
+        )
         // Plug in the daemonization configuration and command line arguments. The library will
         // make it alive ‒ it'll do the actual daemonization based on the config, it only needs to
         // be told it should do so this way.
+        //
+        // Must come very early, before any threads are started. That includes any potential
+        // logging threads.
+        .with(unsafe {
+            spirit_daemonize::extension(|cfg: &Cfg, opts: &Opts| {
+                (cfg.daemon.clone(), opts.daemon.clone())
+            })
+        })
+        // Now we can do the full logging, with a background thread.
         .with(
-            Pipeline::new("daemon")
-                .extract(|o: &Opts, c: &Cfg| o.daemon.transform(c.daemon.clone())),
+            Pipeline::new("logging")
+                .extract(|opts: &Opts, cfg: &Cfg| LogBoth {
+                    cfg: cfg.logging(),
+                    opts: opts.logging(),
+                })
+                .transform(Background::new(100, OverflowMode::Block)),
         )
-        // Similarly with logging.
-        .with(
-            Pipeline::new("logging").extract(|opts: &Opts, cfg: &Cfg| LogBoth {
-                cfg: cfg.logging(),
-                opts: opts.logging(),
-            }),
-        )
-        // And with config help
-        .with(CfgOpts::extension(Opts::cfg_opts))
         // A custom callback ‒ when a new config is loaded, we want to print it to logs.
         .on_config(|cmd_line, new_cfg| {
             debug!("Current cmdline: {:?} and config {:?}", cmd_line, new_cfg);
         })
-        .on_config({
-            let cfg = Arc::clone(&global_cfg);
-            move |_, new_cfg| cfg.store(Arc::clone(new_cfg))
-        })
+        // Alternatively, one could use provided one:
+        // .with(spirit_cfg_helpers::config_logging(Level::Debug, true))
+        // Store a copy of current configuration whenever it changes. It's also accessible through
+        // the spirit object passed to the run method, but this may be more convenient and is
+        // available sooner.
+        .with(spirit_cfg_helpers::cfg_store(Arc::clone(&global_cfg)))
         // Configure number of threads & similar. And make sure spirit has a tokio runtime to
         // provide it for the installed futures (the http server).
         //

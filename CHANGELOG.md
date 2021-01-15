@@ -1,3 +1,12 @@
+# spirit-0.4.14
+
+* Update and extend the guide about daemonization.
+
+# spirit-daemonize-0.5.0
+
+* Use extension.
+* Daemonization is unsafe, because of fork.
+
 # spirit-log-0.4.2
 
 * Dep version updates.

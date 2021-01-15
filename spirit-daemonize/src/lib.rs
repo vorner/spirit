@@ -1,5 +1,4 @@
 #![doc(test(attr(deny(warnings))))]
-#![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
 //! A spirit extension for daemonization.
@@ -12,7 +11,7 @@
 //!
 //! ```rust
 //! use serde::Deserialize;
-//! use spirit::{Pipeline, Spirit};
+//! use spirit::Spirit;
 //! use spirit::prelude::*;
 //! use spirit_daemonize::{Daemon, Opts as DaemonOpts};
 //! use structopt::StructOpt;
@@ -33,13 +32,11 @@
 //!
 //! fn main() {
 //!      Spirit::<Opts, Cfg>::new()
-//!         .with(
-//!             Pipeline::new("daemon")
-//!                 .extract(|o: &Opts, c: &Cfg| {
-//!                     // Put the two sources together to one Daemon
-//!                     o.daemon.transform(c.daemon.clone())
-//!                 })
-//!         )
+//!         .with(unsafe {
+//!             spirit_daemonize::extension(|c: &Cfg, o: &Opts| {
+//!                 (c.daemon.clone(), o.daemon.clone())
+//!             })
+//!         })
 //!         .run(|_spirit| {
 //!             // Possibly daemonized program goes here
 //!             Ok(())
@@ -77,15 +74,16 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::Arc;
 
 use err_context::prelude::*;
 use log::{debug, trace, warn};
 use nix::sys::stat::{self, Mode};
 use nix::unistd::{self, ForkResult, Gid, Uid};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use spirit::error::log_errors;
-use spirit::fragment::driver::OnceDriver;
-use spirit::fragment::Installer;
+use spirit::extension::{Extensible, Extension};
+use spirit::validation::Action;
 
 use spirit::AnyError;
 use structdoc::StructDoc;
@@ -97,9 +95,15 @@ use structopt::StructOpt;
 /// This is passed through the [`Pipeline`][spirit::Pipeline] as a way of signalling the next
 /// actions. Users are not expected to interact directly with this.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[non_exhaustive]
 pub struct Daemonize {
-    daemonize: bool,
-    pid_file: Option<PathBuf>,
+    /// Go into background.
+    pub daemonize: bool,
+
+    /// Store our own PID into this file.
+    ///
+    /// The one after we double-fork, so it is the real daemon's one.
+    pub pid_file: Option<PathBuf>,
 }
 
 impl Daemonize {
@@ -110,7 +114,12 @@ impl Daemonize {
     /// This is not expected to fail in practice, as all checks are performed in advance. It can
     /// fail for rare race conditions (eg. the directory where the PID file should go disappears
     /// between the check and now) or if there are not enough PIDs available to fork.
-    pub fn daemonize(&self) -> Result<(), AnyError> {
+    ///
+    /// # Safety
+    ///
+    /// This is safe to call only if either the application is yet single-threaded (it's OK to
+    /// start more threads afterwards) or if `daemonize` is `false`.
+    pub unsafe fn daemonize(&self) -> Result<(), AnyError> {
         if self.daemonize {
             trace!("Redirecting stdio");
             let devnull = OpenOptions::new()
@@ -244,8 +253,7 @@ impl Daemon {
     /// Prepare for daemonization.
     ///
     /// This does the fist (fallible) phase of daemonization and schedules the rest, though the
-    /// [`Daemonize`]. This is mostly used through [`spirit::Pipeline`] (see the [`crate`]
-    /// examples), if used outside of them, prefer the [`daemonize`][Daemon::daemonize].
+    /// [`Daemonize`]. This is mostly used through [`extension'], but can also be used manually.
     pub fn prepare(&self) -> Result<Daemonize, AnyError> {
         // TODO: Tests for this
         debug!("Preparing to daemonize with {:?}", self);
@@ -304,40 +312,15 @@ impl Daemon {
     /// Perform the daemonization according to the setup inside.
     ///
     /// This is the routine one would call if using the fragments manually, not through the spirit
-    /// management and [`Pipeline`][spirit::Pipeline]s.
-    pub fn daemonize(&self) -> Result<(), AnyError> {
+    /// management and [`extension`].
+    ///
+    /// # Safety
+    ///
+    /// This is safe to call only if either the application is yet single-threaded (it's OK to
+    /// start more threads afterwards) or if `daemonize` is `false`.
+    pub unsafe fn daemonize(&self) -> Result<(), AnyError> {
         self.prepare()?.daemonize()?;
         Ok(())
-    }
-}
-
-/// An installer for [`Daemonize`].
-///
-/// Mostly internal plumbing type, used through [`Pipeline`][spirit::Pipeline].
-///
-/// If the daemonization fails, the program aborts with a logged error.
-#[derive(Copy, Clone, Debug, Default)]
-pub struct DaemonizeInstaller;
-
-impl<O, C> Installer<Daemonize, O, C> for DaemonizeInstaller {
-    type UninstallHandle = ();
-    fn install(&mut self, daemonize: Daemonize, _: &str) {
-        // If we can't daemonize, we abort it. It's really unlikely to happen, though.
-        if log_errors(module_path!(), || daemonize.daemonize()).is_err() {
-            // The error has already been logged
-            process::abort();
-        }
-    }
-}
-
-spirit::simple_fragment! {
-    impl Fragment for Daemon {
-        type Driver = OnceDriver<Self>;
-        type Resource = Daemonize;
-        type Installer = DaemonizeInstaller;
-        fn create(&self, _: &'static str) -> Result<Daemonize, AnyError> {
-            self.prepare()
-        }
     }
 }
 
@@ -349,6 +332,18 @@ impl From<UserDaemon> for Daemon {
             daemonize: ud.daemonize,
             ..Daemon::default()
         }
+    }
+}
+
+impl From<(Daemon, Opts)> for Daemon {
+    fn from((d, o): (Daemon, Opts)) -> Self {
+        o.transform(d)
+    }
+}
+
+impl From<(UserDaemon, Opts)> for Daemon {
+    fn from((d, o): (UserDaemon, Opts)) -> Self {
+        o.transform(d.into())
     }
 }
 
@@ -364,12 +359,7 @@ override whatever is written in configuration (if merged together with the confi
 
 This can be used to transform the [`Daemon`] before daemonization.
 
-The [`Pipeline`] here can be used to automatically handle both configuration and command line.
-See the [crate example][index.html#examples].
-
-Flatten this into the top-level `StructOpt` structure.
-
-[`Pipeline`]: spirit::Pipeline
+See the [`extension`] for how to use it.
 "#
 )]
 #[derive(Clone, Debug, StructOpt)]
@@ -458,13 +448,39 @@ impl UserDaemon {
     }
 }
 
-spirit::simple_fragment! {
-    impl Fragment for UserDaemon {
-        type Driver = OnceDriver<Self>;
-        type Resource = Daemonize;
-        type Installer = DaemonizeInstaller;
-        fn create(&self, _: &'static str) -> Result<Daemonize, AnyError> {
-            Daemon::from(self.clone()).prepare()
-        }
+/// Creates an extension for daemonization as part of the spirit.
+///
+/// Goes into background (or not) as configured by configuration and options (see the crate
+/// example).
+///
+/// # Safety
+///
+/// Daemonization uses `fork`. Therefore, the caller must ensure this is run only before any
+/// threads are started.
+///
+/// This runs in the validation phase of the config validator.
+///
+/// Note that many thing may start threads. Specifically, logging with a background thread and the
+/// Tokio runtime do.
+///
+/// If you want to have logging available before daemonization (to have some output during/after
+/// daemonization), it is possible to do a two-phase initialization ‒ once before daemonization,
+/// but without a background thread, and then after. See the [relevant chapter in the
+/// guide][spirit::guide::daemonization].
+pub unsafe fn extension<E, C, D>(extractor: C) -> impl Extension<E>
+where
+    E: Extensible<Ok = E>,
+    E::Config: DeserializeOwned + Send + Sync + 'static,
+    E::Opts: StructOpt + Send + Sync + 'static,
+    C: Fn(&E::Config, &E::Opts) -> D + Send + Sync + 'static,
+    D: Into<Daemon>,
+{
+    move |e: E| {
+        let init = move |_: &_, cfg: &Arc<_>, opts: &_| -> Result<Action, AnyError> {
+            let d = extractor(&cfg, opts);
+            d.into().daemonize()?;
+            Ok(Action::new())
+        };
+        e.config_validator(init)
     }
 }
