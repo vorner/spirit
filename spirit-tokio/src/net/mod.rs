@@ -430,7 +430,7 @@ impl StreamConfig<TcpStream> for TcpConfig {
         if let Some(ttl) = self.accepted_ttl {
             sock.set_ttl(ttl)?;
         }
-        Ok(TcpStream::from_std(sock.into_tcp_stream())?)
+        TcpStream::from_std(sock.into_tcp_stream())
     }
 }
 

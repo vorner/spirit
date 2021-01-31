@@ -7,8 +7,8 @@
 //! be run at any later time, as convenient.
 
 use std::process;
-use std::thread;
 use std::sync::Arc;
+use std::thread;
 
 use log::debug;
 use serde::de::DeserializeOwned;

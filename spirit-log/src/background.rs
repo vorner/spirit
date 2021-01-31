@@ -1,5 +1,10 @@
 // The mutex_atomic here is a false positive. We use the mutex because of the condvar.
-#![allow(unknown_lints, clippy::unknown_clippy_lints, clippy::mutex_atomic)]
+#![allow(
+    unknown_lints,
+    renamed_and_removed_lints,
+    clippy::unknown_clippy_lints,
+    clippy::mutex_atomic
+)]
 //! Support for logging in the background.
 //!
 //! The [`AsyncLogger`] can wrap a logger and do the logging in a separate thread. Note that to not
@@ -230,7 +235,10 @@ pub enum OverflowMode {
 
 impl OverflowMode {
     fn count_lost(self) -> bool {
-        matches!(self, OverflowMode::DropMsg | OverflowMode::AdaptiveDrop { .. })
+        matches!(
+            self,
+            OverflowMode::DropMsg | OverflowMode::AdaptiveDrop { .. }
+        )
     }
 }
 

@@ -1,6 +1,7 @@
 #![doc(test(attr(deny(warnings))))]
 #![allow(
     unknown_lints,
+    renamed_and_removed_lints,
     clippy::unknown_clippy_lints,
     clippy::type_complexity,
     clippy::needless_doctest_main

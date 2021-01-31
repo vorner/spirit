@@ -325,6 +325,7 @@ pub trait ConfigBuilder: Sized {
     /// Sets the config dir filter for all the supported extensions.
     ///
     /// Note that the list of extensions depends on the enabled features.
+    #[allow(clippy::vec_init_then_push)]
     fn config_supported_exts(self) -> Self {
         let mut exts = Vec::new();
 
@@ -644,7 +645,7 @@ impl Loader {
                 .map_err(AnyError::from)
         }
 
-        Ok(result?)
+        result
     }
 }
 
