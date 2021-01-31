@@ -912,6 +912,8 @@ impl<O, C> Installer<Dispatch, O, C> for LogInstaller {
         install(logger);
     }
     fn init<B: Extensible<Ok = B>>(&mut self, builder: B, _name: &str) -> Result<B, AnyError> {
+        #[cfg(feature = "background")]
+        let builder = builder.with_singleton(FlushGuard);
         builder.with(Cfg::init_extension())
     }
 }
@@ -922,6 +924,8 @@ impl<O, C> Installer<(LevelFilter, Box<dyn Log>), O, C> for LogInstaller {
         install_parts(level, logger);
     }
     fn init<B: Extensible<Ok = B>>(&mut self, builder: B, _name: &str) -> Result<B, AnyError> {
+        #[cfg(feature = "background")]
+        let builder = builder.with_singleton(FlushGuard);
         builder.with(Cfg::init_extension())
     }
 }
