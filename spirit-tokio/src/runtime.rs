@@ -105,12 +105,12 @@ impl Default for Config {
 }
 
 #[cfg(feature = "rt-from-cfg")]
-impl Into<Builder> for Config {
-    fn into(self) -> Builder {
+impl From<Config> for Builder {
+    fn from(cfg: Config) -> Builder {
         let mut builder = Builder::new_multi_thread();
-        let threads = self.core_threads.unwrap_or_else(num_cpus::get);
+        let threads = cfg.core_threads.unwrap_or_else(num_cpus::get);
         builder.worker_threads(threads);
-        let max = match self.max_threads {
+        let max = match cfg.max_threads {
             None if threads >= DEFAULT_MAX_THREADS => {
                 warn!(
                     "Increasing max threads from implicit {} to {} to match core threads",
@@ -130,7 +130,7 @@ impl Into<Builder> for Config {
             Some(max) => max,
         };
         builder.max_blocking_threads(max);
-        builder.thread_name(self.thread_name);
+        builder.thread_name(cfg.thread_name);
         builder
     }
 }

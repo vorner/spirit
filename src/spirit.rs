@@ -28,6 +28,7 @@ use crate::empty::Empty;
 use crate::error;
 use crate::extension::{Autojoin, Extensible, Extension};
 use crate::fragment::pipeline::MultiError;
+use crate::utils::FlushGuard;
 use crate::validation::Action;
 use crate::AnyError;
 
@@ -1113,9 +1114,11 @@ where
     Self::Opts: StructOpt + Sync + Send + 'static,
 {
     fn build(self, background_thread: bool) -> Result<App<O, C>, AnyError> {
+        let _flush = FlushGuard;
         self.and_then(|b| b.build(background_thread))
     }
     fn run<B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), AnyError> + Send + 'static>(self, body: B) {
+        let _flush = FlushGuard;
         let result = error::log_errors("top-level", || {
             let me = self?;
             let app = me.build(true)?;

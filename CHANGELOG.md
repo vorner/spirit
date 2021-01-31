@@ -1,3 +1,13 @@
+# spirit-0.4.15
+
+* Flush logs before terminating.
+
+# spirit-log-0.4.3
+
+* Fix invalid panic when using the background thread, non-blocking overflow mode
+  is used and overflow _doesn't_ happen.
+* Install the background flush guard automatically.
+
 # spirit-0.4.14
 
 * Update and extend the guide about daemonization.

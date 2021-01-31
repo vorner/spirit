@@ -5,8 +5,10 @@
 //! [`Builder::build`][crate::SpiritBuilder::build] can be used instead. That method returns the
 //! [`App`][crate::app::App] object, representing the application runner. The application can then
 //! be run at any later time, as convenient.
+
 use std::process;
 use std::sync::Arc;
+use std::thread;
 
 use log::debug;
 use serde::de::DeserializeOwned;
@@ -15,6 +17,7 @@ use structopt::StructOpt;
 use crate::bodies::{InnerBody, WrapBody};
 use crate::error;
 use crate::spirit::Spirit;
+use crate::utils::FlushGuard;
 use crate::AnyError;
 
 /// The running application part.
@@ -98,13 +101,26 @@ where
         B: FnOnce() -> Result<(), AnyError> + Send + 'static,
     {
         debug!("Running bodies");
+        let _flush = FlushGuard;
+        struct ScopeGuard<F: FnOnce()>(Option<F>);
+        impl<F: FnOnce()> Drop for ScopeGuard<F> {
+            fn drop(&mut self) {
+                self.0.take().expect("Drop called twice")();
+            }
+        }
+        let spirit = &self.spirit;
+        let _thread = ScopeGuard(Some(|| {
+            if thread::panicking() {
+                spirit.terminate();
+            }
+            spirit.maybe_autojoin_bg_thread();
+        }));
         let inner = self.inner;
         let inner = move || inner().and_then(|()| body());
         let result = (self.wrapper)(Box::new(inner));
         if result.is_err() {
             self.spirit.terminate();
         }
-        self.spirit.maybe_autojoin_bg_thread();
         result
     }
 
