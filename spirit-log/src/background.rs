@@ -228,6 +228,12 @@ pub enum OverflowMode {
     },
 }
 
+impl OverflowMode {
+    fn count_lost(self) -> bool {
+        matches!(self, OverflowMode::DropMsg | OverflowMode::AdaptiveDrop { .. })
+    }
+}
+
 /// A logger that postpones the logging into a background thread.
 ///
 /// Note that to not lose messages, the logger need to be flushed.
@@ -332,15 +338,14 @@ impl Log for AsyncLogger {
             };
             if self.mode == OverflowMode::Block {
                 self.ch.send(i).expect("Logging thread disappeared");
-            } else if let Err(TrySendError::Full(_)) = self.ch.try_send(i) {
-                match self.mode {
-                    OverflowMode::DropMsg | OverflowMode::AdaptiveDrop { .. } => {
+            } else {
+                match self.ch.try_send(i) {
+                    Err(TrySendError::Full(_)) if self.mode.count_lost() => {
                         self.shared.lost_msgs.fetch_add(1, Ordering::Relaxed);
                     }
-                    _ => (),
+                    Err(TrySendError::Full(_)) | Ok(()) => (),
+                    _ => panic!("Logging thread disappeared"),
                 }
-            } else {
-                panic!("Logging thread disappeared");
             }
         }
     }

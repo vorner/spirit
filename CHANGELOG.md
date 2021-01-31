@@ -1,3 +1,8 @@
+# spirit-log-0.4.3
+
+* Fix invalid panic when using the background thread, non-blocking overflow mode
+  is used and overflow _doesn't_ happen.
+
 # spirit-0.4.14
 
 * Update and extend the guide about daemonization.
