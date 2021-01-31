@@ -386,6 +386,14 @@ pub fn is_true(v: &bool) -> bool {
     *v
 }
 
+pub(crate) struct FlushGuard;
+
+impl Drop for FlushGuard {
+    fn drop(&mut self) {
+        log::logger().flush();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;

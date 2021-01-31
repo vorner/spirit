@@ -1,3 +1,7 @@
+# spirit-0.4.14
+
+* Flush logs before terminating.
+
 # spirit-log-0.4.3
 
 * Fix invalid panic when using the background thread, non-blocking overflow mode
