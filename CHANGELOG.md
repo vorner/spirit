@@ -1,4 +1,4 @@
-# spirit-0.4.14
+# spirit-0.4.15
 
 * Flush logs before terminating.
 
