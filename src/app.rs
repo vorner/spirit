@@ -132,7 +132,9 @@ where
     where
         B: FnOnce() -> Result<(), AnyError> + Send + 'static,
     {
+        let flush = FlushGuard;
         if error::log_errors("top-level", || self.run(body)).is_err() {
+            drop(flush);
             process::exit(1);
         }
     }

@@ -1,3 +1,7 @@
+# spirit-0.4.16
+
+* More flushing of logs, in more corner cases.
+
 # spirit-0.4.15
 
 * Flush logs before terminating.

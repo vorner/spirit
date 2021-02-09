@@ -1455,7 +1455,7 @@ dependencies = [
 
 [[package]]
 name = "spirit"
-version = "0.4.14"
+version = "0.4.16"
 dependencies = [
  "arc-swap",
  "config",
@@ -1545,7 +1545,7 @@ dependencies = [
 
 [[package]]
 name = "spirit-log"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "chrono",
  "either",

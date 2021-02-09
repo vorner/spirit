@@ -1118,7 +1118,7 @@ where
         self.and_then(|b| b.build(background_thread))
     }
     fn run<B: FnOnce(&Arc<Spirit<O, C>>) -> Result<(), AnyError> + Send + 'static>(self, body: B) {
-        let _flush = FlushGuard;
+        let flush = FlushGuard;
         let result = error::log_errors("top-level", || {
             let me = self?;
             let app = me.build(true)?;
@@ -1127,6 +1127,7 @@ where
             app.run(body)
         });
         if result.is_err() {
+            drop(flush);
             process::exit(1);
         }
     }
