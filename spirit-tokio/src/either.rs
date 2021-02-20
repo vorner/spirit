@@ -10,6 +10,7 @@ use either::Either as OtherEither;
 use err_context::AnyError;
 #[cfg(feature = "futures")]
 use futures_util::future::Either as FutEither;
+use pin_project::pin_project;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use spirit::extension::Extensible;
@@ -24,10 +25,6 @@ use tokio_stream::Stream;
 
 #[cfg(feature = "net")]
 use crate::net::Accept;
-
-// TODO: A lot of things here require Unpin. Intuitively, they just pin the inner field right away,
-// so it should be fine to allow !Unpin types here too and use a bit of unsafe to do that. But we
-// would need to allow unsafe ( :-( ) and prove that the intuition is right.
 
 /// The [`Either`] type allows to wrap two similar [`Fragment`]s and let the user choose
 /// which one will be used.
@@ -97,6 +94,7 @@ use crate::net::Accept;
 /// #[cfg(unix)]
 /// use spirit_tokio::net::unix::UnixListen;
 /// use tokio::io::{AsyncWrite, AsyncWriteExt};
+/// use tokio::pin;
 ///
 /// // If we want to work on systems that don't have unix domain sockets...
 ///
@@ -122,7 +120,8 @@ use crate::net::Accept;
 ///     }
 /// }
 ///
-/// async fn handle_connection<C: AsyncWrite + Unpin>(mut conn: C) -> Result<(), AnyError> {
+/// async fn handle_connection<C: AsyncWrite>(conn: C) -> Result<(), AnyError> {
+///     pin!(conn);
 ///     conn.write_all(b"hello world").await?;
 ///     conn.shutdown().await?;
 ///     Ok(())
@@ -149,23 +148,24 @@ use crate::net::Accept;
 /// [remote derive]: https://serde.rs/remote-derive.html
 /// [`TcpListen`]: crate::TcpListen
 /// [`UnixListen`]: crate::net::unix::UnixListen
+#[pin_project(project = EitherProj)]
 #[derive(Copy, Clone, Debug, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(untagged)]
 pub enum Either<A, B> {
     #[allow(missing_docs)]
-    A(A),
+    A(#[pin] A),
     #[allow(missing_docs)]
-    B(B),
+    B(#[pin] B),
 }
 
 use self::Either::{A, B};
 
 macro_rules! either_unwrap {
-    ($either: expr, $pat: pat => $res: expr) => {
+    ($enum: ident, $either: expr, $pat: pat => $res: expr) => {
         match $either {
-            A($pat) => $res,
-            B($pat) => $res,
+            $enum::A($pat) => $res,
+            $enum::B($pat) => $res,
         }
     };
 }
@@ -176,7 +176,7 @@ impl<T> Either<T, T> {
     /// Sometimes, a series of operations produces an `Either` with both types the same. In such
     /// case, `Either` plays no role anymore and this method can be used to get to the inner value.
     pub fn into_inner(self) -> T {
-        either_unwrap!(self, v => v)
+        either_unwrap!(Either, self, v => v)
     }
 }
 
@@ -227,24 +227,27 @@ where
     B: Accept,
 {
     type Connection = Either<A::Connection, B::Connection>;
-    fn poll_accept(&mut self, ctx: &mut Context) -> Poll<Result<Self::Connection, IoError>> {
-        match self {
-            A(a) => a.poll_accept(ctx).map(|r| r.map(A)),
-            B(b) => b.poll_accept(ctx).map(|r| r.map(B)),
+    fn poll_accept(
+        self: Pin<&mut Self>,
+        ctx: &mut Context,
+    ) -> Poll<Result<Self::Connection, IoError>> {
+        match self.project() {
+            EitherProj::A(a) => a.poll_accept(ctx).map(|r| r.map(A)),
+            EitherProj::B(b) => b.poll_accept(ctx).map(|r| r.map(B)),
         }
     }
 }
 
 impl<A, B> Future for Either<A, B>
 where
-    A: Future + Unpin,
-    B: Future + Unpin,
+    A: Future,
+    B: Future,
 {
     type Output = Either<A::Output, B::Output>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-        match self.get_mut() {
-            A(a) => Pin::new(a).poll(ctx).map(A),
-            B(b) => Pin::new(b).poll(ctx).map(B),
+        match self.project() {
+            EitherProj::A(a) => a.poll(ctx).map(A),
+            EitherProj::B(b) => b.poll(ctx).map(B),
         }
     }
 }
@@ -252,77 +255,77 @@ where
 #[cfg(feature = "stream")]
 impl<A, B> Stream for Either<A, B>
 where
-    A: Stream + Unpin,
-    B: Stream + Unpin,
+    A: Stream,
+    B: Stream,
 {
     type Item = Either<A::Item, B::Item>;
     fn poll_next(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
-        match self.get_mut() {
-            A(a) => Pin::new(a).poll_next(ctx).map(|i| i.map(A)),
-            B(b) => Pin::new(b).poll_next(ctx).map(|i| i.map(B)),
+        match self.project() {
+            EitherProj::A(a) => a.poll_next(ctx).map(|i| i.map(A)),
+            EitherProj::B(b) => b.poll_next(ctx).map(|i| i.map(B)),
         }
     }
 }
 
 impl<A, B> AsyncBufRead for Either<A, B>
 where
-    A: AsyncBufRead + Unpin,
-    B: AsyncBufRead + Unpin,
+    A: AsyncBufRead,
+    B: AsyncBufRead,
 {
     fn poll_fill_buf(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Result<&[u8], IoError>> {
-        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_fill_buf(ctx))
+        either_unwrap!(EitherProj, self.project(), v => v.poll_fill_buf(ctx))
     }
     fn consume(self: Pin<&mut Self>, amt: usize) {
-        either_unwrap!(self.get_mut(), v => Pin::new(v).consume(amt))
+        either_unwrap!(EitherProj, self.project(), v => v.consume(amt))
     }
 }
 
 impl<A, B> AsyncRead for Either<A, B>
 where
-    A: AsyncRead + Unpin,
-    B: AsyncRead + Unpin,
+    A: AsyncRead,
+    B: AsyncRead,
 {
     fn poll_read(
         self: Pin<&mut Self>,
         ctx: &mut Context,
         buf: &mut ReadBuf,
     ) -> Poll<Result<(), IoError>> {
-        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_read(ctx, buf))
+        either_unwrap!(EitherProj, self.project(), v => v.poll_read(ctx, buf))
     }
 }
 
 impl<A, B> AsyncSeek for Either<A, B>
 where
-    A: AsyncSeek + Unpin,
-    B: AsyncSeek + Unpin,
+    A: AsyncSeek,
+    B: AsyncSeek,
 {
     fn start_seek(self: Pin<&mut Self>, position: SeekFrom) -> Result<(), IoError> {
-        either_unwrap!(self.get_mut(), v => Pin::new(v).start_seek(position))
+        either_unwrap!(EitherProj, self.project(), v => v.start_seek(position))
     }
     fn poll_complete(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<u64, IoError>> {
-        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_complete(ctx))
+        either_unwrap!(EitherProj, self.project(), v => v.poll_complete(ctx))
     }
 }
 
 impl<A, B> AsyncWrite for Either<A, B>
 where
-    A: AsyncWrite + Unpin,
-    B: AsyncWrite + Unpin,
+    A: AsyncWrite,
+    B: AsyncWrite,
 {
     fn poll_write(
         self: Pin<&mut Self>,
         ctx: &mut Context,
         buf: &[u8],
     ) -> Poll<Result<usize, IoError>> {
-        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_write(ctx, buf))
+        either_unwrap!(EitherProj, self.project(), v => v.poll_write(ctx, buf))
     }
 
     fn poll_flush(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<(), IoError>> {
-        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_flush(ctx))
+        either_unwrap!(EitherProj, self.project(), v => v.poll_flush(ctx))
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<(), IoError>> {
-        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_shutdown(ctx))
+        either_unwrap!(EitherProj, self.project(), v => v.poll_shutdown(ctx))
     }
 
     fn poll_write_vectored(
@@ -330,11 +333,11 @@ where
         ctx: &mut Context,
         bufs: &[std::io::IoSlice],
     ) -> Poll<Result<usize, IoError>> {
-        either_unwrap!(self.get_mut(), v => Pin::new(v).poll_write_vectored(ctx, bufs))
+        either_unwrap!(EitherProj, self.project(), v => v.poll_write_vectored(ctx, bufs))
     }
 
     fn is_write_vectored(&self) -> bool {
-        either_unwrap!(self, v => v.is_write_vectored())
+        either_unwrap!(Either, self, v => v.is_write_vectored())
     }
 }
 
@@ -539,13 +542,13 @@ where
         if let Some(new) = self.new_driver.take() {
             self.driver = new;
         }
-        either_unwrap!(&mut self.driver, v => v.confirm(name))
+        either_unwrap!(Either, &mut self.driver, v => v.confirm(name))
     }
     fn abort(&mut self, name: &'static str) {
         if self.new_driver.is_some() {
             self.new_driver.take();
         } else {
-            either_unwrap!(&mut self.driver, v => v.abort(name))
+            either_unwrap!(Either, &mut self.driver, v => v.abort(name))
         }
     }
     fn maybe_cached(&self, fragment: &Either<A, B>, name: &'static str) -> bool {

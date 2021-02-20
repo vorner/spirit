@@ -18,6 +18,7 @@ use err_context::prelude::*;
 use err_context::AnyError;
 #[cfg(not(unix))]
 use log::warn;
+use pin_project::pin_project;
 #[cfg(unix)]
 use serde::de::{Deserializer, Error as DeError, Unexpected};
 use serde::ser::Serializer;
@@ -112,13 +113,13 @@ impl Serialize for MaybeDuration {
 }
 
 /// A plumbing type, return value of [`Accept::accept`].
-pub struct AcceptFuture<'a, A: ?Sized>(&'a mut A);
+pub struct AcceptFuture<'a, A: ?Sized>(Pin<&'a mut A>);
 
 impl<A: Accept> Future for AcceptFuture<'_, A> {
     type Output = Result<A::Connection, IoError>;
 
     fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-        self.0.poll_accept(ctx)
+        self.0.as_mut().poll_accept(ctx)
     }
 }
 
@@ -131,12 +132,15 @@ pub trait Accept: Send + Sync + 'static {
     ///
     /// In case there's none ready, it returns [`Poll::Pending`] and the current task will be
     /// notified by a waker.
-    fn poll_accept(&mut self, ctx: &mut Context) -> Poll<Result<Self::Connection, IoError>>;
+    fn poll_accept(
+        self: Pin<&mut Self>,
+        ctx: &mut Context,
+    ) -> Poll<Result<Self::Connection, IoError>>;
 
     /// Accept the next connection.
     ///
     /// Returns a future that will yield the next connection.
-    fn accept(&mut self) -> AcceptFuture<Self> {
+    fn accept(self: Pin<&mut Self>) -> AcceptFuture<Self> {
         AcceptFuture(self)
     }
 }
@@ -144,7 +148,7 @@ pub trait Accept: Send + Sync + 'static {
 impl Accept for TcpListener {
     type Connection = TcpStream;
 
-    fn poll_accept(&mut self, ctx: &mut Context) -> Poll<Result<TcpStream, IoError>> {
+    fn poll_accept(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<TcpStream, IoError>> {
         mod inner {
             use super::{Context, IoError, Poll, TcpListener, TcpStream};
             // Hide the Accept trait from scope so it doesn't interfere
@@ -155,7 +159,7 @@ impl Accept for TcpListener {
                 l.poll_accept(ctx).map_ok(|(s, _)| s)
             }
         }
-        inner::poll_accept(self, ctx)
+        inner::poll_accept(&self, ctx)
     }
 }
 
@@ -435,8 +439,10 @@ impl StreamConfig<TcpStream> for TcpConfig {
 }
 
 /// A wrapper that applies configuration to each accepted connection.
+#[pin_project]
 #[derive(Debug)]
 pub struct ConfiguredListener<A, C> {
+    #[pin]
     accept: A,
     config: C,
 }
@@ -459,9 +465,13 @@ where
     C: StreamConfig<A::Connection> + Send + Sync + 'static,
 {
     type Connection = A::Connection;
-    fn poll_accept(&mut self, ctx: &mut Context) -> Poll<Result<A::Connection, IoError>> {
-        match self.accept.poll_accept(ctx) {
-            Poll::Ready(Ok(conn)) => match self.config.configure(conn) {
+    fn poll_accept(
+        self: Pin<&mut Self>,
+        ctx: &mut Context,
+    ) -> Poll<Result<A::Connection, IoError>> {
+        let me = self.project();
+        match me.accept.poll_accept(ctx) {
+            Poll::Ready(Ok(conn)) => match me.config.configure(conn) {
                 Ok(conn) => Poll::Ready(Ok(conn)),
                 Err(e) => Poll::Ready(Err(e)),
             },
@@ -474,11 +484,11 @@ where
 #[cfg(feature = "stream")]
 impl<A, C> Stream for ConfiguredListener<A, C>
 where
-    A: Accept + Unpin,
-    C: StreamConfig<A::Connection> + Unpin + Send + Sync + 'static,
+    A: Accept,
+    C: StreamConfig<A::Connection> + Send + Sync + 'static,
 {
     type Item = Result<A::Connection, IoError>;
-    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
         self.poll_accept(ctx).map(Some)
     }
 }

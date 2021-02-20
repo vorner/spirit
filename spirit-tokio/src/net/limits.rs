@@ -25,6 +25,7 @@ use std::time::Duration;
 
 use err_context::AnyError;
 use log::trace;
+use pin_project::pin_project;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use spirit::extension::Extensible;
@@ -209,7 +210,9 @@ impl ListenLimits for Limits {
 /// [`Accept`] trait, which is the interesting property.
 ///
 /// This is created by the [`Fragment`] trait of [`WithListenLimits`].
+#[pin_project]
 pub struct Limited<A> {
+    #[pin]
     inner: A,
     error_sleep: Duration,
     // If there's a global-ish error (too many file descriptors, for example), we want to wait a
@@ -233,12 +236,16 @@ impl<A: Accept> Accept for Limited<A> {
     type Connection = Tracked<A::Connection>;
     // :-( This could be much easier with async-await, but we want this to be a trait method with
     // Poll, and named types and Unpin. Which means manual implementation. Doh…
-    fn poll_accept(&mut self, ctx: &mut Context) -> Poll<Result<Self::Connection, IoError>> {
+    fn poll_accept(
+        self: Pin<&mut Self>,
+        ctx: &mut Context,
+    ) -> Poll<Result<Self::Connection, IoError>> {
+        let mut me = self.project();
         // First, get a permit to create new connections. As the Box<dyn> thing may be more
         // expensive than what we would have liked, we have a fast path first that does not
         // allocate.
         let permit = loop {
-            match self.permit_fut.as_mut() {
+            match me.permit_fut.as_mut() {
                 // We are waiting for a permit right now, postponed from last time.
                 Some(fut) => match fut.as_mut().poll(ctx) {
                     Poll::Ready(permit) => break permit,
@@ -246,7 +253,7 @@ impl<A: Accept> Accept for Limited<A> {
                     Poll::Pending => return Poll::Pending,
                 },
                 None => {
-                    match Arc::clone(&self.allowed_conns).try_acquire_owned() {
+                    match Arc::clone(&me.allowed_conns).try_acquire_owned() {
                         // The expected fast path… no future allocated on heap, no dyn and we
                         // expect we are in limits most of the time.
                         Ok(permit) => break Ok(permit),
@@ -256,8 +263,8 @@ impl<A: Accept> Accept for Limited<A> {
                             // let the next iteration retry. That could succeed (in case someone
                             // returns a permit in the meantime) or will at least register the
                             // wakeup for later on.
-                            let permit_fut = Arc::clone(&self.allowed_conns).acquire_owned();
-                            self.permit_fut = Some(Box::pin(permit_fut));
+                            let permit_fut = Arc::clone(&me.allowed_conns).acquire_owned();
+                            *me.permit_fut = Some(Box::pin(permit_fut));
                             // Continue to the next loop iteration to start the future.
                         }
                     }
@@ -268,10 +275,10 @@ impl<A: Accept> Accept for Limited<A> {
         // Due to error handling, we may need to retry (either right away or with delay, but then,
         // we want to poll the delay at least, to register the wakeup).
         loop {
-            // Do we have a sleep in process, due to previous errols?
-            if let Some(delay) = self.err_delay.as_mut() {
+            // Do we have a sleep in process, due to previous errors?
+            if let Some(delay) = me.err_delay.as_mut() {
                 if Pin::new(delay).poll(ctx).is_ready() {
-                    self.err_delay.take(); // Sleeping is over, get to do some work
+                    me.err_delay.take(); // Sleeping is over, get to do some work
                 } else {
                     return Poll::Pending; // Still sleeping/recovering from an error
                 }
@@ -290,14 +297,14 @@ impl<A: Accept> Accept for Limited<A> {
 
             // We have a permit for another connection, try to get one. If it's not available, we'll
             // simply drop the permit and it'll be available for later.
-            match self.inner.poll_accept(ctx) {
+            match me.inner.as_mut().poll_accept(ctx) {
                 Poll::Ready(Err(ref e)) if is_connection_local(e) => {
                     trace!("Connection attempt error: {}", e);
                     continue;
                 }
                 Poll::Ready(Err(_)) => {
-                    trace!("Accept error, sleeping for {:?}", self.error_sleep);
-                    self.err_delay = Some(Box::pin(time::sleep(self.error_sleep)));
+                    trace!("Accept error, sleeping for {:?}", me.error_sleep);
+                    *me.err_delay = Some(Box::pin(time::sleep(*me.error_sleep)));
                 }
                 Poll::Ready(Ok(conn)) => {
                     trace!("Got a new connection");
@@ -315,10 +322,10 @@ impl<A: Accept> Accept for Limited<A> {
 #[cfg(feature = "stream")]
 impl<A> Stream for Limited<A>
 where
-    A: Accept + Unpin,
+    A: Accept,
 {
     type Item = Result<<Self as Accept>::Connection, IoError>;
-    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
         self.poll_accept(ctx).map(Some)
     }
 }
@@ -327,7 +334,9 @@ where
 ///
 /// Apart from acting (end dereferencing) to the wrapped connection, this also tracks that it's
 /// still alive and makes room for more new connections when dropped.
+#[pin_project]
 pub struct Tracked<C> {
+    #[pin]
     inner: C,
     // Just an RAII object to return the permit on drop
     _permit: OwnedSemaphorePermit,
@@ -346,59 +355,57 @@ impl<C> DerefMut for Tracked<C> {
     }
 }
 
-// FIXME: Use pin-project to get rid of the + Unpin requirement? Most our types will, however,
-// fulfill it, so we probably don't really care.
-impl<C: AsyncBufRead + Unpin> AsyncBufRead for Tracked<C> {
+impl<C: AsyncBufRead> AsyncBufRead for Tracked<C> {
     fn poll_fill_buf(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Result<&[u8], IoError>> {
-        Pin::new(&mut self.get_mut().inner).poll_fill_buf(ctx)
+        self.project().inner.poll_fill_buf(ctx)
     }
-    fn consume(mut self: Pin<&mut Self>, amt: usize) {
-        Pin::new(&mut self.inner).consume(amt)
+    fn consume(self: Pin<&mut Self>, amt: usize) {
+        self.project().inner.consume(amt)
     }
 }
 
-impl<C: AsyncRead + Unpin> AsyncRead for Tracked<C> {
+impl<C: AsyncRead> AsyncRead for Tracked<C> {
     fn poll_read(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         ctx: &mut Context,
         buf: &mut ReadBuf,
     ) -> Poll<Result<(), IoError>> {
-        Pin::new(&mut self.inner).poll_read(ctx, buf)
+        self.project().inner.poll_read(ctx, buf)
     }
 }
 
-impl<C: AsyncSeek + Unpin> AsyncSeek for Tracked<C> {
-    fn start_seek(mut self: Pin<&mut Self>, position: SeekFrom) -> Result<(), IoError> {
-        Pin::new(&mut self.inner).start_seek(position)
+impl<C: AsyncSeek> AsyncSeek for Tracked<C> {
+    fn start_seek(self: Pin<&mut Self>, position: SeekFrom) -> Result<(), IoError> {
+        self.project().inner.start_seek(position)
     }
-    fn poll_complete(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<u64, IoError>> {
-        Pin::new(&mut self.inner).poll_complete(ctx)
+    fn poll_complete(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<u64, IoError>> {
+        self.project().inner.poll_complete(ctx)
     }
 }
 
-impl<C: AsyncWrite + Unpin> AsyncWrite for Tracked<C> {
+impl<C: AsyncWrite> AsyncWrite for Tracked<C> {
     fn poll_write(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         ctx: &mut Context,
         buf: &[u8],
     ) -> Poll<Result<usize, IoError>> {
-        Pin::new(&mut self.inner).poll_write(ctx, buf)
+        self.project().inner.poll_write(ctx, buf)
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<(), IoError>> {
-        Pin::new(&mut self.inner).poll_flush(ctx)
+    fn poll_flush(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<(), IoError>> {
+        self.project().inner.poll_flush(ctx)
     }
 
-    fn poll_shutdown(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<(), IoError>> {
-        Pin::new(&mut self.inner).poll_shutdown(ctx)
+    fn poll_shutdown(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Result<(), IoError>> {
+        self.project().inner.poll_shutdown(ctx)
     }
 
     fn poll_write_vectored(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         ctx: &mut Context,
         bufs: &[std::io::IoSlice],
     ) -> Poll<Result<usize, IoError>> {
-        Pin::new(&mut self.inner).poll_write_vectored(ctx, bufs)
+        self.project().inner.poll_write_vectored(ctx, bufs)
     }
 
     fn is_write_vectored(&self) -> bool {
@@ -413,7 +420,7 @@ mod tests {
     use spirit::Empty;
     use tokio::net::TcpStream;
     use tokio::sync::oneshot::{self, Receiver};
-    use tokio::time;
+    use tokio::{pin, time};
 
     use super::*;
     use crate::net::{Listen, TcpListen};
@@ -461,20 +468,21 @@ mod tests {
     /// again.
     #[tokio::test]
     async fn conn_limit() {
-        let (mut listener, addr) = listener();
+        let (listener, addr) = listener();
 
         let (done_send, done_recv) = oneshot::channel();
 
         let connector = tokio::spawn(connector(addr, done_recv));
 
         let acceptor = tokio::spawn(async move {
-            let conn1 = listener.accept().await.unwrap();
-            let _conn2 = listener.accept().await.unwrap();
+            pin!(listener);
+            let conn1 = listener.as_mut().accept().await.unwrap();
+            let _conn2 = listener.as_mut().accept().await.unwrap();
 
             // No more free permits
             assert_eq!(0, listener.allowed_conns.available_permits());
 
-            let over_limit = listener.accept(); // No await, only prepare the future
+            let over_limit = listener.as_mut().accept(); // No await, only prepare the future
             let over_limit = time::timeout(Duration::from_millis(50), over_limit);
             assert!(over_limit.await.is_err(), "Accepted extra connection");
 
@@ -499,15 +507,16 @@ mod tests {
     /// the connections in background.
     #[tokio::test]
     async fn conn_limit_cont() {
-        let (mut listener, addr) = listener();
+        let (listener, addr) = listener();
 
         let (done_send, done_recv) = oneshot::channel();
 
         let connector = tokio::spawn(connector(addr, done_recv));
 
         let acceptor = tokio::spawn(async move {
+            pin!(listener);
             for _ in 0..3 {
-                let conn = listener.accept().await.unwrap();
+                let conn = listener.as_mut().accept().await.unwrap();
                 tokio::spawn(async move {
                     time::sleep(Duration::from_millis(50)).await;
                     drop(conn);

@@ -82,6 +82,7 @@ use hyper::server::{Builder, Server};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Error as HyperError, Request, Response};
 use log::{debug, trace};
+use pin_project::pin_project;
 use serde::{Deserialize, Serialize};
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable, Transformation};
@@ -252,17 +253,21 @@ impl Default for HyperCfg {
 ///
 /// Not of direct interest to users, though it might leak to some function signatures at an
 /// occasion. The real listener socket is wrapped inside.
+#[pin_project]
 #[derive(Copy, Clone, Debug)]
-pub struct Acceptor<A>(A);
+pub struct Acceptor<A>(#[pin] A);
 
-impl<A: SpiritAccept + Unpin> HyperAccept for Acceptor<A> {
+impl<A: SpiritAccept> HyperAccept for Acceptor<A> {
     type Conn = A::Connection;
     type Error = IoError;
     fn poll_accept(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         ctx: &mut Context,
     ) -> Poll<Option<Result<Self::Conn, IoError>>> {
-        self.0.poll_accept(ctx).map(|p| p.map(Some).transpose())
+        self.project()
+            .0
+            .poll_accept(ctx)
+            .map(|p| p.map(Some).transpose())
     }
 }
 

@@ -1,3 +1,8 @@
+# spirit-tokio-???
+
+* Require less Unpin bounds (if the bound is not satisfied, the outer type is
+  neither, but it's better than being 100% unusable).
+
 # spirit-0.4.16
 
 * More flushing of logs, in more corner cases.
