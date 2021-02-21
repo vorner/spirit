@@ -17,6 +17,7 @@ use super::FutureInstaller;
 #[cfg(feature = "net")]
 use log::error;
 use log::trace;
+use pin_project::pin_project;
 use spirit::fragment::Transformation;
 
 /// A [`Transformation`] to take a resource, turn it into a future and install it.
@@ -155,7 +156,9 @@ where
 
 /// A plumbing type for [`PerConnection`].
 #[cfg(feature = "net")]
+#[pin_project]
 pub struct Acceptor<A, F, C> {
+    #[pin]
     accept: A,
     f: F,
     cfg: C,
@@ -168,20 +171,19 @@ where
     A: Accept,
     F: FnMut(A::Connection, &C) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
-    Self: Unpin,
 {
     type Output = ();
-    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<()> {
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<()> {
+        let mut me = self.project();
         loop {
-            match self.accept.poll_accept(ctx) {
+            match me.accept.as_mut().poll_accept(ctx) {
                 Poll::Ready(Err(e)) => {
-                    error!("Giving up acceptor {}: {}", self.name, e);
+                    error!("Giving up acceptor {}: {}", me.name, e);
                     return Poll::Ready(());
                 }
                 Poll::Ready(Ok(conn)) => {
-                    trace!("Got a new connection on {}", self.name);
+                    trace!("Got a new connection on {}", me.name);
                     // Poking the borrow checker around the un-pinning, otherwise it is unhappy
-                    let me: &mut Self = &mut self;
                     let fut = (me.f)(conn, &me.cfg);
                     tokio::spawn(async move { fut.await });
                 }

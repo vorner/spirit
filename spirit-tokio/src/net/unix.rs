@@ -18,6 +18,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::{UnixDatagram as StdUnixDatagram, UnixListener as StdUnixListener};
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use err_context::prelude::*;
@@ -228,7 +229,10 @@ pub type UnixConfig = Empty;
 
 impl Accept for UnixListener {
     type Connection = UnixStream;
-    fn poll_accept(&mut self, ctx: &mut Context) -> Poll<Result<Self::Connection, IoError>> {
+    fn poll_accept(
+        self: Pin<&mut Self>,
+        ctx: &mut Context,
+    ) -> Poll<Result<Self::Connection, IoError>> {
         mod inner {
             use super::{Context, IoError, Poll, UnixListener, UnixStream};
             // Hide the Accept trait from scope so it doesn't interfere
@@ -239,7 +243,7 @@ impl Accept for UnixListener {
                 l.poll_accept(ctx).map_ok(|(s, _)| s)
             }
         }
-        inner::poll_accept(self, ctx)
+        inner::poll_accept(&self, ctx)
     }
 }
 

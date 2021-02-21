@@ -54,11 +54,11 @@ use tokio::sync::oneshot::Receiver;
 /// by default „hello world“.
 ///
 /// You can play with the options, configuration, runtime-reloading (by SIGHUP), etc.
+#[derive(Clone, Debug, StructOpt)]
 #[structopt(
     version = "1.0.0-example", // Taken from Cargo.toml if not specified
     author,
 )]
-#[derive(Clone, Debug, StructOpt)]
 struct Opts {
     // Adds the `--daemonize` and `--foreground` options.
     #[structopt(flatten)]

@@ -28,6 +28,7 @@ cfg-help = ["spirit/cfg-help", "spirit-tokio/cfg-help", "structdoc"]
 err-context = "^0.1"
 hyper = { version = "^0.14", features = ["server", "http1", "http2", "runtime"] }
 log = "^0.4"
+pin-project = "1"
 serde = { version = "^1", features = ["derive"] }
 spirit = { path = "..", version = "^0.4.8", default-features = false }
 spirit-tokio = { path = "../spirit-tokio", version = "^0.8.1", default-features = false, features = ["net"] }
