@@ -35,8 +35,8 @@ use spirit::fragment::{Fragment, Stackable};
 use structdoc::StructDoc;
 use structopt::StructOpt;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncSeek, AsyncWrite, ReadBuf};
-use tokio::sync::{AcquireError, OwnedSemaphorePermit, Semaphore};
-use tokio::time;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::time::{self, Sleep};
 #[cfg(feature = "stream")]
 use tokio_stream::Stream;
 
@@ -124,12 +124,27 @@ where
         let inner = self.listen.make_resource(seed, name)?;
         // :-( Semaphore can't handle more than that
         let limit = cmp::min(self.limits.max_conn(), usize::MAX >> 4);
+        let sem = Arc::new(Semaphore::new(limit));
+        let sem_get = move || {
+            let sem = Arc::clone(&sem);
+            async move {
+                sem.acquire_owned()
+                    .await
+                    .expect("We don't close the semaphore")
+            }
+        };
+        let pinned = LimitedImpl {
+            err_delay: None,
+            get_permit: FnGetPermit {
+                init: sem_get,
+                fut: None,
+            },
+        };
         Ok(Limited {
             inner,
             error_sleep: self.limits.error_sleep(),
-            err_delay: None,
-            allowed_conns: Arc::new(Semaphore::new(limit)),
-            permit_fut: None,
+            extra_permit: None,
+            pinned: Box::pin(pinned),
         })
     }
     fn init<B: Extensible<Ok = B>>(builder: B, name: &'static str) -> Result<B, AnyError>
@@ -204,6 +219,57 @@ impl ListenLimits for Limits {
     }
 }
 
+/// A trick to type-erase the anonymous types of get permit closure & future.
+///
+/// They are anonymous, therefore we can put them into a bigger structure only as `dyn Something`.
+/// We want to put them under the same dyn together, so this trait.
+trait GetPermit {
+    fn poll_get_permit(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<OwnedSemaphorePermit>;
+}
+
+#[pin_project]
+struct FnGetPermit<F, Fut> {
+    init: F,
+    #[pin]
+    fut: Option<Fut>,
+}
+
+impl<F, Fut> GetPermit for FnGetPermit<F, Fut>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = OwnedSemaphorePermit>,
+{
+    fn poll_get_permit(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<OwnedSemaphorePermit> {
+        let mut me = self.project();
+        if me.fut.is_none() {
+            me.fut.set(Some((me.init)()));
+        }
+        let f = me.fut.as_mut().as_pin_mut().unwrap();
+        let result = f.poll(ctx);
+        if result.is_ready() {
+            me.fut.set(None);
+        }
+        result
+    }
+}
+
+/// Some things inside the [Limited] are not [Unpin] and we want that one to be. Therefore we put
+/// these into a separate structure behind a Box. To save on allocations, we put them together into
+/// the same Box.
+///
+/// It also allows us to type-erase the permit issuing thing since that's an anonymous type :-(.
+#[pin_project]
+struct LimitedImpl<P: ?Sized> {
+    /// If there's a global-ish error (too many file descriptors, for example), we want to wait a
+    /// bit. And here we have the future for the waiting. None if we don't wait.
+    #[pin]
+    err_delay: Option<Sleep>,
+
+    /// Something to issue permits.
+    #[pin]
+    get_permit: P,
+}
+
 /// Wrapper around a listener instance.
 ///
 /// This is a plumbing type the user shouldn't need to come into contact with. It implements the
@@ -215,21 +281,11 @@ pub struct Limited<A> {
     #[pin]
     inner: A,
     error_sleep: Duration,
-    // If there's a global-ish error (too many file descriptors, for example), we want to wait a
-    // bit. And here we have the future for the waiting. None if we don't wait.
-    err_delay: Option<Pin<Box<dyn Future<Output = ()> + Send + Sync>>>,
-    // Tracking how many connections we have/we can still accept.
-    allowed_conns: Arc<Semaphore>,
-    // Awaiting on a permit. Unfortunately, no way to name the thing like in the case of the delay,
-    // so we have allocation and dyn dispatch. But we avoid having this future created on the hot
-    // path anyway.
-    //
-    // We probably could write our own semaphore thing, but that would be hard and the code even
-    // more complex, likely. So we mostly hope the limits are not hit very often.
-    #[allow(clippy::type_complexity)]
-    permit_fut: Option<
-        Pin<Box<dyn Future<Output = Result<OwnedSemaphorePermit, AcquireError>> + Send + Sync>>,
-    >,
+
+    pinned: Pin<Box<LimitedImpl<dyn GetPermit + Send + Sync>>>,
+    // If we acquire a permit but don't use, we store it here between polls to not create them
+    // unnecessarily.
+    extra_permit: Option<OwnedSemaphorePermit>,
 }
 
 impl<A: Accept> Accept for Limited<A> {
@@ -241,44 +297,23 @@ impl<A: Accept> Accept for Limited<A> {
         ctx: &mut Context,
     ) -> Poll<Result<Self::Connection, IoError>> {
         let mut me = self.project();
-        // First, get a permit to create new connections. As the Box<dyn> thing may be more
-        // expensive than what we would have liked, we have a fast path first that does not
-        // allocate.
-        let permit = loop {
-            match me.permit_fut.as_mut() {
-                // We are waiting for a permit right now, postponed from last time.
-                Some(fut) => match fut.as_mut().poll(ctx) {
-                    Poll::Ready(permit) => break permit,
-                    // Still waiting.
-                    Poll::Pending => return Poll::Pending,
-                },
-                None => {
-                    match Arc::clone(&me.allowed_conns).try_acquire_owned() {
-                        // The expected fast path… no future allocated on heap, no dyn and we
-                        // expect we are in limits most of the time.
-                        Ok(permit) => break Ok(permit),
-                        Err(_) => {
-                            // We have run out of permits for new connections and will probably
-                            // have to wait for them. Therefore, we get the future, store it and
-                            // let the next iteration retry. That could succeed (in case someone
-                            // returns a permit in the meantime) or will at least register the
-                            // wakeup for later on.
-                            let permit_fut = Arc::clone(&me.allowed_conns).acquire_owned();
-                            *me.permit_fut = Some(Box::pin(permit_fut));
-                            // Continue to the next loop iteration to start the future.
-                        }
-                    }
-                }
-            }
-        };
+        let mut pinned = me.pinned.as_mut().project();
+        // First, get a permit to create new connections.
+        if me.extra_permit.is_none() {
+            let permit = match pinned.get_permit.poll_get_permit(ctx) {
+                Poll::Ready(permit) => permit,
+                Poll::Pending => return Poll::Pending,
+            };
+            *me.extra_permit = Some(permit);
+        }
 
         // Due to error handling, we may need to retry (either right away or with delay, but then,
         // we want to poll the delay at least, to register the wakeup).
         loop {
             // Do we have a sleep in process, due to previous errors?
-            if let Some(delay) = me.err_delay.as_mut() {
-                if Pin::new(delay).poll(ctx).is_ready() {
-                    me.err_delay.take(); // Sleeping is over, get to do some work
+            if let Some(delay) = pinned.err_delay.as_mut().as_pin_mut() {
+                if delay.poll(ctx).is_ready() {
+                    pinned.err_delay.set(None); // Sleeping is over, get to do some work
                 } else {
                     return Poll::Pending; // Still sleeping/recovering from an error
                 }
@@ -296,7 +331,7 @@ impl<A: Accept> Accept for Limited<A> {
             }
 
             // We have a permit for another connection, try to get one. If it's not available, we'll
-            // simply drop the permit and it'll be available for later.
+            // simply keep the permit for the next time.
             match me.inner.as_mut().poll_accept(ctx) {
                 Poll::Ready(Err(ref e)) if is_connection_local(e) => {
                     trace!("Connection attempt error: {}", e);
@@ -304,13 +339,16 @@ impl<A: Accept> Accept for Limited<A> {
                 }
                 Poll::Ready(Err(_)) => {
                     trace!("Accept error, sleeping for {:?}", me.error_sleep);
-                    *me.err_delay = Some(Box::pin(time::sleep(*me.error_sleep)));
+                    pinned.err_delay.set(Some(time::sleep(*me.error_sleep)));
                 }
                 Poll::Ready(Ok(conn)) => {
                     trace!("Got a new connection");
                     return Poll::Ready(Ok(Tracked {
                         inner: conn,
-                        _permit: permit.expect("We don't remove the semaphore"),
+                        _permit: me
+                            .extra_permit
+                            .take()
+                            .expect("We checked for permit previously"),
                     }));
                 }
                 Poll::Pending => return Poll::Pending,
@@ -447,8 +485,6 @@ mod tests {
             .make_resource(&mut seed, "test_listener")
             .unwrap();
 
-        assert_eq!(2, listener.allowed_conns.available_permits());
-
         (listener, addr)
     }
 
@@ -478,9 +514,6 @@ mod tests {
             pin!(listener);
             let conn1 = listener.as_mut().accept().await.unwrap();
             let _conn2 = listener.as_mut().accept().await.unwrap();
-
-            // No more free permits
-            assert_eq!(0, listener.allowed_conns.available_permits());
 
             let over_limit = listener.as_mut().accept(); // No await, only prepare the future
             let over_limit = time::timeout(Duration::from_millis(50), over_limit);

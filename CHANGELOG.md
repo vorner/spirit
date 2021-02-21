@@ -2,6 +2,7 @@
 
 * Require less Unpin bounds (if the bound is not satisfied, the outer type is
   neither, but it's better than being 100% unusable).
+* The Accept trait now takes Pin.
 
 # spirit-0.4.16
 
