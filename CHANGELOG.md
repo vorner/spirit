@@ -1,3 +1,7 @@
+# spirit-tokio-???
+
+* Implement `From` instead of `Into` around `Either`.
+
 # spirit-hyper-0.9.0
 
 * Dep updates.

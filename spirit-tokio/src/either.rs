@@ -191,9 +191,9 @@ impl<A, B> From<FutEither<A, B>> for Either<A, B> {
 }
 
 #[cfg(feature = "futures")]
-impl<A, B> Into<FutEither<A, B>> for Either<A, B> {
-    fn into(self) -> FutEither<A, B> {
-        match self {
+impl<A, B> From<Either<A, B>> for FutEither<A, B> {
+    fn from(either: Either<A, B>) -> FutEither<A, B> {
+        match either {
             A(a) => FutEither::Left(a),
             B(b) => FutEither::Right(b),
         }
@@ -211,9 +211,9 @@ impl<A, B> From<OtherEither<A, B>> for Either<A, B> {
 }
 
 #[cfg(feature = "either")]
-impl<A, B> Into<OtherEither<A, B>> for Either<A, B> {
-    fn into(self) -> OtherEither<A, B> {
-        match self {
+impl<A, B> From<Either<A, B>> for OtherEither<A, B> {
+    fn from(either: Either<A, B>) -> OtherEither<A, B> {
+        match either {
             A(a) => OtherEither::Left(a),
             B(b) => OtherEither::Right(b),
         }
