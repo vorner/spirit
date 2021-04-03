@@ -151,7 +151,7 @@ impl Listen {
         } else {
             None
         };
-        SocketWithPath { socket, to_delete }
+        SocketWithPath { to_delete, socket }
     }
     fn unlink_before(&self, addr: &SockAddr, tp: SocketType) {
         use UnlinkBefore::*;

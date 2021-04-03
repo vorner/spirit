@@ -1,5 +1,10 @@
-# spirit-tokio-???
+# spirit-hyper-0.9.0
 
+* Dep updates.
+
+# spirit-tokio-0.9.0
+
+* Fix links in docs.
 * Require less Unpin bounds (if the bound is not satisfied, the outer type is
   neither, but it's better than being 100% unusable).
 * The Accept trait now takes Pin.

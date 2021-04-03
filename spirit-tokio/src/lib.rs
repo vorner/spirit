@@ -20,7 +20,7 @@
 //! * `cfg-help`: Support for generating help for the configuration options.
 //! * `net`: Network primitive configuration [`Fragment`]s in the [`net`] module.
 //! * `stream`: Implementations of [`tokio_stream::Stream`] on several types.
-//! * `futures`: Support for converting between [`futures`][futures_util]' and ours
+//! * `futures`: Support for converting between [`futures`'s][futures_util::future::Either] and our
 //!   [`Either`][crate::either::Either].
 //! * `either`: Support for converting between our [`Either`][crate::either::Either] and the one
 //!   from the [`either`] crate.

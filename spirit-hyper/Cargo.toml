@@ -1,6 +1,6 @@
 [package]
 name = "spirit-hyper"
-version = "0.8.1"
+version = "0.9.0"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Hyper helpers for Spirit"
 documentation = "https://docs.rs/spirit-hyper"
@@ -31,7 +31,7 @@ log = "^0.4"
 pin-project = "1"
 serde = { version = "^1", features = ["derive"] }
 spirit = { path = "..", version = "^0.4.8", default-features = false }
-spirit-tokio = { path = "../spirit-tokio", version = "^0.8.1", default-features = false, features = ["net"] }
+spirit-tokio = { path = "../spirit-tokio", version = "^0.9.0", default-features = false, features = ["net"] }
 structdoc = { version = "^0.1", optional = true }
 structopt = { version = "^0.3", default-features = false }
 tokio = { version = "^1", default-features = false, features = ["rt", "sync"] }
