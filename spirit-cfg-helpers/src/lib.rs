@@ -263,7 +263,7 @@ impl CfgDump {
         let validator = move |_: &_, cfg: &_, opts: &_| {
             if let Some(extract) = extract.take() {
                 let me = extract(opts);
-                me.dump(&cfg as &E::Config);
+                me.dump(cfg as &E::Config);
             }
             Ok(Action::new())
         };

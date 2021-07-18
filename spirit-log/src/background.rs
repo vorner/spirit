@@ -342,7 +342,7 @@ impl Log for AsyncLogger {
                 module_path: record.module_path().map(ToOwned::to_owned),
                 msg: format!("{}", record.args()),
                 target: record.target().to_owned(),
-                thread: MY_THREAD_NAME.with(|n| Arc::clone(&n)),
+                thread: MY_THREAD_NAME.with(|n| Arc::clone(n)),
             };
             if self.mode == OverflowMode::Block {
                 self.ch.send(i).expect("Logging thread disappeared");

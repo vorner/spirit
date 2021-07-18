@@ -184,7 +184,7 @@ where
                 Poll::Ready(Ok(conn)) => {
                     trace!("Got a new connection on {}", me.name);
                     // Poking the borrow checker around the un-pinning, otherwise it is unhappy
-                    let fut = (me.f)(conn, &me.cfg);
+                    let fut = (me.f)(conn, me.cfg);
                     tokio::spawn(async move { fut.await });
                 }
                 Poll::Pending => return Poll::Pending,

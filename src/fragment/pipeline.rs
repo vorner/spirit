@@ -618,7 +618,7 @@ where
         let (name, transform, driver) = me_lock.explode();
         debug!("Running pipeline {}", name);
         let instructions = driver.instructions(&fragment, transform, name)?;
-        let me_f = Arc::clone(&me);
+        let me_f = Arc::clone(me);
         let failure = move || {
             debug!("Rolling back pipeline {}", name);
             me_f.lock()
@@ -626,7 +626,7 @@ where
                 .driver
                 .abort(name);
         };
-        let me_s = Arc::clone(&me);
+        let me_s = Arc::clone(me);
         let success = move || {
             debug!(
                 "Success for pipeline {}, performing {} install instructions",

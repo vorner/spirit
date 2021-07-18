@@ -197,7 +197,7 @@ impl<O, C> Tokio<O, C> {
     where
         E: FnMut(&C) -> Config + Send + 'static,
     {
-        let extractor = move |_opts: &O, cfg: &C| extractor(&cfg);
+        let extractor = move |_opts: &O, cfg: &C| extractor(cfg);
         let finish = |mut builder: Builder| -> Result<Runtime, AnyError> { Ok(builder.build()?) };
         Tokio::FromCfg(Box::new(extractor), Box::new(finish))
     }
@@ -273,14 +273,14 @@ where
                         let prev = prev_cfg
                             .as_ref()
                             .expect("Should have stored config on init");
-                        let new = extract(opts, &cfg);
+                        let new = extract(opts, cfg);
                         if prev != &new {
                             warn!("Tokio configuration differs, but can't be reloaded at run time");
                         }
                     }
                 } else {
                     debug!("Creating the tokio runtime");
-                    let new_runtime = self.create(opts, &cfg).context("Tokio runtime creation")?;
+                    let new_runtime = self.create(opts, cfg).context("Tokio runtime creation")?;
                     let new_handle = new_runtime.handle().clone();
                     // We do so *right now* so the following config validators have some chance of
                     // having the runtime. It's one-shot anyway, so we are not *replacing* anything
@@ -290,7 +290,7 @@ where
                     initialized = true;
                     #[cfg(feature = "rt-from-cfg")]
                     if let Tokio::FromCfg(extract, _) = &mut self {
-                        prev_cfg = Some(extract(opts, &cfg));
+                        prev_cfg = Some(extract(opts, cfg));
                     }
                 }
                 Ok(Action::new())

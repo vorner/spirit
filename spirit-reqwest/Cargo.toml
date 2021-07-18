@@ -1,6 +1,6 @@
 [package]
 name = "spirit-reqwest"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 edition = "2018"
 description = "Reqwest helpers for Spirit"
@@ -34,7 +34,7 @@ arc-swap = "^1"
 err-context = "^0.1"
 log = "^0.4"
 # Yes, depend on default-features. That means default-tls, we don't want to disable so many parts of the code
-reqwest = "^0.11"
+reqwest = "^0.11.4"
 serde = { version = "^1", features = ["derive"] }
 spirit = { version = "^0.4.8", path = "..", default-features = false }
 structdoc = { version = "^0.1", optional = true }

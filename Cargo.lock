@@ -1180,9 +1180,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.11.2"
+version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf12057f289428dbf5c591c74bf10392e4a8003f993405a902f20117019022d4"
+checksum = "246e9f61b9bb77df069a947682be06e31ac43ea37862e244a69f177694ea6d22"
 dependencies = [
  "async-compression",
  "base64",
@@ -1547,7 +1547,7 @@ dependencies = [
 
 [[package]]
 name = "spirit-reqwest"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "arc-swap",
  "env_logger",
@@ -1563,7 +1563,7 @@ dependencies = [
 
 [[package]]
 name = "spirit-tokio"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "arc-swap",
  "either",
