@@ -477,7 +477,7 @@ where
 {
     move |e: E| {
         let init = move |_: &_, cfg: &Arc<_>, opts: &_| -> Result<Action, AnyError> {
-            let d = extractor(&cfg, opts);
+            let d = extractor(cfg, opts);
             d.into().daemonize()?;
             Ok(Action::new())
         };

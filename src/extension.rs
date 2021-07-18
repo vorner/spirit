@@ -728,7 +728,7 @@ where
     let mut first = None;
     let mut init = Some(init);
     let on_cfg = move |_o: &Ext::Opts, c: &Arc<Ext::Config>| {
-        let extracted = extractor(&c);
+        let extracted = extractor(c);
         if first.is_none() {
             first = Some(extracted.clone());
             (init.take().expect("Init called multiple times"))(extracted);
