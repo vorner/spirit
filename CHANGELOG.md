@@ -1,4 +1,8 @@
-# spirit-tokio-???
+# spirit-reqwest-0.5.1
+
+* Implement support for `tcp_keepalive`.
+
+# spirit-tokio-0.9.1
 
 * Implement `From` instead of `Into` around `Either`.
 

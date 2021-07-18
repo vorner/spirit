@@ -191,6 +191,7 @@ fn is_false(b: &bool) -> bool {
 /// * `redirects`: Number of allowed redirects per one request, `nil` to disable. Defaults to `10`.
 /// * `referer`: Allow automatic setting of the referer header. Defaults to `true`.
 /// * `tcp-nodelay`: Use the `SO_NODELAY` flag on all connections.
+/// * `tcp-keepalive`: Set the `SO_KEEPALIVE` option to the given time or disable with `nil`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(structdoc::StructDoc))]
 #[serde(rename_all = "kebab-case", default)]
@@ -203,7 +204,8 @@ pub struct ReqwestClient {
     /// Timeout for connections sitting unused in the pool.
     #[serde(
         deserialize_with = "spirit::utils::deserialize_opt_duration",
-        serialize_with = "spirit::utils::serialize_opt_duration"
+        serialize_with = "spirit::utils::serialize_opt_duration",
+        skip_serializing_if = "Option::is_none"
     )]
     pub pool_idle_timeout: Option<Duration>,
 
@@ -221,6 +223,11 @@ pub struct ReqwestClient {
     ///
     /// On by default.
     pub tcp_nodelay: bool,
+
+    /// The value of `SO_KEEPALIVE`.
+    ///
+    /// Can be disabled with `nil`.
+    pub tcp_keepalive: Option<Duration>,
 
     /// Additional certificates to add into the TLS trust store.
     ///
@@ -401,6 +408,7 @@ impl Default for ReqwestClient {
             http2_initial_stream_window_size: None,
             max_idle_per_host: None,
             tcp_nodelay: false,
+            tcp_keepalive: None,
             local_address: None,
             https_only: false,
         }
@@ -434,6 +442,7 @@ impl ReqwestClient {
         let mut builder = Client::builder()
             .danger_accept_invalid_certs(self.tls_accept_invalid_certs)
             .tcp_nodelay(self.tcp_nodelay)
+            .tcp_keepalive(self.tcp_keepalive)
             .pool_max_idle_per_host(self.max_idle_per_host.unwrap_or(usize::max_value()))
             .pool_idle_timeout(self.pool_idle_timeout)
             .local_address(self.local_address)
