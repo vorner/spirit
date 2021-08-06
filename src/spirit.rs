@@ -600,7 +600,7 @@ where
         let mut hook = Some(hook);
         let mut hooks = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
         if hooks.terminated {
-            (hooks.terminate.last_mut().unwrap())();
+            hook.take().unwrap()();
         } else {
             hooks.terminate.push(Box::new(move || {
                 (hook.take().expect("Termination hook called multiple times"))()
@@ -1156,5 +1156,49 @@ mod tests {
         // We test the trait actually works even when we have owned value, not reference only.
         let spirit = Arc::clone(app.spirit());
         spirit.on_terminate(|| ()).on_config(|_opts, _cfg| ());
+    }
+
+    #[test]
+    fn on_terminate_after_terminate() {
+        let app = Spirit::<Empty, Empty>::new()
+            .preparsed_opts(Empty {})
+            .build(false)
+            .unwrap();
+
+        let terminates_called = Arc::new(AtomicUsize::new(0));
+        let spirit = Arc::clone(app.spirit());
+
+        let bg = thread::spawn(move || {
+            let spirit = Arc::clone(app.spirit());
+            app.run(move || {
+                while !spirit.is_terminated() {
+                    thread::sleep(Duration::from_millis(50));
+                }
+                Ok(())
+            })
+        });
+
+        spirit.on_terminate({
+            let terminates_called = Arc::clone(&terminates_called);
+            move || {
+                terminates_called.fetch_add(1, Ordering::Relaxed);
+            }
+        });
+
+        assert_eq!(0, terminates_called.load(Ordering::Relaxed));
+
+        spirit.terminate();
+
+        assert_eq!(1, terminates_called.load(Ordering::Relaxed));
+        bg.join().unwrap().unwrap();
+
+        spirit.on_terminate({
+            let terminates_called = Arc::clone(&terminates_called);
+            move || {
+                terminates_called.fetch_add(1, Ordering::Relaxed);
+            }
+        });
+
+        assert_eq!(2, terminates_called.load(Ordering::Relaxed));
     }
 }

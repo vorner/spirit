@@ -1,3 +1,7 @@
+# spirit-0.4.18
+
+* Fix panic in `on_terminate` called after terminating.
+
 # spirit-log-0.4.4
 
 * The Opts are now Default.
