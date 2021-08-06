@@ -1,3 +1,7 @@
+# spirit-log-0.4.4
+
+* The Opts are now Default.
+
 # spirit-0.4.17
 
 * Ability to inject command line options instead of parsing real ones (primarily
