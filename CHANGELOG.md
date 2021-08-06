@@ -1,3 +1,8 @@
+# spirit-0.4.17
+
+* Ability to inject command line options instead of parsing real ones (primarily
+  for testing).
+
 # spirit-reqwest-0.5.1
 
 * Implement support for `tcp_keepalive`.

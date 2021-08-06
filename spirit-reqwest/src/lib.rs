@@ -491,7 +491,7 @@ impl ReqwestClient {
                 .as_ref()
                 .map(|s| s as &str)
                 .unwrap_or_default();
-            let identity = load_identity(&identity_path, passwd)
+            let identity = load_identity(identity_path, passwd)
                 .with_context(|_| format!("Failed to load identity {:?}", identity_path))?;
             builder = builder.identity(identity);
         }
