@@ -224,7 +224,7 @@ pairs (eg. `-L spirit=TRACE`) specifying levels for specific logging targets.
 If used, the logging will be sent to `stderr`.
 "#
 )]
-#[derive(Clone, Debug, StructOpt)]
+#[derive(Clone, Debug, Default, StructOpt)]
 pub struct Opts {
     /// Log to stderr with this log level.
     #[structopt(short = "l", long = "log", number_of_values(1))]
