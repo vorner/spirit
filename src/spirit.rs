@@ -2,7 +2,6 @@ use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result as FmtResult};
-use std::marker::PhantomData;
 use std::mem;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
@@ -199,7 +198,7 @@ where
             config_mutators: Vec::new(),
             config_validators: Vec::new(),
             around_hooks: Vec::new(),
-            opts: PhantomData,
+            provided_opts: None,
             sig_hooks: HashMap::new(),
             singletons: HashSet::new(),
             terminate_hooks: Vec::new(),
@@ -704,7 +703,7 @@ pub struct Builder<O = Empty, C = Empty> {
     config_mutators: Vec<Box<dyn FnMut(&mut C) + Send>>,
     config_validators: Vec<Box<dyn FnMut(&Arc<C>, &Arc<C>, &O) -> Result<Action, AnyError> + Send>>,
     around_hooks: Vec<Box<dyn HookWrapper>>,
-    opts: PhantomData<O>,
+    provided_opts: Option<O>,
     sig_hooks: HashMap<libc::c_int, Vec<Box<dyn FnMut() + Send>>>,
     singletons: HashSet<TypeId>,
     terminate_hooks: Vec<Box<dyn FnMut() + Send>>,
@@ -723,6 +722,17 @@ where
     pub fn config_loader(self, loader: CfgBuilder) -> Self {
         Self {
             config_loader: loader,
+            ..self
+        }
+    }
+
+    /// Inject command options instead of parsing the real ones.
+    ///
+    /// Useful for example when writing tests and "starting" the application with fake command
+    /// lines.
+    pub fn preparsed_opts(self, opts: O) -> Self {
+        Self {
+            provided_opts: Some(opts),
             ..self
         }
     }
@@ -1000,7 +1010,10 @@ where
 {
     fn build(mut self, background_thread: bool) -> Result<App<O, C>, AnyError> {
         debug!("Building the spirit");
-        let (opts, loader) = self.config_loader.build::<Self::Opts>();
+        let (opts, loader) = match self.provided_opts {
+            Some(opts) => (opts, self.config_loader.build_no_opts()),
+            None => self.config_loader.build::<Self::Opts>(),
+        };
         let wrappers = &mut self.around_hooks;
         let before_configs = &mut self.before_config;
         let config = &self.config;
