@@ -41,6 +41,13 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! # Testing support
+//!
+//! Oftentimes, the need to have a custom config loader stems from testing. See the [testing guide]
+//! for details.
+//!
+//! testing guide: crate::guide::testing
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
