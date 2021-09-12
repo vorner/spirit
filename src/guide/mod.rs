@@ -36,6 +36,7 @@ You'll find here:
   - [Using fragments and pipelines][self::fragments]
   - [Extending with own fragments][self::extend]
   - [Proper daemonization and early startup][self::daemonization]
+  - [Testing][self::testing]
 */
 
 pub mod configuration;
@@ -44,4 +45,5 @@ pub mod extend;
 pub mod fragments;
 pub mod levels;
 pub mod principles;
+pub mod testing;
 pub mod tutorial;

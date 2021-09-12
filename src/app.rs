@@ -17,6 +17,7 @@ use structopt::StructOpt;
 use crate::bodies::{InnerBody, WrapBody};
 use crate::error;
 use crate::spirit::Spirit;
+use crate::terminate_guard::TerminateGuard;
 use crate::utils::FlushGuard;
 use crate::AnyError;
 
@@ -137,5 +138,23 @@ where
             drop(flush);
             process::exit(1);
         }
+    }
+
+    /// Run the application in a background thread for testing purposes.
+    ///
+    /// This'll run the application and return an RAII guard. That guard can be used to access the
+    /// [Spirit] and manipulate it. It also terminates the application and background thread when
+    /// dropped.
+    ///
+    /// This is for testing purposes (it panics if there are errors). See the [testing guide].
+    ///
+    /// testing guide: crate::guide::testing
+    pub fn run_test<B>(self, body: B) -> TerminateGuard<O, C>
+    where
+        B: FnOnce() -> Result<(), AnyError> + Send + 'static,
+    {
+        let spirit = Arc::clone(self.spirit());
+        let bg_thread = thread::spawn(move || self.run(body));
+        TerminateGuard::new(spirit, bg_thread)
     }
 }

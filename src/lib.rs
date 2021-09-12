@@ -101,6 +101,7 @@ pub mod guide;
 #[doc(hidden)]
 pub mod macro_support;
 mod spirit;
+pub mod terminate_guard;
 pub mod utils;
 pub mod validation;
 

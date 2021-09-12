@@ -44,6 +44,7 @@ use crate::AnyError;
 ///
 /// use structopt::StructOpt;
 ///
+/// # #[allow(dead_code)]
 /// #[derive(Debug, StructOpt)]
 /// struct MyOpts {
 ///     #[structopt(short = "p", parse(from_os_str = spirit::utils::absolute_from_os_str))]
@@ -89,6 +90,7 @@ impl Error for MissingEquals {}
 ///
 /// ```rust
 /// # use structopt::StructOpt;
+/// # #[allow(dead_code)]
 /// #[derive(Debug, StructOpt)]
 /// struct MyOpts {
 ///     #[structopt(
@@ -127,6 +129,7 @@ where
 ///
 /// use spirit::utils::Hidden;
 ///
+/// # #[allow(dead_code)]
 /// #[derive(Debug)]
 /// struct Cfg {
 ///     username: String,

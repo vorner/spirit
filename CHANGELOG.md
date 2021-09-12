@@ -1,3 +1,9 @@
+# spirit-0.4.19
+
+* `App::run_test` for easier management of spirit mock "applications" inside
+  tests.
+* Added guide for the above testing.
+
 # spirit-0.4.18
 
 * Fix panic in `on_terminate` called after terminating.
