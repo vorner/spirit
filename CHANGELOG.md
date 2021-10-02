@@ -1,3 +1,7 @@
+# spirit-0.4.20
+
+* Simplifying the testing example.
+
 # spirit-0.4.19
 
 * `App::run_test` for easier management of spirit mock "applications" inside
