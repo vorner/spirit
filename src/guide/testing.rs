@@ -26,7 +26,6 @@ handlers so things work as expected. Second, this allows having multiple paralle
 // This goes to some tests/something.rs or similar place.
 use std::sync::{mpsc, Arc};
 
-use spirit::cfg_loader::Builder as CfgBuilder;
 use spirit::prelude::*;
 use spirit::{Empty, Spirit};
 
@@ -36,13 +35,10 @@ let TEST_CFG: &str = r#"
 option = true
 "#;
 
-let cfg_loader = CfgBuilder::new()
-    .config_defaults(TEST_CFG);
-
 // Note: Some "real" config and opts structures are likely used here.
 let app = Spirit::<Empty, Empty>::new()
-    // Inject the config loader with the "config file" in it.
-    .config_loader(cfg_loader)
+    // Inject the "config file" in it.
+    .config_defaults(TEST_CFG)
     // Provide already parsed command line argument structure here. Ours is `Empty` here, but it's
     // whatever you use in the app.
     //
