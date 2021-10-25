@@ -1,3 +1,10 @@
+# spirit-0.4.21
+# spirit-tokio-0.9.2
+# spirit-daemonize-0.5.1
+
+* Version updates. Fixes dep security advisories under spirit-daemonize (#69,
+  #70).
+
 # spirit-0.4.20
 
 * Simplifying the testing example.

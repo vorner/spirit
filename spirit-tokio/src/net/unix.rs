@@ -64,7 +64,7 @@ fn is_socket(p: &Path) -> Result<bool, AnyError> {
 }
 
 fn try_connect(addr: &SockAddr, tp: SocketType) -> Result<bool, AnyError> {
-    let socket = Socket::new(Domain::unix(), tp, None)?;
+    let socket = Socket::new(Domain::UNIX, tp, None)?;
     Ok(socket.connect(addr).is_err())
 }
 
@@ -191,7 +191,7 @@ impl Listen {
             self.path.as_ref()
         };
         let addr = SockAddr::unix(addr).context("Create sockaddr")?;
-        let sock = Socket::new(Domain::unix(), tp, None).context("Create socket")?;
+        let sock = Socket::new(Domain::UNIX, tp, None).context("Create socket")?;
         self.unlink_before(&addr, tp);
         sock.bind(&addr)
             .with_context(|_| format!("Binding socket to {}", self.path.display()))?;
@@ -203,18 +203,18 @@ impl Listen {
     ///
     /// This is a low-level function, returning the *blocking* (std) listener.
     pub fn create_listener(&self) -> Result<StdUnixListener, AnyError> {
-        let sock = self.create_any(SocketType::stream())?;
+        let sock = self.create_any(SocketType::STREAM)?;
         sock.listen(cmp::min(self.backlog, i32::max_value() as u32) as i32)
             .context("Listening to Stream socket")?;
-        Ok(sock.into_unix_listener())
+        Ok(sock.into())
     }
 
     /// Creates a unix datagram socket.
     ///
     /// This is a low-level function, returning the *blocking* (std) socket.
     pub fn create_datagram(&self) -> Result<StdUnixDatagram, AnyError> {
-        let sock = self.create_any(SocketType::dgram())?;
-        Ok(sock.into_unix_datagram())
+        let sock = self.create_any(SocketType::DGRAM)?;
+        Ok(sock.into())
     }
 }
 

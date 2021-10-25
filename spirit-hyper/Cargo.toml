@@ -37,7 +37,7 @@ structopt = { version = "^0.3", default-features = false }
 tokio = { version = "^1", default-features = false, features = ["rt", "sync"] }
 
 [dev-dependencies]
-env_logger = "~0.8"
+env_logger = "~0.9"
 
 [package.metadata.docs.rs]
 all-features = true
