@@ -1,6 +1,6 @@
 [package]
 name = "spirit"
-version = "0.4.20"
+version = "0.4.21"
 authors = ["Michal 'vorner' Vaner <vorner@vorner.cz>"]
 description = "Helper to create well behaved daemons with runtime-reconfiguration support"
 documentation = "https://docs.rs/spirit"
@@ -44,7 +44,7 @@ color = ["structopt/color"]
 
 [dependencies]
 arc-swap = "~1"
-config = { version = "~0.10.1", default-features = false, features = ["toml"] }
+config = { version = "~0.11", default-features = false, features = ["toml"] }
 either = "~1"
 err-context = "~0.1"
 fallible-iterator = "~0.2"

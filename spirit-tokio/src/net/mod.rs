@@ -23,7 +23,7 @@ use pin_project::pin_project;
 use serde::de::{Deserializer, Error as DeError, Unexpected};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
-use socket2::{Domain, Socket, Type as SocketType};
+use socket2::{Domain, Socket, TcpKeepalive, Type as SocketType};
 use spirit::fragment::driver::{CacheSimilar, Comparable, Comparison};
 use spirit::fragment::{Fragment, Stackable};
 use spirit::Empty;
@@ -277,8 +277,8 @@ impl Default for Listen {
 impl Listen {
     fn create_any(&self, tp: SocketType) -> Result<Socket, AnyError> {
         let domain = match self.host {
-            IpAddr::V4(_) => Domain::ipv4(),
-            IpAddr::V6(_) => Domain::ipv6(),
+            IpAddr::V4(_) => Domain::IPV4,
+            IpAddr::V6(_) => Domain::IPV6,
         };
         let socket = Socket::new(domain, tp, None).context("Creating socket")?;
         if let Some(only_v6) = self.only_v6 {
@@ -312,18 +312,18 @@ impl Listen {
     ///
     /// This is the synchronous socket from standard library. See [`TcpListener::from_std`].
     pub fn create_tcp(&self) -> Result<StdTcpListener, AnyError> {
-        let sock = self.create_any(SocketType::stream())?;
+        let sock = self.create_any(SocketType::STREAM)?;
         sock.listen(cmp::min(self.backlog, i32::max_value() as u32) as i32)
             .context("Listening to TCP socket")?;
-        Ok(sock.into_tcp_listener())
+        Ok(sock.into())
     }
 
     /// Creates a UDP socket described by the loaded configuration.
     ///
     /// This is the synchronous socket from standard library. See [`UdpSocket::from_std`].
     pub fn create_udp(&self) -> Result<StdUdpSocket, AnyError> {
-        let sock = self.create_any(SocketType::dgram())?;
-        Ok(sock.into_udp_socket())
+        let sock = self.create_any(SocketType::DGRAM)?;
+        Ok(sock.into())
     }
 }
 
@@ -428,13 +428,16 @@ impl StreamConfig<TcpStream> for TcpConfig {
         }
         match self.keepalive {
             MaybeDuration::Unset => (),
-            MaybeDuration::Off => sock.set_keepalive(None)?,
-            MaybeDuration::Duration(duration) => sock.set_keepalive(Some(duration))?,
+            MaybeDuration::Off => sock.set_keepalive(false)?,
+            MaybeDuration::Duration(duration) => {
+                sock.set_tcp_keepalive(&TcpKeepalive::new().with_time(duration))?;
+                sock.set_keepalive(true)?;
+            }
         }
         if let Some(ttl) = self.accepted_ttl {
             sock.set_ttl(ttl)?;
         }
-        TcpStream::from_std(sock.into_tcp_stream())
+        TcpStream::from_std(sock.into())
     }
 }
 
