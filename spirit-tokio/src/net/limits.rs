@@ -215,7 +215,7 @@ impl ListenLimits for Limits {
         self.error_sleep
     }
     fn max_conn(&self) -> usize {
-        self.max_conn.unwrap_or_else(|| usize::max_value() / 2 - 1)
+        self.max_conn.unwrap_or(usize::max_value() / 2 - 1)
     }
 }
 
