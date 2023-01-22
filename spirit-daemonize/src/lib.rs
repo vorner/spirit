@@ -130,7 +130,7 @@ impl Daemonize {
                 .context("Failed to open /dev/null")?;
             for fd in &[0, 1, 2] {
                 unistd::dup2(devnull.as_raw_fd(), *fd)
-                    .with_context(|_| format!("Failed to redirect FD {}", fd))?;
+                    .with_context(|_| format!("Failed to redirect FD {fd}"))?;
             }
             trace!("Doing double fork");
             if let ForkResult::Parent { .. } = unistd::fork().context("Failed to fork")? {
@@ -164,6 +164,7 @@ impl Daemonize {
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(untagged)]
 #[non_exhaustive]
+#[derive(Default)]
 pub enum SecId {
     /// Look up based on the name.
     Name(String),
@@ -174,18 +175,13 @@ pub enum SecId {
     /// This is not read from configuration, but it is the default value available if nothing is
     /// listed in configuration.
     #[serde(skip)]
+    #[default]
     Nothing,
 }
 
 impl SecId {
     fn is_nothing(&self) -> bool {
         self == &SecId::Nothing
-    }
-}
-
-impl Default for SecId {
-    fn default() -> Self {
-        SecId::Nothing
     }
 }
 
@@ -276,7 +272,7 @@ impl Daemon {
                 unistd::setgid(Gid::from_raw(id)).context("Failed to change the group")?
             }
             SecId::Name(ref name) => privdrop::PrivDrop::default()
-                .group(&name)
+                .group(name)
                 .apply()
                 .context("Failed to change the group")?,
             SecId::Nothing => (),
@@ -286,7 +282,7 @@ impl Daemon {
                 unistd::setuid(Uid::from_raw(id)).context("Failed to change the user")?
             }
             SecId::Name(ref name) => privdrop::PrivDrop::default()
-                .user(&name)
+                .user(name)
                 .apply()
                 .context("Failed to change the user")?,
             SecId::Nothing => (),

@@ -109,8 +109,10 @@ fn is_default_timeout(t: &Duration) -> bool {
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
+#[derive(Default)]
 pub enum HttpMode {
     /// Enable both HTTP1 and HTTP2 protocols.
+    #[default]
     Both,
 
     /// Disable the HTTP2 protocol.
@@ -120,12 +122,6 @@ pub enum HttpMode {
     /// Disable the HTTP1 protocol.
     #[serde(rename = "http2-only")]
     Http2Only,
-}
-
-impl Default for HttpMode {
-    fn default() -> Self {
-        HttpMode::Both
-    }
 }
 
 /// Configuration of Hyper HTTP servers.
@@ -396,9 +392,7 @@ where
                 if let Err(e) = server.await {
                     log_error!(
                         Error,
-                        e.into()
-                            .context(format!("HTTP server error {}", name))
-                            .into()
+                        e.into().context(format!("HTTP server error {name}")).into()
                     );
                 }
                 trace!("Server {} terminated", name);

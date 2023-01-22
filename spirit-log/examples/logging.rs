@@ -58,7 +58,7 @@ sleep_ms = 100
 fn main() {
     Spirit::<Opts, Cfg>::new()
         .config_defaults(DEFAULT_CONFIG)
-        .config_exts(&["toml", "ini", "json"])
+        .config_exts(["toml", "ini", "json"])
         .with(
             Pipeline::new("logging").extract(|opts: &Opts, cfg: &Cfg| LogBoth {
                 cfg: cfg.logging(),

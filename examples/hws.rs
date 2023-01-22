@@ -136,7 +136,7 @@ fn main() -> Result<(), AnyError> {
         .config_defaults(DEFAULT_CONFIG)
         // If the user passes a directory path instead of file path, take files with these
         // extensions and load config from there.
-        .config_exts(&["toml", "ini", "json"])
+        .config_exts(["toml", "ini", "json"])
         // Config can be read from environment too
         .config_env("HWS")
         // Perform some more validation of the results.

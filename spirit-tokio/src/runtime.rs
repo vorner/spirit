@@ -154,9 +154,11 @@ impl From<Config> for Builder {
 /// [`FutureInstaller`][crate::FutureInstaller].
 #[non_exhaustive]
 #[allow(clippy::type_complexity)] // While complex, the types are probably more readable inline
+#[derive(Default)]
 pub enum Tokio<O, C> {
     /// Provides the equivalent of [`Runtime::new`].
     #[cfg(feature = "multithreaded")]
+    #[default]
     Default,
 
     /// A singlethreaded runtime.
@@ -226,11 +228,6 @@ impl<O, C> Tokio<O, C> {
 }
 
 #[cfg(feature = "multithreaded")]
-impl<O, C> Default for Tokio<O, C> {
-    fn default() -> Self {
-        Tokio::Default
-    }
-}
 
 impl<E> Extension<E> for Tokio<E::Opts, E::Config>
 where

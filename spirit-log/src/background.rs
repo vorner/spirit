@@ -127,7 +127,7 @@ impl Instruction {
                 LOG_THREAD_NAME.with(|n| n.replace(Some(thread)));
                 dst.log(
                     &Record::builder()
-                        .args(format_args!("{}", msg))
+                        .args(format_args!("{msg}"))
                         .level(level)
                         .target(&target)
                         .file(file.as_ref().map(|f| f as &str))
@@ -177,7 +177,7 @@ impl Recv {
                         reset_thread_name();
                         self.shared.logger.log(
                             &Record::builder()
-                                .args(format_args!("Lost {} messages", lost_msgs))
+                                .args(format_args!("Lost {lost_msgs} messages"))
                                 .level(Level::Warn)
                                 .target(module_path!())
                                 .line(Some(line!()))

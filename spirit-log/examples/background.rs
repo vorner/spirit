@@ -68,7 +68,7 @@ mod everything {
     pub(crate) fn run() {
         Spirit::<Opts, Cfg>::new()
             .config_defaults(DEFAULT_CONFIG)
-            .config_exts(&["toml", "ini", "json"])
+            .config_exts(["toml", "ini", "json"])
             .with(
                 Pipeline::new("logging")
                     .extract(|opts: &Opts, cfg: &Cfg| LogBoth {

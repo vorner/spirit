@@ -33,7 +33,7 @@ async fn make_request(client: &Client) -> Result<(), AnyError> {
         .error_for_status()?
         .text()
         .await?;
-    println!("{}", page);
+    println!("{page}");
     Ok(())
 }
 

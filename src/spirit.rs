@@ -33,14 +33,14 @@ use crate::AnyError;
 
 fn get_proc_name(pid: Option<pid_t>) -> String {
     fn inner(pid: pid_t) -> Result<String, AnyError> {
-        let cmdline = std::fs::read(format!("/proc/{}/cmdline", pid))?;
+        let cmdline = std::fs::read(format!("/proc/{pid}/cmdline"))?;
         let binary = cmdline.split(|b| *b == 0).next().unwrap_or_default();
         Ok(String::from_utf8_lossy(binary).into_owned())
     }
     match pid.map(inner) {
         None | Some(Err(_)) => String::new(),
         Some(Ok(s)) if s.is_empty() => ", (Unnamed process)".to_owned(),
-        Some(Ok(s)) => format!(", Process: {} (best effort guess)", s),
+        Some(Ok(s)) => format!(", Process: {s} (best effort guess)"),
     }
 }
 

@@ -48,11 +48,12 @@ pub mod unix;
 /// If using on your own and using `Serialize`, make sure that you use
 /// `#[serde(skip_serializing_if = "MaybeDuration::is_unset")]`, or you'll get a panic during
 /// serialization.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Default)]
 pub enum MaybeDuration {
     /// Leaves the option at the OS default.
     ///
     /// Signified by not being present in the configuration.
+    #[default]
     Unset,
 
     /// Turns the option off.
@@ -69,12 +70,6 @@ pub enum MaybeDuration {
 impl MaybeDuration {
     fn is_unset(&self) -> bool {
         *self == MaybeDuration::Unset
-    }
-}
-
-impl Default for MaybeDuration {
-    fn default() -> Self {
-        MaybeDuration::Unset
     }
 }
 
@@ -305,7 +300,7 @@ impl Listen {
         let addr = SocketAddr::from((self.host, self.port));
         socket
             .bind(&addr.into())
-            .with_context(|_| format!("Binding socket to {}", addr))?;
+            .with_context(|_| format!("Binding socket to {addr}"))?;
         Ok(socket)
     }
     /// Creates a TCP socket described by the loaded configuration.
@@ -564,7 +559,7 @@ where
     fn make_seed(&self, name: &str) -> Result<StdTcpListener, AnyError> {
         self.listen
             .create_tcp()
-            .with_context(|_| format!("Failed to create STD socket {}/{:?}", name, self))
+            .with_context(|_| format!("Failed to create STD socket {name}/{self:?}"))
             .map_err(AnyError::from)
     }
     fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<Self::Resource, AnyError> {
@@ -575,7 +570,7 @@ where
                 sock.set_nonblocking(true)?;
                 TcpListener::from_std(sock)
             })
-            .with_context(|_| format!("Failed to make socket {}/{:?} asynchronous", name, self))
+            .with_context(|_| format!("Failed to make socket {name}/{self:?} asynchronous"))
             .map_err(AnyError::from)
             .map(|listener| ConfiguredListener::new(listener, config))
     }
@@ -647,7 +642,7 @@ where
     fn make_seed(&self, name: &str) -> Result<Self::Seed, AnyError> {
         self.listen
             .create_udp()
-            .with_context(|_| format!("Failed to create STD socket {}/{:?}", name, self))
+            .with_context(|_| format!("Failed to create STD socket {name}/{self:?}"))
             .map_err(AnyError::from)
     }
     fn make_resource(&self, seed: &mut Self::Seed, name: &str) -> Result<UdpSocket, AnyError> {
@@ -657,7 +652,7 @@ where
                 sock.set_nonblocking(true)?;
                 UdpSocket::from_std(sock)
             })
-            .with_context(|_| format!("Failed to make socket {}/{:?} async", name, self))
+            .with_context(|_| format!("Failed to make socket {name}/{self:?} async"))
             .map_err(AnyError::from)
     }
 }

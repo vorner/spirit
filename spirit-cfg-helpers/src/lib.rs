@@ -128,7 +128,7 @@ impl DumpFormat {
                 serde_yaml::to_string(cfg).expect("Dirty stuff in config, can't dump")
             }
         };
-        println!("{}", dump);
+        println!("{dump}");
     }
 }
 

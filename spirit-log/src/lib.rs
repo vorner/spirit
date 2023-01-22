@@ -364,7 +364,9 @@ impl std::error::Error for SyslogError {}
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Default)]
 enum Clock {
+    #[default]
     Local,
     Utc,
 }
@@ -375,12 +377,6 @@ impl Clock {
             Clock::Local => Local::now().format(format),
             Clock::Utc => Utc::now().format(format),
         }
-    }
-}
-
-impl Default for Clock {
-    fn default() -> Self {
-        Clock::Local
     }
 }
 
@@ -395,10 +391,12 @@ fn cmdline_time_format() -> String {
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "cfg-help", derive(StructDoc))]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 enum Format {
     /// Only the message, without any other fields.
     MessageOnly,
     /// The time, log level, log target and message in columns.
+    #[default]
     Short,
     /// The time, log level, thread name, log target and message in columns.
     Extended,
@@ -437,12 +435,6 @@ enum Format {
     /// * message
     Logstash,
     // TODO: Custom
-}
-
-impl Default for Format {
-    fn default() -> Self {
-        Format::Short
-    }
 }
 
 #[cfg(not(feature = "background"))]
@@ -514,7 +506,7 @@ impl Logger {
             _ => {
                 logger = logger.format(move |out, message, record| {
                     match format {
-                        Format::MessageOnly => out.finish(format_args!("{}", message)),
+                        Format::MessageOnly => out.finish(format_args!("{message}")),
                         Format::Short => out.finish(format_args!(
                             "{} {:5} {:30} {}",
                             clock.now(&time_format),
@@ -582,7 +574,7 @@ impl Logger {
                                 // TODO: Maybe use some shortstring or so here to avoid allocation?
                                 let msg = serde_json::to_string(msg)
                                     .expect("Failed to serialize JSON log");
-                                out.finish(format_args!("{}", msg));
+                                out.finish(format_args!("{msg}"));
                             };
                             log(&Msg {
                                 timestamp: format_args!("{}", clock.now(&time_format)),
@@ -621,7 +613,7 @@ impl Logger {
                                 // TODO: Maybe use some shortstring or so here to avoid allocation?
                                 let msg = serde_json::to_string(msg)
                                     .expect("Failed to serialize JSON log");
-                                out.finish(format_args!("{}", msg));
+                                out.finish(format_args!("{msg}"));
                             };
                             log(&Msg {
                                 timestamp: format_args!("{}", clock.now(&time_format)),
@@ -716,7 +708,7 @@ where
 ///   - `message-only`: The line contains only the message itself.
 ///   - `short`: This is the default. `<timestamp> <level> <target> <message>`. Padded to form
 ///     columns.
-///   - `extended`: <timestamp> <level> <thread-name> <target> <message>`. Padded to form columns.
+///   - `extended`: `<timestamp> <level> <thread-name> <target> <message>`. Padded to form columns.
 ///   - `full`: `<timestamp> <level> <thread-name> <file>:<line> <target> <message>`. Padded to
 ///     form columns.
 ///   - `machine`: Like `full`, but columns are not padded by spaces, they are separated by a

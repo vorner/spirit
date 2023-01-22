@@ -104,9 +104,9 @@ pub fn main() {
         }
     };
     Spirit::<Empty, Config>::new()
-        .on_config(move |_, cfg: &Arc<Config>| cfg_store.store(Arc::clone(&cfg)))
+        .on_config(move |_, cfg: &Arc<Config>| cfg_store.store(Arc::clone(cfg)))
         .config_defaults(DEFAULT_CONFIG)
-        .config_exts(&["toml", "ini", "json"])
+        .config_exts(["toml", "ini", "json"])
         .with_singleton(Tokio::from_cfg(Config::threadpool))
         .with(
             Pipeline::new("listen")
