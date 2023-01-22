@@ -572,8 +572,8 @@ impl IdMapping {
                     mem::swap(&mut mapping, &mut self.mapping);
                     Either::Left(
                         mapping
-                            .into_iter()
-                            .map(|(_, outer_id)| Instruction::DropSpecific(outer_id)),
+                            .into_values()
+                            .map(|outer_id| Instruction::DropSpecific(outer_id)),
                     )
                 }
                 Instruction::DropSpecific(id) => {

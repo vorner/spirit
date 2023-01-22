@@ -39,7 +39,7 @@ sleep_ms = 100
 fn main() {
     Spirit::<Opts, Cfg>::new()
         .config_defaults(DEFAULT_CONFIG)
-        .config_exts(&["toml", "ini", "json"])
+        .config_exts(["toml", "ini", "json"])
         .with(unsafe {
             spirit_daemonize::extension(|c: &Cfg, o: &Opts| (c.daemon.clone(), o.daemon.clone()))
         })

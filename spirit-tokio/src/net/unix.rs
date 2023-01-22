@@ -301,7 +301,7 @@ where
     fn make_seed(&self, name: &str) -> Result<Self::Seed, AnyError> {
         self.listen
             .create_listener()
-            .with_context(|_| format!("Failed to create a unix stream socket {}/{:?}", name, self))
+            .with_context(|_| format!("Failed to create a unix stream socket {name}/{self:?}"))
             .map_err(AnyError::from)
             .map(|s| self.listen.add_path(s))
     }
@@ -315,10 +315,7 @@ where
                 UnixListener::from_std(sock)
             })
             .with_context(|_| {
-                format!(
-                    "Failed to make unix streamsocket {}/{:?} asynchronous",
-                    name, self
-                )
+                format!("Failed to make unix streamsocket {name}/{self:?} asynchronous")
             })
             .map_err(AnyError::from)
             .map(|listener| ConfiguredListener::new(listener, config))
@@ -382,7 +379,7 @@ where
     fn make_seed(&self, name: &str) -> Result<Self::Seed, AnyError> {
         self.listen
             .create_datagram()
-            .with_context(|_| format!("Failed to create unix datagram socket {}/{:?}", name, self))
+            .with_context(|_| format!("Failed to create unix datagram socket {name}/{self:?}"))
             .map_err(AnyError::from)
             .map(|s| self.listen.add_path(s))
     }
@@ -395,10 +392,7 @@ where
                 UnixDatagram::from_std(sock)
             })
             .with_context(|_| {
-                format!(
-                    "Failed to make unix datagram socket {}/{:?} asynchronous",
-                    name, self
-                )
+                format!("Failed to make unix datagram socket {name}/{self:?} asynchronous")
             })
             .map_err(AnyError::from)
     }

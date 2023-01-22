@@ -99,15 +99,15 @@ impl Backend {
                 .map_err(Box::from),
             Backend::Graphite { host, port } => Graphite::send_to((host as &str, *port))
                 .map(|g| out.add_target(g))
-                .with_context(|_| format!("Error sending to graphite {}:{}", host, port))
+                .with_context(|_| format!("Error sending to graphite {host}:{port}"))
                 .map_err(Box::from),
             Backend::Prometheus { url } => Prometheus::push_to(url as &str)
                 .map(|p| out.add_target(p))
-                .with_context(|_| format!("Error sending to prometheus {}", url))
+                .with_context(|_| format!("Error sending to prometheus {url}"))
                 .map_err(Box::from),
             Backend::Statsd { host, port } => Statsd::send_to((host as &str, *port))
                 .map(|s| out.add_target(s))
-                .with_context(|_| format!("Error sending to statsd {}:{}", host, port))
+                .with_context(|_| format!("Error sending to statsd {host}:{port}"))
                 .map_err(Box::from),
         }
     }

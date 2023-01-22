@@ -365,10 +365,7 @@ pub fn support_emergency_shutdown() -> Result<Arc<AtomicBool>, AnyError> {
         let name = signal_hook::low_level::signal_name(*sig).unwrap_or_default();
         debug!("Installing emergency shutdown support for {}/{}", name, sig);
         install(*sig).with_context(|_| {
-            format!(
-                "Failed to install staged shutdown handler for {}/{}",
-                name, sig
-            )
+            format!("Failed to install staged shutdown handler for {name}/{sig}")
         })?
     }
 

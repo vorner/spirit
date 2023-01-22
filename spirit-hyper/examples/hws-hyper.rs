@@ -68,7 +68,7 @@ async fn hello(
     let mut msg = format!("{}\n", spirit.config().ui.msg);
     // Get some listener-local configuration.
     if let Some(ref signature) = cfg.transport.listen.extra_cfg.signature {
-        msg.push_str(&format!("Brought to you by {}\n", signature));
+        msg.push_str(&format!("Brought to you by {signature}\n"));
     }
     Ok(Response::new(Body::from(msg)))
 }
@@ -79,7 +79,7 @@ fn main() {
 
     Spirit::<Empty, _>::new()
         .config_defaults(DEFAULT_CONFIG)
-        .config_exts(&["toml", "ini", "json"])
+        .config_exts(["toml", "ini", "json"])
         // Explicitly enabling tokio integration, implicitly it would happen inside run and that's
         // too late.
         .with_singleton(Tokio::SingleThreaded) // Explicitly enabling tokio

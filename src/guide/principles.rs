@@ -48,7 +48,8 @@ The outer layer is the high level problem, while the inner ones describe the cau
 problem. It is expected all the layers are presented to the user. When the errors are handled
 by the library (either in termination error or with unsuccessful configuration reload), the
 library prints all the layers. To replicate similar behaviour in user code, it is possible to
-use the [`log_error`] macro or [`log_error`][fn@crate::error::log_error] function.
+use the [`log_error`][macro@crate::log_error] macro or [`log_error`][fn@crate::error::log_error]
+function.
 
 Internally, the library uses the [`err-context`] crate to construct and handle such errors. In
 addition to constructing such errors, the crate also allows some limited examination of error

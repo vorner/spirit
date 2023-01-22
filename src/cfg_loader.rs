@@ -576,7 +576,7 @@ impl Loader {
                 trace!("Loading config file {:?}", path);
                 config
                     .merge(File::from(path as &Path))
-                    .with_context(|_| format!("Failed to load config file {:?}", path))?;
+                    .with_context(|_| format!("Failed to load config file {path:?}"))?;
             } else if path.is_dir() {
                 trace!("Scanning directory {:?}", path);
                 // Take all the file entries passing the config file filter, handling errors on the
@@ -602,7 +602,7 @@ impl Loader {
                     trace!("Loading config file {:?}", file);
                     config
                         .merge(File::from(&file as &Path))
-                        .with_context(|_| format!("Failed to load config file {:?}", file))?;
+                        .with_context(|_| format!("Failed to load config file {file:?}"))?;
                 }
             } else if path.exists() {
                 return Err(InvalidFileType(path.to_owned()).into());
@@ -627,9 +627,9 @@ impl Loader {
         }
         for (ref key, ref value) in &self.overrides {
             trace!("Config override {} => {}", key, value);
-            config.set(*key, *value as &str).with_context(|_| {
+            config.set(key, *value as &str).with_context(|_| {
                 external_cfg = true;
-                format!("Failed to push override {}={} into config", key, value)
+                format!("Failed to push override {key}={value} into config")
             })?;
         }
 

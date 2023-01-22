@@ -430,9 +430,9 @@ impl ReqwestClient {
         let mut headers = HeaderMap::new();
         for (key, val) in &self.default_headers {
             let name = HeaderName::from_bytes(key.as_bytes())
-                .with_context(|_| format!("{} is not a valiad header name", key))?;
+                .with_context(|_| format!("{key} is not a valiad header name"))?;
             let header = HeaderValue::from_bytes(val.as_bytes())
-                .with_context(|_| format!("{} is not a valid header", val))?;
+                .with_context(|_| format!("{val} is not a valid header"))?;
             headers.insert(name, header);
         }
         let redirects = match self.redirects {
@@ -480,7 +480,7 @@ impl ReqwestClient {
         for cert_path in &self.tls_extra_root_certs {
             trace!("Adding root certificate {:?}", cert_path);
             let cert = load_cert(cert_path)
-                .with_context(|_| format!("Failed to load certificate {:?}", cert_path))?;
+                .with_context(|_| format!("Failed to load certificate {cert_path:?}"))?;
             builder = builder.add_root_certificate(cert);
         }
         #[cfg(feature = "native-tls")]
@@ -504,13 +504,13 @@ impl ReqwestClient {
             if let Some(proxy) = &self.http_proxy {
                 let proxy_url = proxy.clone();
                 let proxy = Proxy::http(proxy_url)
-                    .with_context(|_| format!("Failed to configure http proxy to {:?}", proxy))?;
+                    .with_context(|_| format!("Failed to configure http proxy to {proxy:?}"))?;
                 builder = builder.proxy(proxy);
             }
             if let Some(proxy) = &self.https_proxy {
                 let proxy_url = proxy.clone();
                 let proxy = Proxy::https(proxy_url)
-                    .with_context(|_| format!("Failed to configure https proxy to {:?}", proxy))?;
+                    .with_context(|_| format!("Failed to configure https proxy to {proxy:?}"))?;
                 builder = builder.proxy(proxy);
             }
         }

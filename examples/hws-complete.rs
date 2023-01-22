@@ -249,7 +249,7 @@ fn hello(global_cfg: &Cfg, cfg: &Arc<Server>, req: Request<Body>) -> Response<Bo
     let mut msg = format!("{}\n", global_cfg.ui.msg);
     // Get some listener-local configuration.
     if let Some(ref signature) = extract_signature(cfg) {
-        msg.push_str(&format!("Brought to you by {}\n", signature));
+        msg.push_str(&format!("Brought to you by {signature}\n"));
     }
     Response::new(Body::from(msg))
 }
@@ -296,7 +296,7 @@ fn main() {
         //
         // Note that if a file is added or removed at runtime and the application receives SIGHUP,
         // the change is reflected.
-        .config_exts(&["toml", "ini", "json"])
+        .config_exts(["toml", "ini", "json"])
         // Put help options early. They may terminate the program and we may want to do it before
         // daemonization or other side effects.
         .with(CfgOpts::extension(Opts::cfg_opts))

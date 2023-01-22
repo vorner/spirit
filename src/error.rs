@@ -33,7 +33,7 @@ pub enum ErrorLogFormat {
 /// debug logging is enabled).
 ///
 /// This is the low-level version with full customization. You might also be interested in
-/// [`log_errors`] or one of the convenience macro ([`log_error`][macro@log_error]).
+/// [`log_errors`][crate::error::log_error] or one of the convenience macro ([`log_error`][macro@log_error]).
 pub fn log_error(level: Level, target: &str, e: &AnyError, format: ErrorLogFormat) {
     match format {
         ErrorLogFormat::MultiLine => {
