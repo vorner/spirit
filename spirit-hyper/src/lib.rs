@@ -453,7 +453,7 @@ where
     type OutputResource = Activate<BS::OutputFut>;
     type OutputInstaller = FutureInstaller;
     fn installer(&mut self, _ii: Inst, _name: &'static str) -> Self::OutputInstaller {
-        FutureInstaller::default()
+        FutureInstaller
     }
     fn transform(
         &mut self,

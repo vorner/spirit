@@ -30,18 +30,16 @@
 //!     daemon: DaemonOpts,
 //! }
 //!
-//! fn main() {
-//!      Spirit::<Opts, Cfg>::new()
-//!         .with(unsafe {
-//!             spirit_daemonize::extension(|c: &Cfg, o: &Opts| {
-//!                 (c.daemon.clone(), o.daemon.clone())
-//!             })
+//! Spirit::<Opts, Cfg>::new()
+//!     .with(unsafe {
+//!         spirit_daemonize::extension(|c: &Cfg, o: &Opts| {
+//!             (c.daemon.clone(), o.daemon.clone())
 //!         })
-//!         .run(|_spirit| {
-//!             // Possibly daemonized program goes here
-//!             Ok(())
-//!         });
-//! }
+//!     })
+//!     .run(|_spirit| {
+//!         // Possibly daemonized program goes here
+//!         Ok(())
+//!     });
 //! ```
 //!
 //! # Added options

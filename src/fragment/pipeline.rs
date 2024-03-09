@@ -79,7 +79,7 @@ impl Error for MultiError {
     // There may actually be multiple causes. But we just stick with the first one for lack of
     // better way to pick.
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.errors.get(0).map(|e| e.deref() as &dyn Error)
+        self.errors.first().map(|e| e.deref() as &dyn Error)
     }
 }
 

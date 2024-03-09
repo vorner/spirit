@@ -31,7 +31,7 @@ where
     type OutputResource = Fut;
     type OutputInstaller = FutureInstaller;
     fn installer(&mut self, _: II, _: &str) -> FutureInstaller {
-        FutureInstaller::default()
+        FutureInstaller
     }
     fn transform(&mut self, r: R, cfg: &SF, name: &str) -> Result<Fut, AnyError> {
         trace!("Wrapping {} into a future", name);
@@ -146,7 +146,7 @@ where
     type OutputResource = Fut;
     type OutputInstaller = FutureInstaller;
     fn installer(&mut self, _: II, _: &str) -> FutureInstaller {
-        FutureInstaller::default()
+        FutureInstaller
     }
     fn transform(&mut self, r: R, _: &SF, name: &str) -> Result<Fut, AnyError> {
         trace!("Wrapping {} into a future", name);
@@ -185,7 +185,7 @@ where
                     trace!("Got a new connection on {}", me.name);
                     // Poking the borrow checker around the un-pinning, otherwise it is unhappy
                     let fut = (me.f)(conn, me.cfg);
-                    tokio::spawn(async move { fut.await });
+                    tokio::spawn(fut);
                 }
                 Poll::Pending => return Poll::Pending,
             }
@@ -220,7 +220,7 @@ where
     type OutputResource = Acceptor<A, F, SF>;
     type OutputInstaller = FutureInstaller;
     fn installer(&mut self, _: II, _: &str) -> FutureInstaller {
-        FutureInstaller::default()
+        FutureInstaller
     }
     fn transform(
         &mut self,
@@ -263,7 +263,7 @@ where
     type OutputResource = Acceptor<A, FC, SF>;
     type OutputInstaller = FutureInstaller;
     fn installer(&mut self, _: II, _: &str) -> FutureInstaller {
-        FutureInstaller::default()
+        FutureInstaller
     }
     fn transform(
         &mut self,

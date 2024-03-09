@@ -586,11 +586,7 @@ where
         signals.add_signal(signal)?;
         let mut hooks = self.hooks.lock().unwrap_or_else(PoisonError::into_inner);
         if !hooks.terminated {
-            hooks
-                .sigs
-                .entry(signal)
-                .or_insert_with(Vec::new)
-                .push(Box::new(hook));
+            hooks.sigs.entry(signal).or_default().push(Box::new(hook));
         }
         Ok(self)
     }
@@ -833,10 +829,7 @@ impl<O, C> Extensible for Builder<O, C> {
         F: FnMut() + Send + 'static,
     {
         let mut hooks = self.sig_hooks;
-        hooks
-            .entry(signal)
-            .or_insert_with(Vec::new)
-            .push(Box::new(hook));
+        hooks.entry(signal).or_default().push(Box::new(hook));
         Ok(Self {
             sig_hooks: hooks,
             ..self
